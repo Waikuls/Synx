@@ -1,7 +1,43 @@
 -- Main entry script for using the Fatality UI library.
 -- Core library code lives in src/source.luau.
+local function getScriptCompiler()
+	if type(loadstring) == "function" then
+		return loadstring
+	end
+
+	if type(load) == "function" then
+		return load
+	end
+
+	return nil
+end
+
+local function executeSource(SourceCode, SourceLabel)
+	local Compiler = getScriptCompiler()
+
+	if type(Compiler) ~= "function" then
+		error(string.format("No script compiler available for %s", SourceLabel), 0)
+	end
+
+	local Chunk, CompileError = Compiler(SourceCode)
+
+	if type(Chunk) ~= "function" then
+		error(string.format("Failed to compile %s: %s", SourceLabel, tostring(CompileError)), 0)
+	end
+
+	local Success, Result = pcall(Chunk)
+
+	if not Success then
+		error(string.format("Failed to run %s: %s", SourceLabel, tostring(Result)), 0)
+	end
+
+	return Result
+end
+
 local function loadScript(LocalPath, RemoteUrl)
 	local SourceCode
+	local SourceLabel = LocalPath
+	local LocalLoadError
 
 	if type(readfile) == "function" then
 		local Success, Result = pcall(readfile, LocalPath)
@@ -11,11 +47,48 @@ local function loadScript(LocalPath, RemoteUrl)
 		end
 	end
 
-	if not SourceCode then
-		SourceCode = game:HttpGet(RemoteUrl)
+	if SourceCode then
+		local Success, Result = pcall(executeSource, SourceCode, LocalPath)
+
+		if Success then
+			return Result
+		end
+
+		LocalLoadError = tostring(Result)
 	end
 
-	return loadstring(SourceCode)()
+	if type(RemoteUrl) == "string" and RemoteUrl ~= "" then
+		local Success, Result = pcall(function()
+			return game:HttpGet(RemoteUrl)
+		end)
+
+		if Success and type(Result) == "string" and Result ~= "" then
+			SourceCode = Result
+			SourceLabel = RemoteUrl
+		else
+			error(string.format("Failed to fetch %s: %s", LocalPath, tostring(Result)), 0)
+		end
+	end
+
+	if not SourceCode or SourceCode == "" then
+		if LocalLoadError then
+			error(LocalLoadError, 0)
+		end
+
+		error(string.format("No source available for %s", LocalPath), 0)
+	end
+
+	local Success, Result = pcall(executeSource, SourceCode, SourceLabel)
+
+	if Success then
+		return Result
+	end
+
+	if LocalLoadError then
+		error(string.format("%s | Remote fallback failed: %s", LocalLoadError, tostring(Result)), 0)
+	end
+
+	error(tostring(Result), 0)
 end
 
 local Fatality = loadScript("src/source.luau", "https://raw.githubusercontent.com/Waikuls/Synx/main/src/source.luau")
