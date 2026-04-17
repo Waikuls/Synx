@@ -1,6 +1,6 @@
--- Example script showing a full window setup.
+-- Main entry script for using the Fatality UI library.
 -- Core library code lives in src/source.luau.
-local Fatality = loadstring(game:HttpGet("https://raw.githubusercontent.com/4lpaca-pin/Fatality/refs/heads/main/src/source.luau"))();
+local Fatality = loadstring(game:HttpGet("https://raw.githubusercontent.com/Waikuls/Synx/main/src/source.luau"))();
 local Notification = Fatality:CreateNotifier();
 
 Fatality:Loader({

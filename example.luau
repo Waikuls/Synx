@@ -1,3 +1,5 @@
+-- Legacy root example kept for convenience.
+-- If you only want one entry file, use Fatality/main.lua.
 local Fatality = loadstring(game:HttpGet("https://raw.githubusercontent.com/4lpaca-pin/Fatality/refs/heads/main/src/source.luau"))();
 local Notification = Fatality:CreateNotifier();
 

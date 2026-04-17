@@ -1,9 +1,15 @@
+-- Example focused on config usage.
 local Fatality = loadstring(game:HttpGet("https://raw.githubusercontent.com/4lpaca-pin/Fatality/refs/heads/main/src/source.luau"))();
 local Notification = Fatality:CreateNotifier();
 
 Fatality:Loader({
 	Name = "FATALITY",
 	Duration = 4
+});
+
+local Window = Fatality.new({
+	Name = "FATALITY",
+	Expire = "never",
 });
 
 local Config = Window:AddConfig();
