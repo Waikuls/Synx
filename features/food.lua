@@ -15,8 +15,11 @@ return function(Config)
 		ScanInterval = 0.5,
 		EatCooldown = 3,
 		EquipDelay = 0.35,
+		EquipRetryDelay = 0.12,
+		HoldBeforeUseDelay = 0.18,
 		ActivationDelay = 0.75,
 		InputPressDelay = 0.08,
+		MaxEquipAttempts = 3,
 		MaxActivationAttempts = 3,
 		HungerThreshold = 0.35,
 		FallbackThreshold = 25,
@@ -763,6 +766,77 @@ return function(Config)
 		return nil
 	end
 
+	local function isSameTool(Left, Right)
+		if Left == Right then
+			return true
+		end
+
+		if not Left or not Right then
+			return false
+		end
+
+		return Left:IsA("Tool") and Right:IsA("Tool") and Left.Name == Right.Name
+	end
+
+	local function isToolEquipped(Tool, Character)
+		if not Tool or not Character then
+			return false
+		end
+
+		if Tool.Parent == Character then
+			return true
+		end
+
+		return isSameTool(Tool, getEquippedTool(Character))
+	end
+
+	local function waitForToolEquipped(Tool, Character, Timeout)
+		local StartedAt = os.clock()
+		local MaximumWait = Timeout or FoodFeature.EquipDelay
+
+		repeat
+			if isToolEquipped(Tool, Character) then
+				return true
+			end
+
+			task.wait(0.05)
+		until (os.clock() - StartedAt) >= MaximumWait
+
+		return isToolEquipped(Tool, Character)
+	end
+
+	local function equipFoodTool(Tool, Character, Humanoid)
+		if not Tool or not Character or not Humanoid then
+			return false
+		end
+
+		if isToolEquipped(Tool, Character) then
+			return true
+		end
+
+		for _ = 1, FoodFeature.MaxEquipAttempts do
+			pcall(function()
+				Humanoid:EquipTool(Tool)
+			end)
+
+			if Tool.Parent ~= Character then
+				pcall(function()
+					Tool.Parent = Character
+				end)
+			end
+
+			selectToolFromHotbar(Tool)
+
+			if waitForToolEquipped(Tool, Character, FoodFeature.EquipDelay) then
+				return true
+			end
+
+			task.wait(FoodFeature.EquipRetryDelay)
+		end
+
+		return isToolEquipped(Tool, Character)
+	end
+
 	local function findFoodTool()
 		local Character = LocalPlayer.Character
 		local Backpack = LocalPlayer:FindFirstChildOfClass("Backpack")
@@ -870,28 +944,16 @@ return function(Config)
 				PreviouslyEquippedTool = nil
 			end
 
-			if Tool.Parent ~= Character then
-				selectToolFromHotbar(Tool)
-				Humanoid:EquipTool(Tool)
-				task.wait(FoodFeature.EquipDelay)
+			local EquippedFood = equipFoodTool(Tool, Character, Humanoid)
 
-				if Tool.Parent ~= Character then
-					pcall(function()
-						Tool.Parent = Character
-					end)
-
-					task.wait(0.15)
-				end
-			else
-				selectToolFromHotbar(Tool)
-			end
-
-			if Tool.Parent == Character then
+			if EquippedFood then
 				pcall(function()
 					if Tool.Enabled ~= nil then
 						Tool.Enabled = true
 					end
 				end)
+
+				task.wait(FoodFeature.HoldBeforeUseDelay)
 			end
 
 			for _ = 1, FoodFeature.MaxActivationAttempts do
@@ -900,6 +962,11 @@ return function(Config)
 				end
 
 				local UsedRemote = false
+				local EquippedNow = equipFoodTool(Tool, Character, Humanoid)
+
+				if EquippedNow then
+					task.wait(FoodFeature.HoldBeforeUseDelay)
+				end
 
 				if selectToolFromHotbar(Tool) then
 					UsedRemote = true
@@ -915,7 +982,7 @@ return function(Config)
 					UsedRemote = true
 				end
 
-				if Tool.Parent == Character then
+				if EquippedNow or isToolEquipped(Tool, Character) then
 					triggerToolUse(Tool)
 				elseif not UsedRemote then
 					break
