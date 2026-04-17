@@ -52,6 +52,17 @@ return function()
 		"NoEeveeDeplete"
 	}
 	local PreferredLookup = {}
+	local HungerAliases = {
+		"Hunger",
+		"hunger",
+		"HUNGER",
+		"Food",
+		"food",
+		"FoodLevel",
+		"foodLevel",
+		"HungerValue",
+		"hungerValue"
+	}
 
 	for _, Name in ipairs(PreferredLeftStats) do
 		PreferredLookup[Name] = true
@@ -148,6 +159,18 @@ return function()
 		end
 	end
 
+	local function createAliasLookup(Aliases)
+		local Lookup = {}
+
+		for _, Name in ipairs(Aliases) do
+			Lookup[string.lower(Name)] = true
+		end
+
+		return Lookup
+	end
+
+	local HungerAliasLookup = createAliasLookup(HungerAliases)
+
 	local function addPreferredRoots(Store, TargetPlayer)
 		local Character = TargetPlayer and TargetPlayer.Character
 		local CommonFolders = {"Stats", "Data", "Information", "Profile", "PlayerData", "Values"}
@@ -177,6 +200,107 @@ return function()
 					scanPreferredValues(Store, PlayersFolder:FindFirstChild(tostring(TargetPlayer.UserId)), 0)
 				end
 			end
+		end
+	end
+
+	local function findStatByAliases(TargetPlayer, AliasesLookup)
+		local Character = TargetPlayer and TargetPlayer.Character
+		local CommonFolders = {"Stats", "Data", "Information", "Profile", "PlayerData", "Values"}
+		local Roots = {}
+
+		local function addRoot(Root)
+			if Root then
+				table.insert(Roots, Root)
+			end
+		end
+
+		local function scanRoot(Root)
+			if not Root then
+				return nil
+			end
+
+			local function visit(Instance)
+				if Instance:IsA("ValueBase") and AliasesLookup[string.lower(Instance.Name)] then
+					return Instance.Value
+				end
+
+				for Name, Value in pairs(Instance:GetAttributes()) do
+					if AliasesLookup[string.lower(Name)] then
+						return Value
+					end
+				end
+
+				return nil
+			end
+
+			local Result = visit(Root)
+
+			if Result ~= nil then
+				return Result
+			end
+
+			for _, Descendant in ipairs(Root:GetDescendants()) do
+				Result = visit(Descendant)
+
+				if Result ~= nil then
+					return Result
+				end
+			end
+
+			return nil
+		end
+
+		addRoot(TargetPlayer)
+		addRoot(Character)
+
+		for _, FolderName in ipairs(CommonFolders) do
+			addRoot(TargetPlayer and TargetPlayer:FindFirstChild(FolderName))
+
+			if Character then
+				addRoot(Character:FindFirstChild(FolderName))
+			end
+		end
+
+		for _, RootName in ipairs({"PlayerData", "Data", "Stats"}) do
+			local Root = ReplicatedStorage:FindFirstChild(RootName)
+
+			if Root then
+				addRoot(Root:FindFirstChild(TargetPlayer.Name))
+				addRoot(Root:FindFirstChild(tostring(TargetPlayer.UserId)))
+
+				local PlayersFolder = Root:FindFirstChild("Players")
+
+				if PlayersFolder then
+					addRoot(PlayersFolder:FindFirstChild(TargetPlayer.Name))
+					addRoot(PlayersFolder:FindFirstChild(tostring(TargetPlayer.UserId)))
+				end
+			end
+		end
+
+		for _, Root in ipairs(Roots) do
+			local Result = scanRoot(Root)
+
+			if Result ~= nil then
+				return formatValue(Result)
+			end
+		end
+
+		return nil
+	end
+
+	local function ensureHungerLine(TargetPlayer, Lines)
+		for _, Line in ipairs(Lines) do
+			if string.match(Line, "^Hunger:") then
+				return
+			end
+		end
+
+		local HungerValue = findStatByAliases(TargetPlayer, HungerAliasLookup)
+
+		if HungerValue then
+			local InsertIndex = math.min(#Lines + 1, 6)
+
+			table.insert(Lines, InsertIndex, string.format("Hunger: %s", HungerValue))
 		end
 	end
 
@@ -313,6 +437,7 @@ return function()
 		local PreferredLeft, PreferredRight, PreferredCount = buildPreferredPanels(TargetPlayer)
 
 		if PreferredCount >= 4 then
+			ensureHungerLine(TargetPlayer, PreferredLeft)
 			return PreferredLeft, PreferredRight
 		end
 
@@ -369,6 +494,8 @@ return function()
 		for _, Line in ipairs(LeaderstatsLines) do
 			table.insert(RightLines, Line)
 		end
+
+		ensureHungerLine(TargetPlayer, LeftLines)
 
 		return LeftLines, RightLines
 	end
