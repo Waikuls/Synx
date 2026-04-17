@@ -53,10 +53,15 @@ local Window = Fatality.new({
 });
 local MainWindowGui = Fatality.Windows[#Fatality.Windows]
 local CreateESP = loadScript("features/esp.lua", "https://raw.githubusercontent.com/Waikuls/Synx/main/features/esp.lua")
+local CreateFoodFeature = loadScript("features/food.lua", "https://raw.githubusercontent.com/Waikuls/Synx/main/features/food.lua")
 local CreateStatsFeature = loadScript("features/stats.lua", "https://raw.githubusercontent.com/Waikuls/Synx/main/features/stats.lua")
+local CreateMainUI = loadScript("ui/main.lua", "https://raw.githubusercontent.com/Waikuls/Synx/main/ui/main.lua")
 local CreateVisualUI = loadScript("ui/visual.lua", "https://raw.githubusercontent.com/Waikuls/Synx/main/ui/visual.lua")
 local CreateStatsUI = loadScript("ui/stats.lua", "https://raw.githubusercontent.com/Waikuls/Synx/main/ui/stats.lua")
 local ESP = CreateESP({
+	Notification = Notification
+})
+local FoodFeature = CreateFoodFeature({
 	Notification = Notification
 })
 local StatsFeature = CreateStatsFeature()
@@ -266,6 +271,7 @@ do
 		Name = "Quit",
 		Callback = function()
 			ESP:Destroy()
+			FoodFeature:Destroy()
 			StatsUI:Destroy()
 			table.clear(Fatality.DragBlacklist)
 
@@ -287,6 +293,11 @@ do
 		end,
 	})
 end
+
+CreateMainUI({
+	Main = Main,
+	FoodFeature = FoodFeature
+})
 
 CreateVisualUI({
 	Visual = Visual,

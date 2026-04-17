@@ -11,7 +11,6 @@ return function()
 		"Agility",
 		"Strength",
 		"Muscle",
-		"Hunger",
 		"Starving",
 		"Offensive",
 		"Durability",
@@ -52,33 +51,6 @@ return function()
 		"NoEeveeDeplete"
 	}
 	local PreferredLookup = {}
-	local HungerCurrentAliases = {
-		"CurrentHunger",
-		"HungerCurrent",
-		"HungerValue",
-		"CurrentHungerValue",
-		"HungerNow",
-		"CurrentFood",
-		"FoodLevel",
-		"FoodValue",
-		"NeedsHunger",
-		"Food",
-		"Hunger"
-	}
-	local HungerMaxAliases = {
-		"MaxHunger",
-		"MaximumHunger",
-		"HungerMax",
-		"MaxFood",
-		"MaximumFood",
-		"FoodMax",
-		"MaxFoodLevel"
-	}
-	local HungerPercentAliases = {
-		"HungerPercent",
-		"FoodPercent",
-		"HungerRatio"
-	}
 
 	for _, Name in ipairs(PreferredLeftStats) do
 		PreferredLookup[Name] = true
@@ -175,20 +147,6 @@ return function()
 		end
 	end
 
-	local function createAliasRanking(Aliases)
-		local Ranking = {}
-
-		for Index, Name in ipairs(Aliases) do
-			Ranking[string.lower(Name)] = Index
-		end
-
-		return Ranking
-	end
-
-	local HungerCurrentAliasRanking = createAliasRanking(HungerCurrentAliases)
-	local HungerMaxAliasRanking = createAliasRanking(HungerMaxAliases)
-	local HungerPercentAliasRanking = createAliasRanking(HungerPercentAliases)
-
 	local function addPreferredRoots(Store, TargetPlayer)
 		local Character = TargetPlayer and TargetPlayer.Character
 		local CommonFolders = {"Stats", "Data", "Information", "Profile", "PlayerData", "Values"}
@@ -217,251 +175,6 @@ return function()
 					scanPreferredValues(Store, PlayersFolder:FindFirstChild(TargetPlayer.Name), 0)
 					scanPreferredValues(Store, PlayersFolder:FindFirstChild(tostring(TargetPlayer.UserId)), 0)
 				end
-			end
-		end
-	end
-
-	local function getValueTypeScore(Value)
-		local ValueType = typeof(Value)
-
-		if ValueType == "number" then
-			return 0
-		end
-
-		if ValueType == "string" then
-			return 1
-		end
-
-		if ValueType == "Instance" then
-			return 2
-		end
-
-		if ValueType == "EnumItem" then
-			return 3
-		end
-
-		if ValueType == "boolean" then
-			return 4
-		end
-
-		return 5
-	end
-
-	local function buildScanRoots(TargetPlayer)
-		local Character = TargetPlayer and TargetPlayer.Character
-		local CommonFolders = {"Stats", "Data", "Information", "Profile", "PlayerData", "Values"}
-		local Roots = {}
-
-		local function addRoot(Root, Priority)
-			if Root then
-				table.insert(Roots, {
-					Root = Root,
-					Priority = Priority
-				})
-			end
-		end
-
-		addRoot(TargetPlayer, 2)
-		addRoot(Character, 2)
-
-		for _, FolderName in ipairs(CommonFolders) do
-			addRoot(TargetPlayer and TargetPlayer:FindFirstChild(FolderName), 1)
-
-			if Character then
-				addRoot(Character:FindFirstChild(FolderName), 1)
-			end
-		end
-
-		for _, RootName in ipairs({"PlayerData", "Data", "Stats"}) do
-			local Root = ReplicatedStorage:FindFirstChild(RootName)
-
-			if Root then
-				addRoot(Root:FindFirstChild(TargetPlayer.Name), 0)
-				addRoot(Root:FindFirstChild(tostring(TargetPlayer.UserId)), 0)
-
-				local PlayersFolder = Root:FindFirstChild("Players")
-
-				if PlayersFolder then
-					addRoot(PlayersFolder:FindFirstChild(TargetPlayer.Name), 0)
-					addRoot(PlayersFolder:FindFirstChild(tostring(TargetPlayer.UserId)), 0)
-				end
-			end
-		end
-
-		return Roots
-	end
-
-	local function findRawStatByAliases(TargetPlayer, AliasRanking, Options)
-		local Roots = buildScanRoots(TargetPlayer)
-		local Candidates = {}
-
-		local function getPartialRank(NameLower)
-			if not Options or not Options.PartialMatcher then
-				return nil
-			end
-
-			return Options.PartialMatcher(NameLower)
-		end
-
-		local function recordCandidate(Name, Value, Priority)
-			local NameLower = string.lower(Name)
-			local AliasRank = AliasRanking[NameLower]
-
-			if AliasRank == nil then
-				AliasRank = getPartialRank(NameLower)
-			end
-
-			if AliasRank == nil then
-				return
-			end
-
-			table.insert(Candidates, {
-				Name = Name,
-				Value = Value,
-				Priority = Priority,
-				AliasRank = AliasRank,
-				TypeScore = getValueTypeScore(Value)
-			})
-		end
-
-		local function scanRoot(RootInfo)
-			local Root = RootInfo.Root
-			local Priority = RootInfo.Priority
-
-			local function visit(Instance)
-				if Instance:IsA("ValueBase") then
-					recordCandidate(Instance.Name, Instance.Value, Priority)
-				end
-
-				for Name, Value in pairs(Instance:GetAttributes()) do
-					recordCandidate(Name, Value, Priority)
-				end
-			end
-
-			visit(Root)
-
-			for _, Descendant in ipairs(Root:GetDescendants()) do
-				visit(Descendant)
-			end
-		end
-
-		for _, Root in ipairs(Roots) do
-			scanRoot(Root)
-		end
-
-		table.sort(Candidates, function(Left, Right)
-			if Left.AliasRank ~= Right.AliasRank then
-				return Left.AliasRank < Right.AliasRank
-			end
-
-			if Left.Priority ~= Right.Priority then
-				return Left.Priority < Right.Priority
-			end
-
-			if Left.TypeScore ~= Right.TypeScore then
-				return Left.TypeScore < Right.TypeScore
-			end
-
-			return string.lower(Left.Name) < string.lower(Right.Name)
-		end)
-
-		if Candidates[1] then
-			return Candidates[1].Value
-		end
-
-		return nil
-	end
-
-	local function formatHungerLine(TargetPlayer)
-		local CurrentHungerRaw = findRawStatByAliases(TargetPlayer, HungerCurrentAliasRanking, {
-			PartialMatcher = function(NameLower)
-				if (string.find(NameLower, "hunger", 1, true) or string.find(NameLower, "food", 1, true))
-					and not string.find(NameLower, "max", 1, true)
-					and not string.find(NameLower, "percent", 1, true)
-					and not string.find(NameLower, "ratio", 1, true) then
-					return 100
-				end
-
-				return nil
-			end
-		})
-		local MaxHungerRaw = findRawStatByAliases(TargetPlayer, HungerMaxAliasRanking, {
-			PartialMatcher = function(NameLower)
-				if (string.find(NameLower, "hunger", 1, true) or string.find(NameLower, "food", 1, true))
-					and string.find(NameLower, "max", 1, true) then
-					return 100
-				end
-
-				return nil
-			end
-		})
-		local PercentHungerRaw = findRawStatByAliases(TargetPlayer, HungerPercentAliasRanking, {
-			PartialMatcher = function(NameLower)
-				local HasHungerName = string.find(NameLower, "hunger", 1, true) or string.find(NameLower, "food", 1, true)
-				local HasPercentName = string.find(NameLower, "percent", 1, true) or string.find(NameLower, "ratio", 1, true)
-
-				if HasHungerName and HasPercentName then
-					return 100
-				end
-
-				return nil
-			end
-		})
-
-		if CurrentHungerRaw == nil and PercentHungerRaw == nil then
-			return nil
-		end
-
-		local Line = nil
-
-		if CurrentHungerRaw ~= nil and MaxHungerRaw ~= nil then
-			Line = string.format("Hunger: %s/%s", formatValue(CurrentHungerRaw), formatValue(MaxHungerRaw))
-		elseif CurrentHungerRaw ~= nil then
-			Line = string.format("Hunger: %s", formatValue(CurrentHungerRaw))
-		else
-			Line = string.format("Hunger: %s%%", formatValue(PercentHungerRaw))
-		end
-
-		if PercentHungerRaw ~= nil then
-			local PercentText = formatValue(PercentHungerRaw)
-
-			if typeof(PercentHungerRaw) == "number" then
-				local NumericPercent = PercentHungerRaw
-
-				if NumericPercent <= 1 then
-					NumericPercent = NumericPercent * 100
-				end
-
-				PercentText = string.format("%.0f", NumericPercent)
-			end
-
-			if not string.find(Line, "%%", 1, true) then
-				Line = string.format("%s (%s%%)", Line, PercentText)
-			end
-		end
-
-		return Line
-	end
-
-	local function ensureHungerLine(TargetPlayer, Lines)
-		local ExistingIndex = nil
-
-		for Index, Line in ipairs(Lines) do
-			if string.match(Line, "^Hunger:") then
-				ExistingIndex = Index
-				break
-			end
-		end
-
-		local HungerLine = formatHungerLine(TargetPlayer)
-
-		if HungerLine then
-			if ExistingIndex then
-				Lines[ExistingIndex] = HungerLine
-			else
-				local InsertIndex = math.min(#Lines + 1, 6)
-
-				table.insert(Lines, InsertIndex, HungerLine)
 			end
 		end
 	end
@@ -599,7 +312,6 @@ return function()
 		local PreferredLeft, PreferredRight, PreferredCount = buildPreferredPanels(TargetPlayer)
 
 		if PreferredCount >= 4 then
-			ensureHungerLine(TargetPlayer, PreferredLeft)
 			return PreferredLeft, PreferredRight
 		end
 
@@ -656,8 +368,6 @@ return function()
 		for _, Line in ipairs(LeaderstatsLines) do
 			table.insert(RightLines, Line)
 		end
-
-		ensureHungerLine(TargetPlayer, LeftLines)
 
 		return LeftLines, RightLines
 	end
