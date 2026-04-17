@@ -54,12 +54,16 @@ return function(Config)
 		"IsHungry"
 	}
 	local FoodToolAliases = {
+		"burger",
+		"fries",
+		"ramen",
+		"onigiri",
+		"pizza",
+		"kebab",
 		"food",
 		"apple",
 		"bread",
-		"burger",
 		"sandwich",
-		"pizza",
 		"meat",
 		"steak",
 		"fish",
@@ -344,8 +348,14 @@ return function(Config)
 		local ToolTipLower = string.lower(Tool.ToolTip or "")
 
 		for Index, Alias in ipairs(FoodToolAliases) do
-			if string.find(NameLower, Alias, 1, true) or string.find(ToolTipLower, Alias, 1, true) then
+			if NameLower == Alias or ToolTipLower == Alias then
 				return Index
+			end
+		end
+
+		for Index, Alias in ipairs(FoodToolAliases) do
+			if string.find(NameLower, Alias, 1, true) or string.find(ToolTipLower, Alias, 1, true) then
+				return Index + 50
 			end
 		end
 
@@ -466,6 +476,14 @@ return function(Config)
 			if Tool.Parent ~= Character then
 				Humanoid:EquipTool(Tool)
 				task.wait(FoodFeature.EquipDelay)
+
+				if Tool.Parent ~= Character then
+					pcall(function()
+						Tool.Parent = Character
+					end)
+
+					task.wait(0.15)
+				end
 			end
 
 			if Tool.Parent == Character then
