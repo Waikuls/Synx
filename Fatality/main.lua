@@ -53,10 +53,13 @@ local Window = Fatality.new({
 });
 local MainWindowGui = Fatality.Windows[#Fatality.Windows]
 local CreateESP = loadScript("features/esp.lua", "https://raw.githubusercontent.com/Waikuls/Synx/main/features/esp.lua")
+local CreateStatsFeature = loadScript("features/stats.lua", "https://raw.githubusercontent.com/Waikuls/Synx/main/features/stats.lua")
 local CreateVisualUI = loadScript("ui/visual.lua", "https://raw.githubusercontent.com/Waikuls/Synx/main/ui/visual.lua")
+local CreateStatsUI = loadScript("ui/stats.lua", "https://raw.githubusercontent.com/Waikuls/Synx/main/ui/stats.lua")
 local ESP = CreateESP({
 	Notification = Notification
 })
+local StatsFeature = CreateStatsFeature()
 
 local Rage = Window:AddMenu({
 	Name = "RAGE",
@@ -82,10 +85,10 @@ local Skins = Window:AddMenu({
 	Name = "SKINS",
 	Icon = "palette"
 })
-
-local Lua = Window:AddMenu({
-	Name = "LUA",
-	Icon = "code"
+local StatsUI = CreateStatsUI({
+	Window = Window,
+	Fatality = Fatality,
+	StatsFeature = StatsFeature
 })
 
 do
@@ -458,6 +461,7 @@ do
 		Name = "Quit",
 		Callback = function()
 			ESP:Destroy()
+			StatsUI:Destroy()
 			table.clear(Fatality.DragBlacklist)
 
 			if MainWindowGui then
