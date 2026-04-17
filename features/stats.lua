@@ -52,16 +52,30 @@ return function()
 		"NoEeveeDeplete"
 	}
 	local PreferredLookup = {}
-	local HungerAliases = {
+	local HungerCurrentAliases = {
 		"Hunger",
-		"hunger",
-		"HUNGER",
+		"CurrentHunger",
+		"HungerCurrent",
 		"Food",
-		"food",
+		"CurrentFood",
 		"FoodLevel",
-		"foodLevel",
 		"HungerValue",
-		"hungerValue"
+		"NeedsHunger",
+		"HungerNow"
+	}
+	local HungerMaxAliases = {
+		"MaxHunger",
+		"MaximumHunger",
+		"HungerMax",
+		"MaxFood",
+		"MaximumFood",
+		"FoodMax",
+		"MaxFoodLevel"
+	}
+	local HungerPercentAliases = {
+		"HungerPercent",
+		"FoodPercent",
+		"HungerRatio"
 	}
 
 	for _, Name in ipairs(PreferredLeftStats) do
@@ -169,7 +183,9 @@ return function()
 		return Lookup
 	end
 
-	local HungerAliasLookup = createAliasLookup(HungerAliases)
+	local HungerCurrentAliasLookup = createAliasLookup(HungerCurrentAliases)
+	local HungerMaxAliasLookup = createAliasLookup(HungerMaxAliases)
+	local HungerPercentAliasLookup = createAliasLookup(HungerPercentAliases)
 
 	local function addPreferredRoots(Store, TargetPlayer)
 		local Character = TargetPlayer and TargetPlayer.Character
@@ -203,7 +219,7 @@ return function()
 		end
 	end
 
-	local function findStatByAliases(TargetPlayer, AliasesLookup)
+	local function findRawStatByAliases(TargetPlayer, AliasesLookup)
 		local Character = TargetPlayer and TargetPlayer.Character
 		local CommonFolders = {"Stats", "Data", "Information", "Profile", "PlayerData", "Values"}
 		local Roots = {}
@@ -281,26 +297,73 @@ return function()
 			local Result = scanRoot(Root)
 
 			if Result ~= nil then
-				return formatValue(Result)
+				return Result
 			end
 		end
 
 		return nil
 	end
 
-	local function ensureHungerLine(TargetPlayer, Lines)
-		for _, Line in ipairs(Lines) do
-			if string.match(Line, "^Hunger:") then
-				return
+	local function formatHungerLine(TargetPlayer)
+		local CurrentHungerRaw = findRawStatByAliases(TargetPlayer, HungerCurrentAliasLookup)
+		local MaxHungerRaw = findRawStatByAliases(TargetPlayer, HungerMaxAliasLookup)
+		local PercentHungerRaw = findRawStatByAliases(TargetPlayer, HungerPercentAliasLookup)
+
+		if CurrentHungerRaw == nil and PercentHungerRaw == nil then
+			return nil
+		end
+
+		local Line = nil
+
+		if CurrentHungerRaw ~= nil and MaxHungerRaw ~= nil then
+			Line = string.format("Hunger: %s/%s", formatValue(CurrentHungerRaw), formatValue(MaxHungerRaw))
+		elseif CurrentHungerRaw ~= nil then
+			Line = string.format("Hunger: %s", formatValue(CurrentHungerRaw))
+		else
+			Line = string.format("Hunger: %s%%", formatValue(PercentHungerRaw))
+		end
+
+		if PercentHungerRaw ~= nil then
+			local PercentText = formatValue(PercentHungerRaw)
+
+			if typeof(PercentHungerRaw) == "number" then
+				local NumericPercent = PercentHungerRaw
+
+				if NumericPercent <= 1 then
+					NumericPercent = NumericPercent * 100
+				end
+
+				PercentText = string.format("%.0f", NumericPercent)
+			end
+
+			if not string.find(Line, "%%", 1, true) then
+				Line = string.format("%s (%s%%)", Line, PercentText)
 			end
 		end
 
-		local HungerValue = findStatByAliases(TargetPlayer, HungerAliasLookup)
+		return Line
+	end
 
-		if HungerValue then
-			local InsertIndex = math.min(#Lines + 1, 6)
+	local function ensureHungerLine(TargetPlayer, Lines)
+		local ExistingIndex = nil
 
-			table.insert(Lines, InsertIndex, string.format("Hunger: %s", HungerValue))
+		for Index, Line in ipairs(Lines) do
+			if string.match(Line, "^Hunger:") then
+				ExistingIndex = Index
+				break
+			end
+		end
+
+		local HungerLine = formatHungerLine(TargetPlayer)
+
+		if HungerLine then
+			if ExistingIndex then
+				Lines[ExistingIndex] = HungerLine
+			else
+				local InsertIndex = math.min(#Lines + 1, 6)
+
+				table.insert(Lines, InsertIndex, HungerLine)
+			end
 		end
 	end
 
