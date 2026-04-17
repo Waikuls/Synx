@@ -11,37 +11,42 @@ return function(Config)
 		Connection = nil
 	}
 
-	local function getCharacterBounds(Character)
-		local BoundingCFrame, BoundingSize = Character:GetBoundingBox()
-		local HalfSize = BoundingSize * 0.5
-		local MinX, MinY = math.huge, math.huge
-		local MaxX, MaxY = -math.huge, -math.huge
-		local HasPoint = false
-		local HasVisiblePoint = false
+	local function getCharacterBounds(Character, Humanoid, RootPart)
+		local Head = Character:FindFirstChild("Head")
+		local ViewportSize = Camera.ViewportSize
 
-		for X = -1, 1, 2 do
-			for Y = -1, 1, 2 do
-				for Z = -1, 1, 2 do
-					local Corner = BoundingCFrame:PointToWorldSpace(Vector3.new(
-						HalfSize.X * X,
-						HalfSize.Y * Y,
-						HalfSize.Z * Z
-					))
-					local ViewportPoint, OnScreen = Camera:WorldToViewportPoint(Corner)
-
-					if ViewportPoint.Z > 0 then
-						HasPoint = true
-						HasVisiblePoint = HasVisiblePoint or OnScreen
-						MinX = math.min(MinX, ViewportPoint.X)
-						MinY = math.min(MinY, ViewportPoint.Y)
-						MaxX = math.max(MaxX, ViewportPoint.X)
-						MaxY = math.max(MaxY, ViewportPoint.Y)
-					end
-				end
-			end
+		if not Head then
+			return nil
 		end
 
-		if not HasPoint or not HasVisiblePoint then
+		local TopWorld = Head.Position + Vector3.new(0, 0.6, 0)
+		local BottomWorld = RootPart.Position - Vector3.new(0, Humanoid.HipHeight + 2.6, 0)
+
+		local TopPoint, TopOnScreen = Camera:WorldToViewportPoint(TopWorld)
+		local BottomPoint, BottomOnScreen = Camera:WorldToViewportPoint(BottomWorld)
+		local RootPoint, RootOnScreen = Camera:WorldToViewportPoint(RootPart.Position)
+
+		if TopPoint.Z <= 0 or BottomPoint.Z <= 0 or RootPoint.Z <= 0 then
+			return nil
+		end
+
+		if not RootOnScreen and not TopOnScreen and not BottomOnScreen then
+			return nil
+		end
+
+		local Height = math.abs(BottomPoint.Y - TopPoint.Y)
+
+		if Height < 6 or Height > ViewportSize.Y * 0.9 then
+			return nil
+		end
+
+		local Width = math.max(Height * 0.6, 4)
+		local MinX = RootPoint.X - (Width * 0.5)
+		local MinY = math.min(TopPoint.Y, BottomPoint.Y)
+		local MaxX = RootPoint.X + (Width * 0.5)
+		local MaxY = math.max(TopPoint.Y, BottomPoint.Y)
+
+		if MaxX < 0 or MinX > ViewportSize.X or MaxY < 0 or MinY > ViewportSize.Y then
 			return nil
 		end
 
@@ -115,7 +120,7 @@ return function(Config)
 			return false
 		end
 
-		local MinX, MinY, MaxX, MaxY = getCharacterBounds(Character)
+		local MinX, MinY, MaxX, MaxY = getCharacterBounds(Character, Humanoid, RootPart)
 
 		if not MinX then
 			self:HideBox(Player)
