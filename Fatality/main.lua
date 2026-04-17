@@ -53,6 +53,7 @@ local Window = Fatality.new({
 });
 local MainWindowGui = Fatality.Windows[#Fatality.Windows]
 local CreateESP = loadScript("features/esp.lua", "https://raw.githubusercontent.com/Waikuls/Synx/main/features/esp.lua")
+local CreateVisualUI = loadScript("ui/visual.lua", "https://raw.githubusercontent.com/Waikuls/Synx/main/ui/visual.lua")
 local ESP = CreateESP({
 	Notification = Notification
 })
@@ -478,33 +479,8 @@ do
 	})
 end
 
-do
-	local Misc = Visual:AddSection({
-		Name = "MISC",
-		Position = 'left'
-	})
-	
-	local Setting = Visual:AddSection({
-		Name = "SETTING",
-		Position = 'center'
-	})
-	
-	Misc:AddToggle({
-		Name = "ESP",
-		Callback = function(Value)
-			local Enabled = ESP:SetEnabled(Value)
-
-			if not Enabled and Value then
-				task.defer(function()
-					local Flag = Window:GetFlags().ESPToggle
-
-					if Flag then
-						Flag:SetValue(false)
-					end
-				end)
-			end
-		end,
-		Flag = "ESP"
-	})
-
-end
+CreateVisualUI({
+	Visual = Visual,
+	Window = Window,
+	ESP = ESP
+})

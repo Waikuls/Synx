@@ -8,8 +8,39 @@ return function(Config)
 	local ESP = {
 		Enabled = false,
 		Boxes = {},
-		Connection = nil
+		Connection = nil,
+		Settings = {
+			DistanceLimit = 1500,
+			ShowName = true,
+			ShowHealth = true
+		}
 	}
+
+	local function getLocalRootPart()
+		local Character = LocalPlayer.Character
+
+		if not Character then
+			return nil
+		end
+
+		return Character:FindFirstChild("HumanoidRootPart")
+	end
+
+	local function hideDrawing(DrawingObject)
+		if DrawingObject then
+			DrawingObject.Visible = false
+		end
+	end
+
+	local function getHealthColor(Health, MaxHealth)
+		local Ratio = math.clamp(Health / math.max(MaxHealth, 1), 0, 1)
+
+		return Color3.fromRGB(
+			math.floor(255 * (1 - Ratio)),
+			math.floor(255 * Ratio),
+			90
+		)
+	end
 
 	local function getCharacterBounds(Character, Humanoid, RootPart)
 		local Head = Character:FindFirstChild("Head")
@@ -68,9 +99,29 @@ return function(Config)
 		Box.Filled = false
 		Box.Transparency = 1
 
+		local Name = Drawing.new("Text")
+		Name.Visible = false
+		Name.Center = true
+		Name.Outline = true
+		Name.Size = 13
+		Name.Font = 2
+		Name.Color = Color3.fromRGB(255, 255, 255)
+		Name.Transparency = 1
+
+		local Health = Drawing.new("Text")
+		Health.Visible = false
+		Health.Center = true
+		Health.Outline = true
+		Health.Size = 13
+		Health.Font = 2
+		Health.Color = Color3.fromRGB(110, 255, 140)
+		Health.Transparency = 1
+
 		self.Boxes[Player] = {
 			Outline = Outline,
-			Box = Box
+			Box = Box,
+			Name = Name,
+			Health = Health
 		}
 
 		return self.Boxes[Player]
@@ -83,8 +134,10 @@ return function(Config)
 			return
 		end
 
-		Drawings.Outline.Visible = false
-		Drawings.Box.Visible = false
+		hideDrawing(Drawings.Outline)
+		hideDrawing(Drawings.Box)
+		hideDrawing(Drawings.Name)
+		hideDrawing(Drawings.Health)
 	end
 
 	function ESP:RemoveBox(Player)
@@ -96,6 +149,8 @@ return function(Config)
 
 		Drawings.Outline:Remove()
 		Drawings.Box:Remove()
+		Drawings.Name:Remove()
+		Drawings.Health:Remove()
 		self.Boxes[Player] = nil
 	end
 
@@ -114,10 +169,20 @@ return function(Config)
 		local Character = Player.Character
 		local Humanoid = Character and Character:FindFirstChildOfClass("Humanoid")
 		local RootPart = Character and Character:FindFirstChild("HumanoidRootPart")
+		local LocalRootPart = getLocalRootPart()
 
 		if not Character or not Humanoid or not RootPart or Humanoid.Health <= 0 then
 			self:HideBox(Player)
 			return false
+		end
+
+		if LocalRootPart then
+			local Distance = (LocalRootPart.Position - RootPart.Position).Magnitude
+
+			if Distance > self.Settings.DistanceLimit then
+				self:HideBox(Player)
+				return false
+			end
 		end
 
 		local MinX, MinY, MaxX, MaxY = getCharacterBounds(Character, Humanoid, RootPart)
@@ -138,6 +203,23 @@ return function(Config)
 		Drawings.Box.Size = Vector2.new(Width, Height)
 		Drawings.Box.Position = Vector2.new(MinX, MinY)
 		Drawings.Box.Visible = true
+
+		if self.Settings.ShowName then
+			Drawings.Name.Text = Player.DisplayName
+			Drawings.Name.Position = Vector2.new(MinX + (Width * 0.5), MinY - 14)
+			Drawings.Name.Visible = true
+		else
+			hideDrawing(Drawings.Name)
+		end
+
+		if self.Settings.ShowHealth then
+			Drawings.Health.Text = string.format("%d HP", math.floor(Humanoid.Health + 0.5))
+			Drawings.Health.Color = getHealthColor(Humanoid.Health, Humanoid.MaxHealth)
+			Drawings.Health.Position = Vector2.new(MinX + (Width * 0.5), MaxY + 2)
+			Drawings.Health.Visible = true
+		else
+			hideDrawing(Drawings.Health)
+		end
 
 		return true
 	end
@@ -201,6 +283,30 @@ return function(Config)
 	function ESP:Destroy()
 		self:SetEnabled(false)
 		self:Clear()
+	end
+
+	function ESP:SetDistanceLimit(Value)
+		self.Settings.DistanceLimit = math.max(Value or self.Settings.DistanceLimit, 1)
+	end
+
+	function ESP:SetShowName(Value)
+		self.Settings.ShowName = Value and true or false
+
+		if not self.Settings.ShowName then
+			for _, Drawings in pairs(self.Boxes) do
+				hideDrawing(Drawings.Name)
+			end
+		end
+	end
+
+	function ESP:SetShowHealth(Value)
+		self.Settings.ShowHealth = Value and true or false
+
+		if not self.Settings.ShowHealth then
+			for _, Drawings in pairs(self.Boxes) do
+				hideDrawing(Drawings.Health)
+			end
+		end
 	end
 
 	return ESP
