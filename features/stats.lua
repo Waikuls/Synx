@@ -3,7 +3,9 @@ return function()
 	local ReplicatedStorage = game:GetService("ReplicatedStorage")
 	local LocalPlayer = Players.LocalPlayer
 
-	local StatsFeature = {}
+	local StatsFeature = {
+		TargetPlayerName = LocalPlayer.Name
+	}
 	local PreferredLeftStats = {
 		"Style",
 		"Agility",
@@ -146,15 +148,15 @@ return function()
 		end
 	end
 
-	local function addPreferredRoots(Store)
-		local Character = LocalPlayer.Character
+	local function addPreferredRoots(Store, TargetPlayer)
+		local Character = TargetPlayer and TargetPlayer.Character
 		local CommonFolders = {"Stats", "Data", "Information", "Profile", "PlayerData", "Values"}
 
-		scanPreferredValues(Store, LocalPlayer, 2)
+		scanPreferredValues(Store, TargetPlayer, 2)
 		scanPreferredValues(Store, Character, 2)
 
 		for _, FolderName in ipairs(CommonFolders) do
-			scanPreferredValues(Store, LocalPlayer:FindFirstChild(FolderName), 1)
+			scanPreferredValues(Store, TargetPlayer and TargetPlayer:FindFirstChild(FolderName), 1)
 
 			if Character then
 				scanPreferredValues(Store, Character:FindFirstChild(FolderName), 1)
@@ -165,26 +167,26 @@ return function()
 			local Root = ReplicatedStorage:FindFirstChild(RootName)
 
 			if Root then
-				scanPreferredValues(Store, Root:FindFirstChild(LocalPlayer.Name), 0)
-				scanPreferredValues(Store, Root:FindFirstChild(tostring(LocalPlayer.UserId)), 0)
+				scanPreferredValues(Store, Root:FindFirstChild(TargetPlayer.Name), 0)
+				scanPreferredValues(Store, Root:FindFirstChild(tostring(TargetPlayer.UserId)), 0)
 
 				local PlayersFolder = Root:FindFirstChild("Players")
 
 				if PlayersFolder then
-					scanPreferredValues(Store, PlayersFolder:FindFirstChild(LocalPlayer.Name), 0)
-					scanPreferredValues(Store, PlayersFolder:FindFirstChild(tostring(LocalPlayer.UserId)), 0)
+					scanPreferredValues(Store, PlayersFolder:FindFirstChild(TargetPlayer.Name), 0)
+					scanPreferredValues(Store, PlayersFolder:FindFirstChild(tostring(TargetPlayer.UserId)), 0)
 				end
 			end
 		end
 	end
 
-	local function buildPreferredPanels()
+	local function buildPreferredPanels(TargetPlayer)
 		local Store = {}
 		local LeftLines = {}
 		local RightLines = {}
 		local FoundCount = 0
 
-		addPreferredRoots(Store)
+		addPreferredRoots(Store, TargetPlayer)
 
 		for _, Name in ipairs(PreferredLeftStats) do
 			local Entry = Store[Name]
@@ -231,8 +233,8 @@ return function()
 		return "None"
 	end
 
-	local function getLeaderstatsLines()
-		local Leaderstats = LocalPlayer:FindFirstChild("leaderstats")
+	local function getLeaderstatsLines(TargetPlayer)
+		local Leaderstats = TargetPlayer and TargetPlayer:FindFirstChild("leaderstats")
 		local Lines = {}
 
 		if not Leaderstats then
@@ -248,30 +250,89 @@ return function()
 		return Lines
 	end
 
+	local function sortPlayerNames(Names)
+		table.sort(Names, function(Left, Right)
+			if Left == LocalPlayer.Name then
+				return true
+			end
+
+			if Right == LocalPlayer.Name then
+				return false
+			end
+
+			return string.lower(Left) < string.lower(Right)
+		end)
+	end
+
+	function StatsFeature:GetTargetPlayer()
+		local TargetPlayer = self.TargetPlayerName and Players:FindFirstChild(self.TargetPlayerName)
+
+		if TargetPlayer then
+			return TargetPlayer
+		end
+
+		self.TargetPlayerName = LocalPlayer.Name
+
+		return LocalPlayer
+	end
+
+	function StatsFeature:GetTargetPlayerName()
+		return self:GetTargetPlayer().Name
+	end
+
+	function StatsFeature:SetTargetPlayer(PlayerName)
+		if type(PlayerName) == "string" and PlayerName ~= "" then
+			local TargetPlayer = Players:FindFirstChild(PlayerName)
+
+			if TargetPlayer then
+				self.TargetPlayerName = TargetPlayer.Name
+
+				return TargetPlayer
+			end
+		end
+
+		self.TargetPlayerName = LocalPlayer.Name
+
+		return LocalPlayer
+	end
+
+	function StatsFeature:GetPlayerOptions()
+		local PlayerNames = {}
+
+		for _, Player in ipairs(Players:GetPlayers()) do
+			table.insert(PlayerNames, Player.Name)
+		end
+
+		sortPlayerNames(PlayerNames)
+
+		return PlayerNames
+	end
+
 	function StatsFeature:GetPanels()
-		local PreferredLeft, PreferredRight, PreferredCount = buildPreferredPanels()
+		local TargetPlayer = self:GetTargetPlayer()
+		local PreferredLeft, PreferredRight, PreferredCount = buildPreferredPanels(TargetPlayer)
 
 		if PreferredCount >= 4 then
 			return PreferredLeft, PreferredRight
 		end
 
-		local Character = LocalPlayer.Character
+		local Character = TargetPlayer.Character
 		local Humanoid = Character and Character:FindFirstChildOfClass("Humanoid")
 		local RootPart = Character and Character:FindFirstChild("HumanoidRootPart")
 		local SpawnLocation = Character and Character:GetPivot().Position or nil
-		local LeaderstatsLines = getLeaderstatsLines()
+		local LeaderstatsLines = getLeaderstatsLines(TargetPlayer)
 
 		local LeftLines = {
-			string.format("DisplayName: %s", LocalPlayer.DisplayName),
-			string.format("Username: %s", LocalPlayer.Name),
-			string.format("UserId: %s", LocalPlayer.UserId),
+			string.format("DisplayName: %s", TargetPlayer.DisplayName),
+			string.format("Username: %s", TargetPlayer.Name),
+			string.format("UserId: %s", TargetPlayer.UserId),
 			string.format("Character: %s", Character and "Loaded" or "Missing"),
 			string.format("Tool: %s", getToolName(Character)),
 		}
 
 		local RightLines = {
 			string.format("PlayerCount: %d", #Players:GetPlayers()),
-			string.format("Team: %s", LocalPlayer.Team and LocalPlayer.Team.Name or "None"),
+			string.format("Team: %s", TargetPlayer.Team and TargetPlayer.Team.Name or "None"),
 		}
 
 		if Humanoid and RootPart then
