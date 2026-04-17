@@ -32,16 +32,6 @@ return function(Config)
 		end
 	end
 
-	local function getHealthColor(Health, MaxHealth)
-		local Ratio = math.clamp(Health / math.max(MaxHealth, 1), 0, 1)
-
-		return Color3.fromRGB(
-			math.floor(255 * (1 - Ratio)),
-			math.floor(255 * Ratio),
-			90
-		)
-	end
-
 	local function getCharacterBounds(Character, Humanoid, RootPart)
 		local Head = Character:FindFirstChild("Head")
 		local ViewportSize = Camera.ViewportSize
@@ -170,6 +160,7 @@ return function(Config)
 		local Humanoid = Character and Character:FindFirstChildOfClass("Humanoid")
 		local RootPart = Character and Character:FindFirstChild("HumanoidRootPart")
 		local LocalRootPart = getLocalRootPart()
+		local Distance
 
 		if not Character or not Humanoid or not RootPart or Humanoid.Health <= 0 then
 			self:HideBox(Player)
@@ -177,7 +168,7 @@ return function(Config)
 		end
 
 		if LocalRootPart then
-			local Distance = (LocalRootPart.Position - RootPart.Position).Magnitude
+			Distance = (LocalRootPart.Position - RootPart.Position).Magnitude
 
 			if Distance > self.Settings.DistanceLimit then
 				self:HideBox(Player)
@@ -204,22 +195,36 @@ return function(Config)
 		Drawings.Box.Position = Vector2.new(MinX, MinY)
 		Drawings.Box.Visible = true
 
+		local InfoParts = {}
+
 		if self.Settings.ShowName then
-			Drawings.Name.Text = Player.DisplayName
+			table.insert(InfoParts, Player.DisplayName)
+		end
+
+		if self.Settings.ShowHealth then
+			table.insert(
+				InfoParts,
+				string.format(
+					"[%d/%d]",
+					math.floor(Humanoid.Health + 0.5),
+					math.floor(Humanoid.MaxHealth + 0.5)
+				)
+			)
+		end
+
+		if Distance then
+			table.insert(InfoParts, string.format("[%d studs]", math.floor(Distance + 0.5)))
+		end
+
+		if #InfoParts > 0 then
+			Drawings.Name.Text = table.concat(InfoParts, " ")
 			Drawings.Name.Position = Vector2.new(MinX + (Width * 0.5), MinY - 14)
 			Drawings.Name.Visible = true
 		else
 			hideDrawing(Drawings.Name)
 		end
 
-		if self.Settings.ShowHealth then
-			Drawings.Health.Text = string.format("%d HP", math.floor(Humanoid.Health + 0.5))
-			Drawings.Health.Color = getHealthColor(Humanoid.Health, Humanoid.MaxHealth)
-			Drawings.Health.Position = Vector2.new(MinX + (Width * 0.5), MaxY + 2)
-			Drawings.Health.Visible = true
-		else
-			hideDrawing(Drawings.Health)
-		end
+		hideDrawing(Drawings.Health)
 
 		return true
 	end
