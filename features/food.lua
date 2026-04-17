@@ -13,6 +13,9 @@ return function(Config)
 		LastMissingFoodAt = 0,
 		ScanInterval = 0.5,
 		EatCooldown = 3,
+		EquipDelay = 0.35,
+		ActivationDelay = 0.75,
+		MaxActivationAttempts = 3,
 		HungerThreshold = 0.35,
 		FallbackThreshold = 25
 	}
@@ -462,15 +465,35 @@ return function(Config)
 		task.spawn(function()
 			if Tool.Parent ~= Character then
 				Humanoid:EquipTool(Tool)
-				task.wait(0.2)
+				task.wait(FoodFeature.EquipDelay)
 			end
 
 			if Tool.Parent == Character then
-				Tool:Activate()
-				task.wait(0.7)
+				pcall(function()
+					if Tool.Enabled ~= nil then
+						Tool.Enabled = true
+					end
+				end)
+			end
+
+			for _ = 1, FoodFeature.MaxActivationAttempts do
+				if Tool.Parent ~= Character then
+					break
+				end
+
+				pcall(function()
+					Tool:Activate()
+				end)
+
+				task.wait(FoodFeature.ActivationDelay)
+
+				if not shouldEat() then
+					break
+				end
 			end
 
 			unequipFoodTools()
+
 			FoodFeature.IsEating = false
 		end)
 	end
