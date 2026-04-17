@@ -6,7 +6,8 @@ return function(Config)
 	local RunService = game:GetService("RunService")
 
 	local Controller = {
-		Connection = nil
+		Connection = nil,
+		Elapsed = 0
 	}
 
 	local function createPreviewText(Parent)
@@ -64,7 +65,16 @@ return function(Config)
 
 	refresh()
 
-	Controller.Connection = RunService.Heartbeat:Connect(refresh)
+	Controller.Connection = RunService.Heartbeat:Connect(function(DeltaTime)
+		Controller.Elapsed = Controller.Elapsed + DeltaTime
+
+		if Controller.Elapsed < 0.25 then
+			return
+		end
+
+		Controller.Elapsed = 0
+		refresh()
+	end)
 
 	function Controller:Destroy()
 		if self.Connection then

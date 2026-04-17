@@ -1,8 +1,63 @@
 return function()
 	local Players = game:GetService("Players")
+	local ReplicatedStorage = game:GetService("ReplicatedStorage")
 	local LocalPlayer = Players.LocalPlayer
 
 	local StatsFeature = {}
+	local PreferredLeftStats = {
+		"Style",
+		"Agility",
+		"Strength",
+		"Muscle",
+		"Hunger",
+		"Starving",
+		"Offensive",
+		"Durability",
+		"RhythmCharge",
+		"StaminaInStat",
+		"Stamina",
+		"MaxStamina",
+		"Fat",
+		"AttackSpeed",
+		"BodySize",
+		"DownedHealth",
+		"MaxDownedHealth",
+		"RecoveryHealth",
+		"BodyHeat",
+		"Exhaustion"
+	}
+	local PreferredRightStats = {
+		"NoCooldown",
+		"BodyFatique",
+		"BodyFatigue",
+		"Eevee",
+		"EeveeDeplete",
+		"FirstName",
+		"MiddleName",
+		"ClanName",
+		"NoStaminaCost",
+		"UpperMuscle",
+		"LowerMuscle",
+		"IsTrainingWithMachine",
+		"TrainingMachine",
+		"Gender",
+		"Training",
+		"TrainingWithTool",
+		"Mode",
+		"TotalPower",
+		"Adrenaline",
+		"Sleeping",
+		"NoEeveeDeplete"
+	}
+	local PreferredLookup = {}
+
+	for _, Name in ipairs(PreferredLeftStats) do
+		PreferredLookup[Name] = true
+	end
+
+	for _, Name in ipairs(PreferredRightStats) do
+		PreferredLookup[Name] = true
+	end
 
 	local function formatNumber(Value)
 		if typeof(Value) ~= "number" then
@@ -18,6 +73,138 @@ return function()
 
 	local function formatVector(Value)
 		return string.format("%s, %s, %s", formatNumber(Value.X), formatNumber(Value.Y), formatNumber(Value.Z))
+	end
+
+	local function formatValue(Value)
+		local ValueType = typeof(Value)
+
+		if Value == nil then
+			return "nil"
+		end
+
+		if ValueType == "number" then
+			return formatNumber(Value)
+		end
+
+		if ValueType == "boolean" then
+			return tostring(Value)
+		end
+
+		if ValueType == "Vector3" then
+			return formatVector(Value)
+		end
+
+		if ValueType == "CFrame" then
+			return formatVector(Value.Position)
+		end
+
+		if ValueType == "Instance" then
+			return Value.Name
+		end
+
+		if ValueType == "EnumItem" then
+			return Value.Name
+		end
+
+		return tostring(Value)
+	end
+
+	local function recordPreferredValue(Store, Name, Value, Priority)
+		local Current = Store[Name]
+
+		if Current and Current.Priority <= Priority then
+			return
+		end
+
+		Store[Name] = {
+			Value = formatValue(Value),
+			Priority = Priority
+		}
+	end
+
+	local function scanPreferredValues(Store, Root, Priority)
+		if not Root then
+			return
+		end
+
+		local function visit(Instance)
+			if Instance:IsA("ValueBase") and PreferredLookup[Instance.Name] then
+				recordPreferredValue(Store, Instance.Name, Instance.Value, Priority)
+			end
+
+			for Name, Value in pairs(Instance:GetAttributes()) do
+				if PreferredLookup[Name] then
+					recordPreferredValue(Store, Name, Value, Priority)
+				end
+			end
+		end
+
+		visit(Root)
+
+		for _, Descendant in ipairs(Root:GetDescendants()) do
+			visit(Descendant)
+		end
+	end
+
+	local function addPreferredRoots(Store)
+		local Character = LocalPlayer.Character
+		local CommonFolders = {"Stats", "Data", "Information", "Profile", "PlayerData", "Values"}
+
+		scanPreferredValues(Store, LocalPlayer, 2)
+		scanPreferredValues(Store, Character, 2)
+
+		for _, FolderName in ipairs(CommonFolders) do
+			scanPreferredValues(Store, LocalPlayer:FindFirstChild(FolderName), 1)
+
+			if Character then
+				scanPreferredValues(Store, Character:FindFirstChild(FolderName), 1)
+			end
+		end
+
+		for _, RootName in ipairs({"PlayerData", "Data", "Stats"}) do
+			local Root = ReplicatedStorage:FindFirstChild(RootName)
+
+			if Root then
+				scanPreferredValues(Store, Root:FindFirstChild(LocalPlayer.Name), 0)
+				scanPreferredValues(Store, Root:FindFirstChild(tostring(LocalPlayer.UserId)), 0)
+
+				local PlayersFolder = Root:FindFirstChild("Players")
+
+				if PlayersFolder then
+					scanPreferredValues(Store, PlayersFolder:FindFirstChild(LocalPlayer.Name), 0)
+					scanPreferredValues(Store, PlayersFolder:FindFirstChild(tostring(LocalPlayer.UserId)), 0)
+				end
+			end
+		end
+	end
+
+	local function buildPreferredPanels()
+		local Store = {}
+		local LeftLines = {}
+		local RightLines = {}
+		local FoundCount = 0
+
+		addPreferredRoots(Store)
+
+		for _, Name in ipairs(PreferredLeftStats) do
+			local Entry = Store[Name]
+
+			if Entry then
+				table.insert(LeftLines, string.format("%s: %s", Name, Entry.Value))
+				FoundCount = FoundCount + 1
+			end
+		end
+
+		for _, Name in ipairs(PreferredRightStats) do
+			local Entry = Store[Name]
+
+			if Entry then
+				table.insert(RightLines, string.format("%s: %s", Name, Entry.Value))
+				FoundCount = FoundCount + 1
+			end
+		end
+
+		return LeftLines, RightLines, FoundCount
 	end
 
 	local function findScale(Character, Name)
@@ -62,6 +249,12 @@ return function()
 	end
 
 	function StatsFeature:GetPanels()
+		local PreferredLeft, PreferredRight, PreferredCount = buildPreferredPanels()
+
+		if PreferredCount >= 4 then
+			return PreferredLeft, PreferredRight
+		end
+
 		local Character = LocalPlayer.Character
 		local Humanoid = Character and Character:FindFirstChildOfClass("Humanoid")
 		local RootPart = Character and Character:FindFirstChild("HumanoidRootPart")
