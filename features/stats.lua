@@ -53,15 +53,17 @@ return function()
 	}
 	local PreferredLookup = {}
 	local HungerCurrentAliases = {
-		"Hunger",
 		"CurrentHunger",
 		"HungerCurrent",
-		"Food",
+		"HungerValue",
+		"CurrentHungerValue",
+		"HungerNow",
 		"CurrentFood",
 		"FoodLevel",
-		"HungerValue",
+		"FoodValue",
 		"NeedsHunger",
-		"HungerNow"
+		"Food",
+		"Hunger"
 	}
 	local HungerMaxAliases = {
 		"MaxHunger",
@@ -173,19 +175,19 @@ return function()
 		end
 	end
 
-	local function createAliasLookup(Aliases)
-		local Lookup = {}
+	local function createAliasRanking(Aliases)
+		local Ranking = {}
 
-		for _, Name in ipairs(Aliases) do
-			Lookup[string.lower(Name)] = true
+		for Index, Name in ipairs(Aliases) do
+			Ranking[string.lower(Name)] = Index
 		end
 
-		return Lookup
+		return Ranking
 	end
 
-	local HungerCurrentAliasLookup = createAliasLookup(HungerCurrentAliases)
-	local HungerMaxAliasLookup = createAliasLookup(HungerMaxAliases)
-	local HungerPercentAliasLookup = createAliasLookup(HungerPercentAliases)
+	local HungerCurrentAliasRanking = createAliasRanking(HungerCurrentAliases)
+	local HungerMaxAliasRanking = createAliasRanking(HungerMaxAliases)
+	local HungerPercentAliasRanking = createAliasRanking(HungerPercentAliases)
 
 	local function addPreferredRoots(Store, TargetPlayer)
 		local Character = TargetPlayer and TargetPlayer.Character
@@ -219,61 +221,54 @@ return function()
 		end
 	end
 
-	local function findRawStatByAliases(TargetPlayer, AliasesLookup)
+	local function getValueTypeScore(Value)
+		local ValueType = typeof(Value)
+
+		if ValueType == "number" then
+			return 0
+		end
+
+		if ValueType == "string" then
+			return 1
+		end
+
+		if ValueType == "Instance" then
+			return 2
+		end
+
+		if ValueType == "EnumItem" then
+			return 3
+		end
+
+		if ValueType == "boolean" then
+			return 4
+		end
+
+		return 5
+	end
+
+	local function buildScanRoots(TargetPlayer)
 		local Character = TargetPlayer and TargetPlayer.Character
 		local CommonFolders = {"Stats", "Data", "Information", "Profile", "PlayerData", "Values"}
 		local Roots = {}
 
-		local function addRoot(Root)
+		local function addRoot(Root, Priority)
 			if Root then
-				table.insert(Roots, Root)
+				table.insert(Roots, {
+					Root = Root,
+					Priority = Priority
+				})
 			end
 		end
 
-		local function scanRoot(Root)
-			if not Root then
-				return nil
-			end
-
-			local function visit(Instance)
-				if Instance:IsA("ValueBase") and AliasesLookup[string.lower(Instance.Name)] then
-					return Instance.Value
-				end
-
-				for Name, Value in pairs(Instance:GetAttributes()) do
-					if AliasesLookup[string.lower(Name)] then
-						return Value
-					end
-				end
-
-				return nil
-			end
-
-			local Result = visit(Root)
-
-			if Result ~= nil then
-				return Result
-			end
-
-			for _, Descendant in ipairs(Root:GetDescendants()) do
-				Result = visit(Descendant)
-
-				if Result ~= nil then
-					return Result
-				end
-			end
-
-			return nil
-		end
-
-		addRoot(TargetPlayer)
-		addRoot(Character)
+		addRoot(TargetPlayer, 2)
+		addRoot(Character, 2)
 
 		for _, FolderName in ipairs(CommonFolders) do
-			addRoot(TargetPlayer and TargetPlayer:FindFirstChild(FolderName))
+			addRoot(TargetPlayer and TargetPlayer:FindFirstChild(FolderName), 1)
 
 			if Character then
-				addRoot(Character:FindFirstChild(FolderName))
+				addRoot(Character:FindFirstChild(FolderName), 1)
 			end
 		end
 
@@ -281,33 +276,137 @@ return function()
 			local Root = ReplicatedStorage:FindFirstChild(RootName)
 
 			if Root then
-				addRoot(Root:FindFirstChild(TargetPlayer.Name))
-				addRoot(Root:FindFirstChild(tostring(TargetPlayer.UserId)))
+				addRoot(Root:FindFirstChild(TargetPlayer.Name), 0)
+				addRoot(Root:FindFirstChild(tostring(TargetPlayer.UserId)), 0)
 
 				local PlayersFolder = Root:FindFirstChild("Players")
 
 				if PlayersFolder then
-					addRoot(PlayersFolder:FindFirstChild(TargetPlayer.Name))
-					addRoot(PlayersFolder:FindFirstChild(tostring(TargetPlayer.UserId)))
+					addRoot(PlayersFolder:FindFirstChild(TargetPlayer.Name), 0)
+					addRoot(PlayersFolder:FindFirstChild(tostring(TargetPlayer.UserId)), 0)
 				end
 			end
 		end
 
-		for _, Root in ipairs(Roots) do
-			local Result = scanRoot(Root)
+		return Roots
+	end
 
-			if Result ~= nil then
-				return Result
+	local function findRawStatByAliases(TargetPlayer, AliasRanking, Options)
+		local Roots = buildScanRoots(TargetPlayer)
+		local Candidates = {}
+
+		local function getPartialRank(NameLower)
+			if not Options or not Options.PartialMatcher then
+				return nil
 			end
+
+			return Options.PartialMatcher(NameLower)
+		end
+
+		local function recordCandidate(Name, Value, Priority)
+			local NameLower = string.lower(Name)
+			local AliasRank = AliasRanking[NameLower]
+
+			if AliasRank == nil then
+				AliasRank = getPartialRank(NameLower)
+			end
+
+			if AliasRank == nil then
+				return
+			end
+
+			table.insert(Candidates, {
+				Name = Name,
+				Value = Value,
+				Priority = Priority,
+				AliasRank = AliasRank,
+				TypeScore = getValueTypeScore(Value)
+			})
+		end
+
+		local function scanRoot(RootInfo)
+			local Root = RootInfo.Root
+			local Priority = RootInfo.Priority
+
+			local function visit(Instance)
+				if Instance:IsA("ValueBase") then
+					recordCandidate(Instance.Name, Instance.Value, Priority)
+				end
+
+				for Name, Value in pairs(Instance:GetAttributes()) do
+					recordCandidate(Name, Value, Priority)
+				end
+			end
+
+			visit(Root)
+
+			for _, Descendant in ipairs(Root:GetDescendants()) do
+				visit(Descendant)
+			end
+		end
+
+		for _, Root in ipairs(Roots) do
+			scanRoot(Root)
+		end
+
+		table.sort(Candidates, function(Left, Right)
+			if Left.AliasRank ~= Right.AliasRank then
+				return Left.AliasRank < Right.AliasRank
+			end
+
+			if Left.Priority ~= Right.Priority then
+				return Left.Priority < Right.Priority
+			end
+
+			if Left.TypeScore ~= Right.TypeScore then
+				return Left.TypeScore < Right.TypeScore
+			end
+
+			return string.lower(Left.Name) < string.lower(Right.Name)
+		end)
+
+		if Candidates[1] then
+			return Candidates[1].Value
 		end
 
 		return nil
 	end
 
 	local function formatHungerLine(TargetPlayer)
-		local CurrentHungerRaw = findRawStatByAliases(TargetPlayer, HungerCurrentAliasLookup)
-		local MaxHungerRaw = findRawStatByAliases(TargetPlayer, HungerMaxAliasLookup)
-		local PercentHungerRaw = findRawStatByAliases(TargetPlayer, HungerPercentAliasLookup)
+		local CurrentHungerRaw = findRawStatByAliases(TargetPlayer, HungerCurrentAliasRanking, {
+			PartialMatcher = function(NameLower)
+				if (string.find(NameLower, "hunger", 1, true) or string.find(NameLower, "food", 1, true))
+					and not string.find(NameLower, "max", 1, true)
+					and not string.find(NameLower, "percent", 1, true)
+					and not string.find(NameLower, "ratio", 1, true) then
+					return 100
+				end
+
+				return nil
+			end
+		})
+		local MaxHungerRaw = findRawStatByAliases(TargetPlayer, HungerMaxAliasRanking, {
+			PartialMatcher = function(NameLower)
+				if (string.find(NameLower, "hunger", 1, true) or string.find(NameLower, "food", 1, true))
+					and string.find(NameLower, "max", 1, true) then
+					return 100
+				end
+
+				return nil
+			end
+		})
+		local PercentHungerRaw = findRawStatByAliases(TargetPlayer, HungerPercentAliasRanking, {
+			PartialMatcher = function(NameLower)
+				local HasHungerName = string.find(NameLower, "hunger", 1, true) or string.find(NameLower, "food", 1, true)
+				local HasPercentName = string.find(NameLower, "percent", 1, true) or string.find(NameLower, "ratio", 1, true)
+
+				if HasHungerName and HasPercentName then
+					return 100
+				end
+
+				return nil
+			end
+		})
 
 		if CurrentHungerRaw == nil and PercentHungerRaw == nil then
 			return nil
