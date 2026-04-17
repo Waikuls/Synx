@@ -9,56 +9,30 @@ return function(Config)
 		Connection = nil
 	}
 
-	local function createPreviewColumn(Parent)
-		local Container = Instance.new("Frame")
-		local Layout = Instance.new("UIListLayout")
-		local Padding = Instance.new("UIPadding")
-		local Labels = {}
+	local function createPreviewText(Parent)
+		local Label = Instance.new("TextLabel")
 
-		Container.Name = "StatsContainer"
-		Container.Parent = Parent
-		Container.BackgroundTransparency = 1
-		Container.ClipsDescendants = true
-		Container.Size = UDim2.new(1, 0, 1, 0)
-		Container.ZIndex = 20
+		Label.Name = "StatsText"
+		Label.Parent = Parent
+		Label.BackgroundTransparency = 1
+		Label.Position = UDim2.new(0, 6, 0, 4)
+		Label.Size = UDim2.new(1, -12, 1, -8)
+		Label.FontFace = Fatality.FontSemiBold
+		Label.Text = ""
+		Label.TextColor3 = Color3.fromRGB(255, 255, 255)
+		Label.TextSize = 12
+		Label.TextTransparency = 0
+		Label.TextStrokeTransparency = 0.9
+		Label.TextWrapped = false
+		Label.TextXAlignment = Enum.TextXAlignment.Left
+		Label.TextYAlignment = Enum.TextYAlignment.Top
+		Label.ZIndex = 21
 
-		Padding.Parent = Container
-		Padding.PaddingLeft = UDim.new(0, 6)
-		Padding.PaddingRight = UDim.new(0, 6)
-		Padding.PaddingTop = UDim.new(0, 4)
-		Padding.PaddingBottom = UDim.new(0, 4)
-
-		Layout.Parent = Container
-		Layout.SortOrder = Enum.SortOrder.LayoutOrder
-		Layout.Padding = UDim.new(0, 2)
-
-		for Index = 1, 16 do
-			local Label = Instance.new("TextLabel")
-
-			Label.Name = string.format("Line%d", Index)
-			Label.Parent = Container
-			Label.BackgroundTransparency = 1
-			Label.Size = UDim2.new(1, 0, 0, 16)
-			Label.FontFace = Fatality.FontSemiBold
-			Label.Text = ""
-			Label.TextColor3 = Color3.fromRGB(255, 255, 255)
-			Label.TextSize = 12
-			Label.TextTransparency = 0
-			Label.TextStrokeTransparency = 0.9
-			Label.TextWrapped = false
-			Label.TextXAlignment = Enum.TextXAlignment.Left
-			Label.ZIndex = 21
-
-			Labels[Index] = Label
-		end
-
-		return Labels
+		return Label
 	end
 
-	local function updateLabels(Labels, Lines)
-		for Index, Label in ipairs(Labels) do
-			Label.Text = Lines[Index] or ""
-		end
+	local function updateText(Label, Lines)
+		Label.Text = table.concat(Lines, "\n")
 	end
 
 	local StatsMenu = Window:AddMenu({
@@ -78,14 +52,14 @@ return function(Config)
 		Height = 315
 	})
 
-	local CharacterLabels = createPreviewColumn(CharacterPreview)
-	local DetailsLabels = createPreviewColumn(DetailsPreview)
+	local CharacterText = createPreviewText(CharacterPreview)
+	local DetailsText = createPreviewText(DetailsPreview)
 
 	local function refresh()
 		local LeftLines, RightLines = StatsFeature:GetPanels()
 
-		updateLabels(CharacterLabels, LeftLines)
-		updateLabels(DetailsLabels, RightLines)
+		updateText(CharacterText, LeftLines)
+		updateText(DetailsText, RightLines)
 	end
 
 	refresh()
