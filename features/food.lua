@@ -353,6 +353,20 @@ return function(Config)
 		return nil
 	end
 
+	local function isFoodTool(Tool)
+		return getToolScore(Tool) ~= nil
+	end
+
+	local function getCharacterHumanoid()
+		local Character = LocalPlayer.Character
+
+		if not Character then
+			return nil, nil
+		end
+
+		return Character, Character:FindFirstChildOfClass("Humanoid")
+	end
+
 	local function findFoodTool()
 		local Character = LocalPlayer.Character
 		local Backpack = LocalPlayer:FindFirstChildOfClass("Backpack")
@@ -380,6 +394,38 @@ return function(Config)
 		return BestTool
 	end
 
+	local function unequipFoodTools()
+		local Character, Humanoid = getCharacterHumanoid()
+		local Backpack = LocalPlayer:FindFirstChildOfClass("Backpack")
+
+		if not Character or not Humanoid then
+			return
+		end
+
+		local HasEquippedFood = false
+
+		for _, Item in ipairs(Character:GetChildren()) do
+			if Item:IsA("Tool") and isFoodTool(Item) then
+				HasEquippedFood = true
+				break
+			end
+		end
+
+		if not HasEquippedFood then
+			return
+		end
+
+		Humanoid:UnequipTools()
+
+		if Backpack then
+			for _, Item in ipairs(Character:GetChildren()) do
+				if Item:IsA("Tool") and isFoodTool(Item) then
+					Item.Parent = Backpack
+				end
+			end
+		end
+	end
+
 	local function notifyMissingFood()
 		local Now = os.clock()
 
@@ -404,8 +450,7 @@ return function(Config)
 			return
 		end
 
-		local Character = LocalPlayer.Character
-		local Humanoid = Character and Character:FindFirstChildOfClass("Humanoid")
+		local Character, Humanoid = getCharacterHumanoid()
 
 		if not Character or not Humanoid then
 			return
@@ -422,15 +467,20 @@ return function(Config)
 
 			if Tool.Parent == Character then
 				Tool:Activate()
-				task.wait(0.5)
+				task.wait(0.7)
 			end
 
+			unequipFoodTools()
 			FoodFeature.IsEating = false
 		end)
 	end
 
 	function FoodFeature:SetEnabled(Value)
 		self.Enabled = Value and true or false
+
+		if not self.Enabled then
+			unequipFoodTools()
+		end
 
 		if not self.Connection then
 			self.Connection = RunService.Heartbeat:Connect(function(DeltaTime)
@@ -451,6 +501,7 @@ return function(Config)
 				end
 
 				if not shouldEat() then
+					unequipFoodTools()
 					return
 				end
 
@@ -471,6 +522,7 @@ return function(Config)
 	function FoodFeature:Destroy()
 		self.Enabled = false
 		self.IsEating = false
+		unequipFoodTools()
 
 		if self.Connection then
 			self.Connection:Disconnect()
