@@ -1,5 +1,6 @@
 return function(Config)
 	local Players = game:GetService("Players")
+	local ReplicatedStorage = game:GetService("ReplicatedStorage")
 	local RunService = game:GetService("RunService")
 	local LocalPlayer = Players.LocalPlayer
 	local Notification = Config.Notification
@@ -15,9 +16,12 @@ return function(Config)
 		EatCooldown = 3,
 		EquipDelay = 0.35,
 		ActivationDelay = 0.75,
+		InputPressDelay = 0.08,
 		MaxActivationAttempts = 3,
 		HungerThreshold = 0.35,
-		FallbackThreshold = 25
+		FallbackThreshold = 25,
+		KnownHotbarOrder = {},
+		RemoteCache = {}
 	}
 
 	local HungerCurrentAliases = {
@@ -72,6 +76,38 @@ return function(Config)
 		"meal",
 		"snack"
 	}
+	local SlotKeyNames = {
+		"One",
+		"Two",
+		"Three",
+		"Four",
+		"Five",
+		"Six",
+		"Seven",
+		"Eight",
+		"Nine",
+		"Zero"
+	}
+	local SlotNameLookup = {
+		one = 1,
+		two = 2,
+		three = 3,
+		four = 4,
+		five = 5,
+		six = 6,
+		seven = 7,
+		eight = 8,
+		nine = 9,
+		zero = 10
+	}
+	local ToolSlotAttributeAliases = {
+		"Slot",
+		"Index",
+		"HotbarSlot",
+		"ToolSlot",
+		"Number",
+		"Keybind"
+	}
 
 	local function createAliasRanking(Aliases)
 		local Ranking = {}
@@ -95,6 +131,24 @@ return function(Config)
 
 		if typeof(Value) == "string" then
 			return tonumber(Value)
+		end
+
+		return nil
+	end
+
+	local function toSlotIndex(Value)
+		local NumberValue = toNumber(Value)
+
+		if NumberValue then
+			NumberValue = math.floor(NumberValue)
+
+			if NumberValue >= 1 and NumberValue <= #SlotKeyNames then
+				return NumberValue
+			end
+		end
+
+		if typeof(Value) == "string" then
+			return SlotNameLookup[string.lower(Value)]
 		end
 
 		return nil
@@ -126,7 +180,7 @@ return function(Config)
 		end
 
 		for _, RootName in ipairs({"PlayerData", "Data", "Stats"}) do
-			local Root = game:GetService("ReplicatedStorage"):FindFirstChild(RootName)
+			local Root = ReplicatedStorage:FindFirstChild(RootName)
 
 			if Root then
 				addRoot(Root:FindFirstChild(LocalPlayer.Name), 0)
@@ -318,7 +372,7 @@ return function(Config)
 				PercentNumber = PercentNumber * 100
 			end
 
-			return PercentNumber <= 35
+			return PercentNumber <= (FoodFeature.HungerThreshold * 100)
 		end
 
 		local CurrentNumber = toNumber(CurrentValue)
@@ -366,11 +420,324 @@ return function(Config)
 		return nil
 	end
 
+	local getCharacterHumanoid
+
+	local function isRemoteLike(Instance)
+		return Instance
+			and Instance.Parent
+			and (
+				Instance:IsA("RemoteEvent")
+				or Instance:IsA("RemoteFunction")
+				or Instance:IsA("UnreliableRemoteEvent")
+			)
+	end
+
+	local function findRemote(RemoteName)
+		local Cached = FoodFeature.RemoteCache[RemoteName]
+
+		if isRemoteLike(Cached) then
+			return Cached
+		end
+
+		local SearchRoots = {
+			ReplicatedStorage,
+			LocalPlayer,
+			LocalPlayer:FindFirstChild("PlayerGui"),
+			workspace
+		}
+
+		for _, Root in ipairs(SearchRoots) do
+			if Root then
+				local Found = Root:FindFirstChild(RemoteName, true)
+
+				if isRemoteLike(Found) then
+					FoodFeature.RemoteCache[RemoteName] = Found
+					return Found
+				end
+			end
+		end
+
+		local Found = game:FindFirstChild(RemoteName, true)
+
+		if isRemoteLike(Found) then
+			FoodFeature.RemoteCache[RemoteName] = Found
+			return Found
+		end
+
+		return nil
+	end
+
+	local function invokeRemote(Remote, ...)
+		if not isRemoteLike(Remote) then
+			return false, nil
+		end
+
+		if Remote:IsA("RemoteFunction") then
+			return pcall(function()
+				return Remote:InvokeServer(...)
+			end)
+		end
+
+		return pcall(function()
+			Remote:FireServer(...)
+		end)
+	end
+
+	local function collectInventoryTools()
+		local Character = LocalPlayer.Character
+		local Backpack = LocalPlayer:FindFirstChildOfClass("Backpack")
+		local Tools = {}
+		local Seen = {}
+
+		local function collect(Container)
+			if not Container then
+				return
+			end
+
+			for _, Item in ipairs(Container:GetChildren()) do
+				if Item:IsA("Tool") and not Seen[Item] then
+					Seen[Item] = true
+					table.insert(Tools, Item)
+				end
+			end
+		end
+
+		collect(Backpack)
+		collect(Character)
+
+		return Tools, Seen
+	end
+
+	local function refreshKnownHotbarOrder()
+		local CurrentTools, Seen = collectInventoryTools()
+		local OrderedTools = {}
+		local Used = {}
+
+		for _, Tool in ipairs(FoodFeature.KnownHotbarOrder) do
+			if Tool and Tool.Parent and Seen[Tool] and not Used[Tool] then
+				Used[Tool] = true
+				table.insert(OrderedTools, Tool)
+			end
+		end
+
+		for _, Tool in ipairs(CurrentTools) do
+			if not Used[Tool] then
+				Used[Tool] = true
+				table.insert(OrderedTools, Tool)
+			end
+		end
+
+		FoodFeature.KnownHotbarOrder = OrderedTools
+
+		return OrderedTools
+	end
+
+	local function buildHotbarSnapshot()
+		local Snapshot = {}
+
+		for Index, Tool in ipairs(refreshKnownHotbarOrder()) do
+			if Tool and Tool.Parent then
+				Snapshot[Index] = Tool.Name
+			end
+		end
+
+		return Snapshot
+	end
+
+	local function findToolSlotIndex(Tool)
+		if not Tool then
+			return nil
+		end
+
+		for _, AttributeName in ipairs(ToolSlotAttributeAliases) do
+			local SlotIndex = toSlotIndex(Tool:GetAttribute(AttributeName))
+
+			if SlotIndex then
+				return SlotIndex
+			end
+
+			local ChildValue = Tool:FindFirstChild(AttributeName)
+
+			if ChildValue and ChildValue:IsA("ValueBase") then
+				SlotIndex = toSlotIndex(ChildValue.Value)
+
+				if SlotIndex then
+					return SlotIndex
+				end
+			end
+		end
+
+		for Index, Entry in ipairs(refreshKnownHotbarOrder()) do
+			if Entry == Tool then
+				return Index
+			end
+		end
+
+		for Index, Entry in ipairs(FoodFeature.KnownHotbarOrder) do
+			if Entry and Entry.Name == Tool.Name then
+				return Index
+			end
+		end
+
+		return nil
+	end
+
+	local function getToolSlotKeyName(Tool)
+		local SlotIndex = findToolSlotIndex(Tool)
+
+		if not SlotIndex then
+			return nil
+		end
+
+		return SlotKeyNames[SlotIndex]
+	end
+
+	local function isAirborne()
+		local _, Humanoid = getCharacterHumanoid()
+
+		if not Humanoid then
+			return false
+		end
+
+		local State = Humanoid:GetState()
+
+		return State == Enum.HumanoidStateType.Freefall
+			or State == Enum.HumanoidStateType.FallingDown
+			or State == Enum.HumanoidStateType.Jumping
+	end
+
+	local function sendServerInput(KeyName, IsDown)
+		local InputRemote = findRemote("Input")
+
+		if not InputRemote or type(KeyName) ~= "string" then
+			return false
+		end
+
+		return select(1, invokeRemote(InputRemote, {
+			KeyInfo = {
+				Direction = "None",
+				Name = KeyName,
+				Airborne = isAirborne()
+			},
+			IsDown = IsDown and true or false
+		}))
+	end
+
+	local function selectToolFromHotbar(Tool)
+		if not Tool then
+			return false
+		end
+
+		local UsedRemote = false
+		local CustomHotbarRemote = findRemote("CustomHotbar")
+		local EquipToolRemote = findRemote("EquipTool")
+		local SlotKeyName = getToolSlotKeyName(Tool)
+
+		sendServerInput("RMB", false)
+
+		if CustomHotbarRemote then
+			UsedRemote = select(1, invokeRemote(CustomHotbarRemote, Tool)) or UsedRemote
+		elseif EquipToolRemote then
+			UsedRemote = select(1, invokeRemote(EquipToolRemote, Tool)) or UsedRemote
+		end
+
+		if SlotKeyName then
+			task.wait(0.05)
+
+			if sendServerInput(SlotKeyName, false) then
+				UsedRemote = true
+			end
+		end
+
+		return UsedRemote
+	end
+
+	local function syncHotbarState(Tool)
+		local UsedRemote = false
+		local CustomHotbarRemote = findRemote("CustomHotbar")
+		local RequestRemote = findRemote("Request")
+		local Snapshot = buildHotbarSnapshot()
+		local SlotKeyName = getToolSlotKeyName(Tool)
+
+		if CustomHotbarRemote then
+			UsedRemote = select(1, invokeRemote(CustomHotbarRemote)) or UsedRemote
+		end
+
+		if RequestRemote and next(Snapshot) ~= nil then
+			UsedRemote = select(1, invokeRemote(RequestRemote, "UpdateHotbars", Snapshot)) or UsedRemote
+		end
+
+		if SlotKeyName then
+			sendServerInput(SlotKeyName, false)
+		end
+
+		return UsedRemote
+	end
+
+	local function triggerMouseClick()
+		if type(mouse1click) == "function" then
+			pcall(mouse1click)
+			return true
+		end
+
+		if type(mouse1press) == "function" and type(mouse1release) == "function" then
+			pcall(mouse1press)
+			task.wait(0.05)
+			pcall(mouse1release)
+			return true
+		end
+
+		local Success, VirtualInputManager = pcall(game.GetService, game, "VirtualInputManager")
+
+		if Success and VirtualInputManager then
+			local Camera = workspace.CurrentCamera
+			local ViewportSize = Camera and Camera.ViewportSize or Vector2.new(1280, 720)
+			local CenterX = math.floor(ViewportSize.X * 0.5)
+			local CenterY = math.floor(ViewportSize.Y * 0.5)
+
+			pcall(function()
+				VirtualInputManager:SendMouseButtonEvent(CenterX, CenterY, 0, true, game, 0)
+				task.wait(0.05)
+				VirtualInputManager:SendMouseButtonEvent(CenterX, CenterY, 0, false, game, 0)
+			end)
+
+			return true
+		end
+
+		return false
+	end
+
+	local function triggerToolUse(Tool)
+		local Triggered = false
+
+		pcall(function()
+			Tool:Activate()
+			Triggered = true
+		end)
+
+		if type(firesignal) == "function" then
+			pcall(function()
+				firesignal(Tool.Activated)
+				Triggered = true
+			end)
+		end
+
+		if Tool.ManualActivationOnly == false or Tool.ManualActivationOnly == nil then
+			if triggerMouseClick() then
+				Triggered = true
+			end
+		else
+			triggerMouseClick()
+		end
+
+		return Triggered
+	end
+
 	local function isFoodTool(Tool)
 		return getToolScore(Tool) ~= nil
 	end
 
-	local function getCharacterHumanoid()
+	function getCharacterHumanoid()
 		local Character = LocalPlayer.Character
 
 		if not Character then
@@ -380,11 +747,27 @@ return function(Config)
 		return Character, Character:FindFirstChildOfClass("Humanoid")
 	end
 
+	local function getEquippedTool(Character)
+		if not Character then
+			return nil
+		end
+
+		for _, Item in ipairs(Character:GetChildren()) do
+			if Item:IsA("Tool") then
+				return Item
+			end
+		end
+
+		return nil
+	end
+
 	local function findFoodTool()
 		local Character = LocalPlayer.Character
 		local Backpack = LocalPlayer:FindFirstChildOfClass("Backpack")
 		local BestTool = nil
 		local BestScore = math.huge
+
+		refreshKnownHotbarOrder()
 
 		local function consider(Container)
 			if not Container then
@@ -407,7 +790,7 @@ return function(Config)
 		return BestTool
 	end
 
-	local function unequipFoodTools()
+	local function unequipFoodTools(Tool)
 		local Character, Humanoid = getCharacterHumanoid()
 		local Backpack = LocalPlayer:FindFirstChildOfClass("Backpack")
 
@@ -425,6 +808,10 @@ return function(Config)
 		end
 
 		if not HasEquippedFood then
+			if Tool then
+				syncHotbarState(Tool)
+			end
+
 			return
 		end
 
@@ -437,6 +824,8 @@ return function(Config)
 				end
 			end
 		end
+
+		syncHotbarState(Tool or getEquippedTool(Character))
 	end
 
 	local function notifyMissingFood()
@@ -473,7 +862,14 @@ return function(Config)
 		FoodFeature.LastEatAt = os.clock()
 
 		task.spawn(function()
+			local PreviouslyEquippedTool = getEquippedTool(Character)
+
+			if isFoodTool(PreviouslyEquippedTool) then
+				PreviouslyEquippedTool = nil
+			end
+
 			if Tool.Parent ~= Character then
+				selectToolFromHotbar(Tool)
 				Humanoid:EquipTool(Tool)
 				task.wait(FoodFeature.EquipDelay)
 
@@ -484,6 +880,8 @@ return function(Config)
 
 					task.wait(0.15)
 				end
+			else
+				selectToolFromHotbar(Tool)
 			end
 
 			if Tool.Parent == Character then
@@ -495,13 +893,31 @@ return function(Config)
 			end
 
 			for _ = 1, FoodFeature.MaxActivationAttempts do
-				if Tool.Parent ~= Character then
+				if not Tool.Parent then
 					break
 				end
 
-				pcall(function()
-					Tool:Activate()
-				end)
+				local UsedRemote = false
+
+				if selectToolFromHotbar(Tool) then
+					UsedRemote = true
+				end
+
+				if sendServerInput("LMB", true) then
+					UsedRemote = true
+				end
+
+				task.wait(FoodFeature.InputPressDelay)
+
+				if sendServerInput("LMB", false) then
+					UsedRemote = true
+				end
+
+				if Tool.Parent == Character then
+					triggerToolUse(Tool)
+				elseif not UsedRemote then
+					break
+				end
 
 				task.wait(FoodFeature.ActivationDelay)
 
@@ -510,7 +926,17 @@ return function(Config)
 				end
 			end
 
-			unequipFoodTools()
+			unequipFoodTools(Tool)
+
+			if PreviouslyEquippedTool and PreviouslyEquippedTool.Parent then
+				selectToolFromHotbar(PreviouslyEquippedTool)
+
+				if PreviouslyEquippedTool.Parent ~= Character then
+					pcall(function()
+						Humanoid:EquipTool(PreviouslyEquippedTool)
+					end)
+				end
+			end
 
 			FoodFeature.IsEating = false
 		end)
@@ -563,6 +989,8 @@ return function(Config)
 	function FoodFeature:Destroy()
 		self.Enabled = false
 		self.IsEating = false
+		self.KnownHotbarOrder = {}
+		self.RemoteCache = {}
 		unequipFoodTools()
 
 		if self.Connection then
