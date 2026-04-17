@@ -18,7 +18,9 @@ return function(Config)
 		Container.Name = "StatsContainer"
 		Container.Parent = Parent
 		Container.BackgroundTransparency = 1
+		Container.ClipsDescendants = true
 		Container.Size = UDim2.new(1, 0, 1, 0)
+		Container.ZIndex = 20
 
 		Padding.Parent = Container
 		Padding.PaddingLeft = UDim.new(0, 6)
@@ -41,10 +43,11 @@ return function(Config)
 			Label.Text = ""
 			Label.TextColor3 = Color3.fromRGB(255, 255, 255)
 			Label.TextSize = 12
-			Label.TextTransparency = 0.2
-			Label.TextStrokeTransparency = 0.95
+			Label.TextTransparency = 0
+			Label.TextStrokeTransparency = 0.9
 			Label.TextWrapped = false
 			Label.TextXAlignment = Enum.TextXAlignment.Left
+			Label.ZIndex = 21
 
 			Labels[Index] = Label
 		end
