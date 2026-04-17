@@ -472,14 +472,16 @@ return function(Config)
 			return false, nil
 		end
 
+		local Arguments = table.pack(...)
+
 		if Remote:IsA("RemoteFunction") then
 			return pcall(function()
-				return Remote:InvokeServer(...)
+				return Remote:InvokeServer(table.unpack(Arguments, 1, Arguments.n))
 			end)
 		end
 
 		return pcall(function()
-			Remote:FireServer(...)
+			Remote:FireServer(table.unpack(Arguments, 1, Arguments.n))
 		end)
 	end
 
