@@ -1,7 +1,40 @@
 -- Main entry script for using the Fatality UI library.
 -- Core library code lives in src/source.luau.
-local Fatality = loadstring(game:HttpGet("https://raw.githubusercontent.com/Waikuls/Synx/main/src/source.luau"))();
+local function loadScript(LocalPath, RemoteUrl)
+	local SourceCode
+
+	if type(readfile) == "function" then
+		local Success, Result = pcall(readfile, LocalPath)
+
+		if Success and type(Result) == "string" and Result ~= "" then
+			SourceCode = Result
+		end
+	end
+
+	if not SourceCode then
+		SourceCode = game:HttpGet(RemoteUrl)
+	end
+
+	return loadstring(SourceCode)()
+end
+
+local Fatality = loadScript("src/source.luau", "https://raw.githubusercontent.com/Waikuls/Synx/main/src/source.luau")
+local CoreGui = game:GetService("CoreGui")
+local ExistingCoreGuis = {}
+
+for _, Gui in ipairs(CoreGui:GetChildren()) do
+	ExistingCoreGuis[Gui] = true
+end
+
 local Notification = Fatality:CreateNotifier();
+local NotifierGui
+
+for _, Gui in ipairs(CoreGui:GetChildren()) do
+	if Gui:IsA("ScreenGui") and not ExistingCoreGuis[Gui] then
+		NotifierGui = Gui
+		break
+	end
+end
 
 Fatality:Loader({
 	Name = "FATALITY",
@@ -18,6 +51,11 @@ local Window = Fatality.new({
 	Name = "FATALITY",
 	Expire = "never",
 });
+local MainWindowGui = Fatality.Windows[#Fatality.Windows]
+local CreateESP = loadScript("features/esp.lua", "https://raw.githubusercontent.com/Waikuls/Synx/main/features/esp.lua")
+local ESP = CreateESP({
+	Notification = Notification
+})
 
 local Rage = Window:AddMenu({
 	Name = "RAGE",
@@ -410,122 +448,63 @@ do
 end
 
 do
+	local General = Misc:AddSection({
+		Name = "GENERAL",
+		Position = 'left'
+	})
+
+	General:AddButton({
+		Name = "Quit",
+		Callback = function()
+			ESP:Destroy()
+			table.clear(Fatality.DragBlacklist)
+
+			if MainWindowGui then
+				Fatality.WindowFlags[MainWindowGui] = nil
+			end
+
+			if NotifierGui and NotifierGui.Parent then
+				NotifierGui:Destroy()
+				NotifierGui = nil
+			end
+
+			if MainWindowGui and MainWindowGui.Parent then
+				MainWindowGui:Destroy()
+				MainWindowGui = nil
+			end
+
+			table.clear(Fatality.Windows)
+		end,
+	})
+end
+
+do
 	local Misc = Visual:AddSection({
 		Name = "MISC",
 		Position = 'left'
 	})
 	
-	local Model = Visual:AddSection({
-		Name = "MODEL",
+	local Setting = Visual:AddSection({
+		Name = "SETTING",
 		Position = 'center'
 	})
 	
 	Misc:AddToggle({
-		Name = "Thirdperson",
-		Option = true
-	}).Option:AddSlider({
-		Name = "Distance"
-	});
-	
-	Misc:AddToggle({
-		Name = "Overhead override",
-		Option = true
-	}).Option:AddDropdown({
-		Name = "Override"
-	});
-	
-	Misc:AddToggle({
-		Name = "Fov override",
-		Option = true
-	}).Option:AddToggle({
-		Name = "Something"
-	})
-	
-	Misc:AddToggle({
-		Name = "Viewmodel override",
-		Option = true
-	}).Option:AddToggle({
-		Name = "Something"
-	})
-	
-	Misc:AddDropdown({
-		Name = "Remove scope"
-	})
-	
-	local pc = Misc:AddToggle({
-		Name = "Penetration crosshair",
-		Option = true
-	}).Option;
-	
-	pc:AddColorPicker({
-		Name = "Walls",
-		Default = Color3.fromRGB(111, 255, 0)
-	})
-	
-	pc:AddColorPicker({
-		Name = "Can't walls",
-		Default = Color3.fromRGB(255, 0, 4)
-	})
-	
-	Misc:AddToggle({
-		Name = "Force crosshair",
-		Option = true
-	}).Option:AddToggle({
-		Name = "Something"
-	})
-	
-	Misc:AddDropdown({
-		Name = "Spread"
-	})
-	
-	Misc:AddToggle({
-		Name = "Bullet tracer",
-		Option = true
-	}).Option:AddColorPicker({
-		Name = "Color",
-		Default = Color3.fromRGB(255, 41, 116)
-	})
-	
-	Model:AddDropdown({
-		Name = "Visible",
-		Default = "Disabled",
-		Values = {"Disabled",'Something'}
-	})
-	
-	Model:AddDropdown({
-		Name = "Invisible",
-		Default = "Disabled",
-		Values = {"Disabled",'Something'}
-	})
-	
-	Model:AddDropdown({
-		Name = "Arms",
-		Default = "Disabled",
-		Values = {"Disabled",'Something'}
-	})
-	
-	Model:AddDropdown({
-		Name = "Viewmodel",
-		Default = "Disabled",
-		Values = {"Disabled",'Something'}
-	})
-	
-	Model:AddDropdown({
-		Name = "Attachments",
-		Default = "Disabled",
-		Values = {"Disabled",'Something'}
-	})
-	
-	Model:AddToggle({
-		Name = 'Glow',
-		Option = true
-		
-	}).Option:AddColorPicker({
-		Name = "Color"
-	})
-	
-	Model:AddKeybind({
-		Name = "Toggle"
+		Name = "ESP",
+		Callback = function(Value)
+			local Enabled = ESP:SetEnabled(Value)
+
+			if not Enabled and Value then
+				task.defer(function()
+					local Flag = Window:GetFlags().ESPToggle
+
+					if Flag then
+						Flag:SetValue(false)
+					end
+				end)
+			end
+		end,
+		Flag = "ESP"
 	})
 
 end
