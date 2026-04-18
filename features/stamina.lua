@@ -1122,6 +1122,26 @@ return function(Config)
 			or string.find(NameLower, "breath", 1, true) ~= nil
 	end
 
+	local function isStrongMainScriptStatsPrimaryAlias(Candidate)
+		if not Candidate
+			or Candidate.SourceKind ~= "instance"
+			or not Candidate.ExactAlias
+			or not isMainScriptStatsHandle(Candidate.Handle)
+			or (Candidate.Group ~= "Current" and Candidate.Group ~= "Max") then
+			return false
+		end
+
+		local NameLower = Candidate.NameLower or ""
+
+		return NameLower == "stamina"
+			or NameLower == "staminainstat"
+			or NameLower == "currentstamina"
+			or NameLower == "staminavalue"
+			or NameLower == "maxstamina"
+			or NameLower == "maximumstamina"
+			or NameLower == "staminamax"
+	end
+
 	local function getHandleScopeInstance(Handle)
 		if not Handle or not Handle.Instance then
 			return nil
@@ -1199,6 +1219,7 @@ return function(Config)
 				PromotionReason = nil,
 				FailedVerificationCount = 0,
 				BootstrapBlocked = false,
+				RuntimePinned = false,
 				LastFailureReason = nil
 			}
 
@@ -1531,10 +1552,14 @@ return function(Config)
 		elseif Source == "external_write"
 			and (Candidate.Group == "Current" or Candidate.Group == "Max")
 			and Candidate.SourceKind == "instance"
-			and not isMainScriptStatsHandle(Candidate.Handle)
 			and not Candidate.BootstrapBlocked
 			and Candidate.ExternalWriteCount >= 2 then
-			promoteCandidate(Candidate, "logic-local", 6 + Candidate.ExternalWriteCount, "runtime_external_write")
+			if isStrongMainScriptStatsPrimaryAlias(Candidate) then
+				Candidate.RuntimePinned = true
+				promoteCandidate(Candidate, "logic-local", 7 + Candidate.ExternalWriteCount, "runtime_stats_external_write")
+			elseif not isMainScriptStatsHandle(Candidate.Handle) then
+				promoteCandidate(Candidate, "logic-local", 6 + Candidate.ExternalWriteCount, "runtime_external_write")
+			end
 		end
 
 		return Value
@@ -2117,6 +2142,11 @@ return function(Config)
 
 					local FailureLimit = Candidate.SourceKind == "instance" and 3 or 2
 
+					if Candidate.RuntimePinned == true
+						and isStrongMainScriptStatsPrimaryAlias(Candidate) then
+						FailureLimit = math.max(FailureLimit, 6)
+					end
+
 					if Candidate.FailedVerificationCount >= FailureLimit then
 						Candidate.BootstrapBlocked = true
 						normalizeCandidate(Candidate)
@@ -2208,21 +2238,11 @@ return function(Config)
 				or Candidate.SourceKind ~= "instance"
 				or not Candidate.ExactAlias
 				or not isMainScriptStatsHandle(Candidate.Handle)
-				or (Candidate.Group ~= "Current" and Candidate.Group ~= "Max")
-				or Session.ActionValid ~= true then
+				or (Candidate.Group ~= "Current" and Candidate.Group ~= "Max") then
 				return false
 			end
 
-			local NameLower = Candidate.NameLower or ""
-			local StrongPrimaryAlias = NameLower == "stamina"
-				or NameLower == "staminainstat"
-				or NameLower == "currentstamina"
-				or NameLower == "staminavalue"
-				or NameLower == "maxstamina"
-				or NameLower == "maximumstamina"
-				or NameLower == "staminamax"
-
-			if not StrongPrimaryAlias then
+			if not isStrongMainScriptStatsPrimaryAlias(Candidate) then
 				return false
 			end
 
@@ -2231,6 +2251,18 @@ return function(Config)
 				or (Candidate.Score or 0) >= 8
 
 			if not HasStrongMovement then
+				return false
+			end
+
+			local HasStrongRuntimeSignal = Candidate.RuntimePinned == true
+				or (Observation.ExternalWrites or 0) >= 2
+				or (Candidate.ExternalWriteCount or 0) >= 4
+
+			if HasStrongRuntimeSignal then
+				return true
+			end
+
+			if Session.ActionValid ~= true then
 				return false
 			end
 
