@@ -114,6 +114,11 @@ return function(Config)
 		LastStepAt = 0,
 		LastWarnAt = 0,
 		WarnCooldown = 5,
+		LastDebugNotifyAt = 0,
+		DebugNotifyCooldown = 8,
+		LastFailureCaptureAt = 0,
+		FailureCaptureCooldown = 8,
+		AutoFailureCapture = true,
 		LastKnownTargets = {},
 		StepBusy = false,
 		StepQueued = false,
@@ -1458,6 +1463,101 @@ return function(Config)
 		return CurrentCount, MaxCount
 	end
 
+	local function buildDiagnosticLines(MaxSummaryLines)
+		local LogicCurrentCount, LogicMaxCount = countLogicPrimaryEntries()
+		local Lines = {
+			string.format(
+				"Handles C=%d M=%d F=%d S=%d",
+				#StaminaFeature.Handles.Current,
+				#StaminaFeature.Handles.Max,
+				#StaminaFeature.Handles.Flags,
+				#StaminaFeature.Handles.Spend
+			),
+			string.format("Logic C=%d M=%d", LogicCurrentCount, LogicMaxCount)
+		}
+		local Session = StaminaFeature.CaptureSession
+
+		if Session then
+			table.insert(Lines, string.format("Capture %s (%s)", tostring(Session.State), tostring(Session.Profile)))
+		else
+			table.insert(Lines, "Capture idle")
+		end
+
+		if #StaminaFeature.LastCaptureSummary > 0 then
+			local Limit = math.max(0, MaxSummaryLines or 0)
+			local Added = 0
+
+			for _, Line in ipairs(StaminaFeature.LastCaptureSummary) do
+				if type(Line) == "string" and Line ~= "" then
+					table.insert(Lines, Line)
+					Added = Added + 1
+
+					if Added >= Limit then
+						break
+					end
+				end
+			end
+		end
+
+		return Lines
+	end
+
+	local function notifyDiagnosticSummary(HeaderText, MaxSummaryLines, IconName)
+		if not Notification then
+			return
+		end
+
+		local Now = os.clock()
+
+		if (Now - StaminaFeature.LastDebugNotifyAt) < StaminaFeature.DebugNotifyCooldown then
+			return
+		end
+
+		StaminaFeature.LastDebugNotifyAt = Now
+		local ContentLines = {}
+
+		if type(HeaderText) == "string" and HeaderText ~= "" then
+			table.insert(ContentLines, HeaderText)
+		end
+
+		for _, Line in ipairs(buildDiagnosticLines(MaxSummaryLines)) do
+			table.insert(ContentLines, Line)
+		end
+
+		Notification:Notify({
+			Title = "FATALITY",
+			Content = table.concat(ContentLines, "\n"),
+			Icon = IconName or "info"
+		})
+	end
+
+	local function requestFailureCapture()
+		if not StaminaFeature.Enabled
+			or StaminaFeature.AutoFailureCapture ~= true then
+			return false
+		end
+
+		local Session = StaminaFeature.CaptureSession
+
+		if Session and Session.State ~= "completed" then
+			return false
+		end
+
+		local Now = os.clock()
+
+		if (Now - StaminaFeature.LastFailureCaptureAt) < StaminaFeature.FailureCaptureCooldown then
+			return false
+		end
+
+		StaminaFeature.LastFailureCaptureAt = Now
+
+		local Success = pcall(function()
+			StaminaFeature:StartDebugCapture(StaminaFeature.DebugProfile)
+		end)
+
+		return Success
+	end
+
 	local function warnMissingHandles()
 		if not Notification then
 			return
@@ -1470,10 +1570,22 @@ return function(Config)
 		end
 
 		StaminaFeature.LastWarnAt = Now
+		local CaptureStarted = requestFailureCapture()
+		local ContentLines = {
+			"Inf stamina could not find logic stamina handles yet."
+		}
+
+		if CaptureStarted then
+			table.insert(ContentLines, "Auto capture started.")
+		end
+
+		for _, Line in ipairs(buildDiagnosticLines(2)) do
+			table.insert(ContentLines, Line)
+		end
 
 		Notification:Notify({
 			Title = "FATALITY",
-			Content = "Inf stamina could not find logic stamina handles yet.",
+			Content = table.concat(ContentLines, "\n"),
 			Icon = "alert-circle"
 		})
 	end
@@ -1750,6 +1862,14 @@ return function(Config)
 
 		StaminaFeature.LastCaptureSummary = Lines
 		Session.State = "completed"
+
+		if StaminaFeature.Enabled then
+			if LogicLocalCount > 0 then
+				notifyDiagnosticSummary("Stamina capture found logic candidates.", 4, "search")
+			else
+				notifyDiagnosticSummary("Stamina capture still found no logic handles.", 4, "alert-circle")
+			end
+		end
 	end
 
 	local function advanceCaptureSession()
