@@ -164,8 +164,8 @@ return function(Config)
 		OriginalSpendValues = {},
 		HookControllerId = nil,
 		RemoteBlockingEnabled = false,
-		NamecallHookEnabled = false,
-		AttributeNamecallHookEnabled = false,
+		NamecallHookEnabled = true,
+		AttributeNamecallHookEnabled = true,
 		RemoteNamecallHookEnabled = false,
 		CandidateRegistry = {},
 		CandidateOrder = {},
@@ -1558,6 +1558,33 @@ return function(Config)
 		return nil
 	end
 
+	local ProfileFamilyPriority = {
+		Free = {"base"},
+		Run = {"sprint", "run", "base"},
+		Dash = {"dash", "sprint", "run", "base"},
+		Attack = {"attack", "combat", "base"}
+	}
+
+	local function getProfileFamilyPriority(Profile)
+		return ProfileFamilyPriority[Profile] or ProfileFamilyPriority.Free
+	end
+
+	local function getActionFamilyRank(Profile, Family)
+		local ResolvedFamily = Family or "base"
+
+		for Index, AllowedFamily in ipairs(getProfileFamilyPriority(Profile)) do
+			if AllowedFamily == ResolvedFamily then
+				return Index
+			end
+		end
+
+		return nil
+	end
+
+	local function candidateMatchesActionProfile(Candidate, Profile)
+		return Candidate ~= nil and getActionFamilyRank(Profile, Candidate.Family) ~= nil
+	end
+
 	local function createCaptureSession(Profile)
 		local SelectedProfile = CaptureProfiles[Profile] and Profile or "Run"
 		local ProfileConfig = getProfileConfig(SelectedProfile)
@@ -2225,17 +2252,22 @@ return function(Config)
 		return false
 	end
 
-	local function getRuntimeSupportPriority(Candidate, GroupName)
+	local function getRuntimeSupportPriority(Candidate, GroupName, Profile)
 		if not Candidate then
 			return nil
 		end
 
 		local NameLower = Candidate.NameLower or ""
+		local FamilyRank = getActionFamilyRank(Profile, Candidate.Family)
 		local Score = 0
 
-		if NameLower == "issprinting" or NameLower == "offensive" then
+		if NameLower == "issprinting"
+			or NameLower == "offensive"
+			or FamilyRank == nil then
 			return nil
 		end
+
+		Score = Score + math.max(0, 8 - (FamilyRank * 2))
 
 		if Candidate.ExactAlias == true then
 			Score = Score + 4
@@ -2287,11 +2319,18 @@ return function(Config)
 		return Score > 0 and Score or nil
 	end
 
-	local function collectPreferredSupportEntries(GroupName, Predicate)
+	local function collectPreferredSupportEntries(GroupName, Predicate, Profile)
 		local Group = StaminaFeature.Handles[GroupName]
+		local ResolvedProfile = CaptureProfiles[Profile] and Profile
+			or (CaptureProfiles[StaminaFeature.LastActionProfile] and StaminaFeature.LastActionProfile)
+			or "Free"
 
 		if type(Group) ~= "table" or type(Predicate) ~= "function" then
 			return {}
+		end
+
+		local function isRelevantCandidate(Candidate)
+			return Predicate(Candidate) and candidateMatchesActionProfile(Candidate, ResolvedProfile)
 		end
 
 		if GroupName == "Flags" or GroupName == "Spend" then
@@ -2300,8 +2339,8 @@ return function(Config)
 			for _, Entry in ipairs(Group) do
 				local Candidate = Entry.Candidate
 
-				if Predicate(Candidate) and hasStrongPrimarySiblingHandle(Candidate) then
-					local Score = getRuntimeSupportPriority(Candidate, GroupName)
+				if isRelevantCandidate(Candidate) and hasStrongPrimarySiblingHandle(Candidate) then
+					local Score = getRuntimeSupportPriority(Candidate, GroupName, ResolvedProfile)
 
 					if Score ~= nil then
 						table.insert(ScopedEntries, {
@@ -2374,8 +2413,8 @@ return function(Config)
 		local BestScore = nil
 
 		for _, Entry in ipairs(Group) do
-			if Predicate(Entry.Candidate) then
-				local Score = getRuntimeSupportPriority(Entry.Candidate, GroupName)
+			if isRelevantCandidate(Entry.Candidate) then
+				local Score = getRuntimeSupportPriority(Entry.Candidate, GroupName, ResolvedProfile)
 
 				if Score ~= nil then
 					if BestScore == nil or Score > BestScore then
@@ -2393,7 +2432,7 @@ return function(Config)
 		end
 
 		for _, Entry in ipairs(Group) do
-			if Predicate(Entry.Candidate) then
+			if isRelevantCandidate(Entry.Candidate) then
 				table.insert(Entries, Entry)
 			end
 		end
@@ -2401,12 +2440,12 @@ return function(Config)
 		return Entries
 	end
 
-	local function getPreferredRuntimeFlagEntries()
-		return collectPreferredSupportEntries("Flags", isRuntimeFlagCandidate)
+	local function getPreferredRuntimeFlagEntries(Profile)
+		return collectPreferredSupportEntries("Flags", isRuntimeFlagCandidate, Profile)
 	end
 
-	local function getPreferredRuntimeSpendEntries()
-		return collectPreferredSupportEntries("Spend", isRuntimeSpendCandidate)
+	local function getPreferredRuntimeSpendEntries(Profile)
+		return collectPreferredSupportEntries("Spend", isRuntimeSpendCandidate, Profile)
 	end
 
 	local function setSupportIssue(GroupName, Entry, ObservedValue, DesiredValue, Context)
@@ -2480,9 +2519,33 @@ return function(Config)
 		return false
 	end
 
-	local function hasSupportHandles()
-		return #getPreferredRuntimeFlagEntries() > 0
-			or #getPreferredRuntimeSpendEntries() > 0
+	local function hasSupportHandles(Profile)
+		return #getPreferredRuntimeFlagEntries(Profile) > 0
+			or #getPreferredRuntimeSpendEntries(Profile) > 0
+	end
+
+	local function hasRelevantLogicPrimaryHandles(Profile)
+		for _, GroupName in ipairs({"Current", "Max"}) do
+			for _, Entry in ipairs(StaminaFeature.Handles[GroupName]) do
+				if isLogicLocalCandidate(Entry.Candidate)
+					and candidateMatchesActionProfile(Entry.Candidate, Profile) then
+					return true
+				end
+			end
+		end
+
+		return false
+	end
+
+	local function hasRelevantLogicCurrentHandles(Profile)
+		for _, Entry in ipairs(StaminaFeature.Handles.Current) do
+			if isLogicLocalCandidate(Entry.Candidate)
+				and candidateMatchesActionProfile(Entry.Candidate, Profile) then
+				return true
+			end
+		end
+
+		return false
 	end
 
 	local function hasHandles()
@@ -2511,6 +2574,18 @@ return function(Config)
 		end
 
 		return "Free"
+	end
+
+	local function resolveActionProfile(Metrics, RecentExternalPressure)
+		local Profile = inferRuntimeProfile(Metrics)
+		local ActionPressure = Profile ~= "Free" or RecentExternalPressure
+
+		if Profile == "Free" and Metrics.ToolEquipped and RecentExternalPressure then
+			Profile = "Attack"
+			ActionPressure = true
+		end
+
+		return Profile, ActionPressure
 	end
 
 	local function hasRecentExternalPressure()
@@ -4302,26 +4377,26 @@ return function(Config)
 		return getPreferredCandidateTarget(Entry.Candidate, "Max", Entry.Family, readEntryValue(Entry))
 	end
 
-	local function rememberOriginalFlags()
-		for _, Entry in ipairs(getPreferredRuntimeFlagEntries()) do
+	local function rememberOriginalFlags(Profile)
+		for _, Entry in ipairs(getPreferredRuntimeFlagEntries(Profile)) do
 			if StaminaFeature.OriginalFlagValues[Entry.Key] == nil then
 				StaminaFeature.OriginalFlagValues[Entry.Key] = readEntryValue(Entry)
 			end
 		end
 	end
 
-	local function rememberOriginalSpends()
-		for _, Entry in ipairs(getPreferredRuntimeSpendEntries()) do
+	local function rememberOriginalSpends(Profile)
+		for _, Entry in ipairs(getPreferredRuntimeSpendEntries(Profile)) do
 			if StaminaFeature.OriginalSpendValues[Entry.Key] == nil then
 				StaminaFeature.OriginalSpendValues[Entry.Key] = readEntryValue(Entry)
 			end
 		end
 	end
 
-	local function applyFlags()
-		rememberOriginalFlags()
+	local function applyFlags(Profile)
+		rememberOriginalFlags(Profile)
 
-		for _, Entry in ipairs(getPreferredRuntimeFlagEntries()) do
+		for _, Entry in ipairs(getPreferredRuntimeFlagEntries(Profile)) do
 			local CurrentValue = readEntryValue(Entry)
 			local CanRewrite = supportsSafeRuntimeRewrite("Flags", CurrentValue, Entry.Candidate)
 			local DesiredValue = CurrentValue ~= nil and getTruthyValue(CurrentValue) or nil
@@ -4341,10 +4416,10 @@ return function(Config)
 		end
 	end
 
-	local function applySpend()
-		rememberOriginalSpends()
+	local function applySpend(Profile)
+		rememberOriginalSpends(Profile)
 
-		for _, Entry in ipairs(getPreferredRuntimeSpendEntries()) do
+		for _, Entry in ipairs(getPreferredRuntimeSpendEntries(Profile)) do
 			local CurrentValue = readEntryValue(Entry)
 			local CanRewrite = supportsSafeRuntimeRewrite("Spend", CurrentValue, Entry.Candidate)
 			local DesiredValue = CurrentValue ~= nil and getZeroLikeValue(CurrentValue) or nil
@@ -4565,21 +4640,17 @@ return function(Config)
 		return AppliedLogic, AppliedDisplay
 	end
 
-	local function evaluateRuntimeVerification(AppliedLogic, AppliedDisplay)
-		local Metrics = getCharacterMetrics()
-		local Profile = inferRuntimeProfile(Metrics)
-		local RecentExternalPressure = hasRecentExternalPressure()
-		local ActionPressure = Profile ~= "Free" or RecentExternalPressure
+	local function evaluateRuntimeVerification(
+		AppliedLogic,
+		AppliedDisplay,
+		Profile,
+		ActionPressure
+	)
 		local DropDetected = false
 		local FailureReason = nil
-		local SupportHandles = hasSupportHandles()
-		local PreferredFlagEntries = getPreferredRuntimeFlagEntries()
-		local PreferredSpendEntries = getPreferredRuntimeSpendEntries()
-
-		if Profile == "Free" and Metrics.ToolEquipped and RecentExternalPressure then
-			Profile = "Attack"
-			ActionPressure = true
-		end
+		local SupportHandles = hasSupportHandles(Profile)
+		local PreferredFlagEntries = getPreferredRuntimeFlagEntries(Profile)
+		local PreferredSpendEntries = getPreferredRuntimeSpendEntries(Profile)
 
 		StaminaFeature.LastActionProfile = Profile
 
@@ -4623,11 +4694,11 @@ return function(Config)
 					return "logic_unverified", FailureReason, Profile, true
 				end
 
-				if ActionPressure then
-					return "verified", string.lower(Profile) .. "_support_only", Profile, false
+				if AppliedDisplay or getDiagnosticSnapshot().DisplayCurrentCount > 0 or getDiagnosticSnapshot().DisplayMaxCount > 0 then
+					return "display_only", "display_handles_only", Profile, true
 				end
 
-				return "logic_unverified", "support_handles_waiting", Profile, false
+				return "logic_unverified", ActionPressure and "support_handles_only" or "support_handles_waiting", Profile, ActionPressure
 			end
 
 			if AppliedDisplay or getDiagnosticSnapshot().DisplayCurrentCount > 0 or getDiagnosticSnapshot().DisplayMaxCount > 0 then
@@ -4637,12 +4708,18 @@ return function(Config)
 			return "searching", "no_logic_handles", Profile, true
 		end
 
+		if ActionPressure
+			and (not hasRelevantLogicPrimaryHandles(Profile) or not hasRelevantLogicCurrentHandles(Profile)) then
+			return "searching", "missing_relevant_primary_handles", Profile, true
+		end
+
 		if not AppliedLogic then
 			return "logic_unverified", "logic_not_applied", Profile, true
 		end
 
 		for _, Entry in ipairs(StaminaFeature.Handles.Current) do
-			if isLogicLocalCandidate(Entry.Candidate) then
+			if isLogicLocalCandidate(Entry.Candidate)
+				and candidateMatchesActionProfile(Entry.Candidate, Profile) then
 				local Target = getCurrentTargetForEntry(Entry)
 				local CurrentValue = toNumber(readEntryValue(Entry))
 
@@ -5174,12 +5251,21 @@ return function(Config)
 			end
 
 			clearSupportIssue()
-			applyFlags()
-			applySpend()
+			local Metrics = getCharacterMetrics()
+			local RecentExternalPressure = hasRecentExternalPressure()
+			local ActionProfile, ActionPressure = resolveActionProfile(Metrics, RecentExternalPressure)
+			self.LastActionProfile = ActionProfile
+			applyFlags(ActionProfile)
+			applySpend(ActionProfile)
 			applyDirectStatsOverrides()
 			applyMaxHandles()
 			local AppliedLogic, AppliedDisplay = applyCurrentHandles()
-			local VerificationState, FailureReason, ActionProfile, ShouldRecover = evaluateRuntimeVerification(AppliedLogic, AppliedDisplay)
+			local VerificationState, FailureReason, ActionProfile, ShouldRecover = evaluateRuntimeVerification(
+				AppliedLogic,
+				AppliedDisplay,
+				ActionProfile,
+				ActionPressure
+			)
 
 			setVerificationState(VerificationState, FailureReason, ActionProfile)
 
