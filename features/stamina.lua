@@ -7,7 +7,7 @@ return function(Config)
 
 	local StaminaFeature = {
 		Enabled = false,
-		HeartbeatConnection = nil,
+		StepConnections = {},
 		CharacterAddedConnection = nil,
 		HandleSignals = {},
 		StepInterval = 0.05,
@@ -77,9 +77,14 @@ return function(Config)
 		},
 		Flags = {
 			"NoStaminaCost",
+			"NoCooldown",
 			"CanUseStamina",
 			"HasStamina",
 			"EnoughStamina",
+			"CanDash",
+			"CanSprint",
+			"CanRun",
+			"CanAttack",
 			"NoEeveeDeplete",
 			"NoEnergyDeplete",
 			"NoEnergyCost",
@@ -709,6 +714,14 @@ return function(Config)
 		table.clear(StaminaFeature.Handles.Guard)
 	end
 
+	local function disconnectStepConnections()
+		for _, Connection in ipairs(StaminaFeature.StepConnections) do
+			Connection:Disconnect()
+		end
+
+		table.clear(StaminaFeature.StepConnections)
+	end
+
 	local function getTruthyValue(Value)
 		local ValueType = typeof(Value)
 
@@ -784,7 +797,7 @@ return function(Config)
 
 		StaminaFeature.GcResolveQueued = true
 
-		task.delay(0.1, function()
+		task.delay(0.2, function()
 			StaminaFeature.GcResolveQueued = false
 
 			if StaminaFeature.Enabled then
@@ -807,6 +820,29 @@ return function(Config)
 				StaminaFeature:Step(false, false)
 			end
 		end)
+	end
+
+	local function connectStepConnections()
+		if #StaminaFeature.StepConnections > 0 then
+			return
+		end
+
+		local function queueStep()
+			if StaminaFeature.Enabled then
+				scheduleStep()
+			end
+		end
+
+		local SuccessRender, RenderConnection = pcall(function()
+			return RunService.RenderStepped:Connect(queueStep)
+		end)
+
+		if SuccessRender and RenderConnection then
+			table.insert(StaminaFeature.StepConnections, RenderConnection)
+		end
+
+		table.insert(StaminaFeature.StepConnections, RunService.Stepped:Connect(queueStep))
+		table.insert(StaminaFeature.StepConnections, RunService.Heartbeat:Connect(queueStep))
 	end
 
 	local function connectHandleSignals()
@@ -1124,6 +1160,75 @@ return function(Config)
 		return Applied
 	end
 
+	local function isFlagLocked(Value)
+		local BooleanValue = toBoolean(Value)
+
+		if BooleanValue ~= nil then
+			return BooleanValue == true
+		end
+
+		local NumberValue = toNumber(Value)
+
+		if NumberValue ~= nil then
+			return NumberValue > 0
+		end
+
+		if typeof(Value) == "string" then
+			local Lower = string.lower(Value)
+
+			return Lower == "true" or Lower == "1" or Lower == "yes"
+		end
+
+		return Value ~= nil
+	end
+
+	local function isGuardCleared(Value)
+		local BooleanValue = toBoolean(Value)
+
+		if BooleanValue ~= nil then
+			return BooleanValue == false
+		end
+
+		local NumberValue = toNumber(Value)
+
+		if NumberValue ~= nil then
+			return math.abs(NumberValue) <= 0.001
+		end
+
+		if typeof(Value) == "string" then
+			local Lower = string.lower(Value)
+
+			return Lower == "false" or Lower == "0" or Lower == "no"
+		end
+
+		return Value == nil
+	end
+
+	local function shouldRescanGc()
+		for _, Entry in ipairs(StaminaFeature.Handles.Current) do
+			local Target = getTargetForEntry(Entry)
+			local CurrentValue = toNumber(readHandle(Entry.Handle))
+
+			if Target ~= nil and CurrentValue ~= nil and CurrentValue < (Target - 0.5) then
+				return true
+			end
+		end
+
+		for _, Entry in ipairs(StaminaFeature.Handles.Flags) do
+			if not isFlagLocked(readHandle(Entry.Handle)) then
+				return true
+			end
+		end
+
+		for _, Entry in ipairs(StaminaFeature.Handles.Guard) do
+			if not isGuardCleared(readHandle(Entry.Handle)) then
+				return true
+			end
+		end
+
+		return false
+	end
+
 	local function restoreOriginalFlags()
 		for _, Entry in ipairs(StaminaFeature.Handles.Flags) do
 			local OriginalValue = StaminaFeature.OriginalFlagValues[Entry.Key]
@@ -1359,8 +1464,13 @@ return function(Config)
 			applyFlags()
 			applyGuards()
 			applyMaxHandles()
+			local Applied = applyCurrentHandles()
 
-			return applyCurrentHandles()
+			if shouldRescanGc() then
+				scheduleGcResolve()
+			end
+
+			return Applied
 		end)
 
 		self.StepBusy = false
@@ -1386,26 +1496,12 @@ return function(Config)
 			ensureHookController()
 			clearScopeCache()
 			self:Step(true, false)
-
-			if not hasCurrentLikeHandles() then
-				scheduleGcResolve()
-			end
-
-			if not self.HeartbeatConnection then
-				self.HeartbeatConnection = RunService.Heartbeat:Connect(function()
-					if self.Enabled and (os.clock() - self.LastStepAt) >= self.StepInterval then
-						self:Step(false, false)
-					end
-				end)
-			end
+			connectStepConnections()
+			scheduleGcResolve()
 		else
 			restoreOriginalFlags()
 			restoreOriginalGuards()
-
-			if self.HeartbeatConnection then
-				self.HeartbeatConnection:Disconnect()
-				self.HeartbeatConnection = nil
-			end
+			disconnectStepConnections()
 
 			disconnectHandleSignals()
 		end
@@ -1420,11 +1516,7 @@ return function(Config)
 		self.GcResolveQueued = false
 		restoreOriginalFlags()
 		restoreOriginalGuards()
-
-		if self.HeartbeatConnection then
-			self.HeartbeatConnection:Disconnect()
-			self.HeartbeatConnection = nil
-		end
+		disconnectStepConnections()
 
 		if self.CharacterAddedConnection then
 			self.CharacterAddedConnection:Disconnect()
@@ -1457,6 +1549,7 @@ return function(Config)
 
 		if StaminaFeature.Enabled then
 			scheduleStep()
+			scheduleGcResolve()
 		end
 	end)
 
