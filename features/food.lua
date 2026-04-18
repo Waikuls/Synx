@@ -10,9 +10,11 @@ return function(Config)
 		Connection = nil,
 		Elapsed = 0,
 		IsEating = false,
+		StopRequested = false,
 		LastEatAt = 0,
 		LastMissingFoodAt = 0,
 		ScanInterval = 0.5,
+		HungerRefreshInterval = 1,
 		EatCooldown = 3,
 		EquipDelay = 0.35,
 		EquipRetryDelay = 0.12,
@@ -24,6 +26,8 @@ return function(Config)
 		HungerThreshold = 0.35,
 		FallbackThreshold = 25,
 		AutoManagedTool = nil,
+		HungerSnapshot = nil,
+		LastHungerScanAt = 0,
 		KnownHotbarOrder = {},
 		RemoteCache = {}
 	}
@@ -313,37 +317,117 @@ return function(Config)
 		return 3
 	end
 
-	local function findBestValue(AliasRanking, Options)
-		local Candidates = {}
-		local Roots = buildScanRoots()
-
-		local function getPartialRank(NameLower)
-			if not Options or not Options.PartialMatcher then
-				return nil
+	local function getPartialHungerRank(Kind, NameLower)
+		if Kind == "starving" then
+			if string.find(NameLower, "starv", 1, true) then
+				return 100
 			end
 
-			return Options.PartialMatcher(NameLower)
+			if NameLower == "hungry" or NameLower == "ishungry" then
+				return 101
+			end
+
+			return nil
 		end
 
-		local function recordCandidate(Name, Value, Priority)
-			local NameLower = string.lower(Name)
-			local AliasRank = AliasRanking[NameLower]
+		if Kind == "percent" then
+			local HasFoodName = string.find(NameLower, "hunger", 1, true) or string.find(NameLower, "food", 1, true)
+			local HasPercentName = string.find(NameLower, "percent", 1, true) or string.find(NameLower, "ratio", 1, true)
 
-			if AliasRank == nil then
-				AliasRank = getPartialRank(NameLower)
+			if HasFoodName and HasPercentName then
+				return 100
 			end
+
+			return nil
+		end
+
+		if Kind == "current" then
+			local HasFoodName = string.find(NameLower, "hunger", 1, true) or string.find(NameLower, "food", 1, true)
+			local IsMax = string.find(NameLower, "max", 1, true)
+			local IsPercent = string.find(NameLower, "percent", 1, true) or string.find(NameLower, "ratio", 1, true)
+
+			if HasFoodName and not IsMax and not IsPercent then
+				return 100
+			end
+
+			return nil
+		end
+
+		if Kind == "max" then
+			local HasFoodName = string.find(NameLower, "hunger", 1, true) or string.find(NameLower, "food", 1, true)
+
+			if HasFoodName and string.find(NameLower, "max", 1, true) then
+				return 100
+			end
+		end
+
+		return nil
+	end
+
+	local function getHungerAliasRank(Kind, NameLower)
+		local Ranking = Kind == "starving" and StarvingRanking
+			or Kind == "percent" and HungerPercentRanking
+			or Kind == "current" and HungerCurrentRanking
+			or HungerMaxRanking
+		local AliasRank = Ranking[NameLower]
+
+		if AliasRank ~= nil then
+			return AliasRank
+		end
+
+		return getPartialHungerRank(Kind, NameLower)
+	end
+
+	local function isBetterHungerCandidate(NewCandidate, CurrentCandidate)
+		if not CurrentCandidate then
+			return true
+		end
+
+		if NewCandidate.AliasRank ~= CurrentCandidate.AliasRank then
+			return NewCandidate.AliasRank < CurrentCandidate.AliasRank
+		end
+
+		if NewCandidate.Priority ~= CurrentCandidate.Priority then
+			return NewCandidate.Priority < CurrentCandidate.Priority
+		end
+
+		if NewCandidate.TypeScore ~= CurrentCandidate.TypeScore then
+			return NewCandidate.TypeScore < CurrentCandidate.TypeScore
+		end
+
+		return NewCandidate.Name < CurrentCandidate.Name
+	end
+
+	local function scanHungerSnapshot()
+		local Roots = buildScanRoots()
+		local BestCandidates = {}
+
+		local function recordCandidate(Kind, Name, Value, Priority)
+			local NameLower = string.lower(Name)
+			local AliasRank = getHungerAliasRank(Kind, NameLower)
 
 			if AliasRank == nil then
 				return
 			end
 
-			table.insert(Candidates, {
+			local Candidate = {
 				Value = Value,
 				Priority = Priority,
 				AliasRank = AliasRank,
 				TypeScore = getValueTypeScore(Value),
 				Name = NameLower
-			})
+			}
+
+			if isBetterHungerCandidate(Candidate, BestCandidates[Kind]) then
+				BestCandidates[Kind] = Candidate
+			end
+		end
+
+		local function recordAllKinds(Name, Value, Priority)
+			recordCandidate("starving", Name, Value, Priority)
+			recordCandidate("percent", Name, Value, Priority)
+			recordCandidate("current", Name, Value, Priority)
+			recordCandidate("max", Name, Value, Priority)
 		end
 
 		for _, RootInfo in ipairs(Roots) do
@@ -352,11 +436,11 @@ return function(Config)
 
 			local function visit(Instance)
 				if Instance:IsA("ValueBase") then
-					recordCandidate(Instance.Name, Instance.Value, Priority)
+					recordAllKinds(Instance.Name, Instance.Value, Priority)
 				end
 
 				for Name, Value in pairs(Instance:GetAttributes()) do
-					recordCandidate(Name, Value, Priority)
+					recordAllKinds(Name, Value, Priority)
 				end
 			end
 
@@ -367,23 +451,28 @@ return function(Config)
 			end
 		end
 
-		table.sort(Candidates, function(Left, Right)
-			if Left.AliasRank ~= Right.AliasRank then
-				return Left.AliasRank < Right.AliasRank
-			end
+		return {
+			StarvingValue = BestCandidates.starving and BestCandidates.starving.Value or nil,
+			PercentValue = BestCandidates.percent and BestCandidates.percent.Value or nil,
+			CurrentValue = BestCandidates.current and BestCandidates.current.Value or nil,
+			MaxValue = BestCandidates.max and BestCandidates.max.Value or nil,
+			HasSignal = next(BestCandidates) ~= nil
+		}
+	end
 
-			if Left.Priority ~= Right.Priority then
-				return Left.Priority < Right.Priority
-			end
+	local function getHungerSnapshot(ForceRefresh)
+		local Now = os.clock()
 
-			if Left.TypeScore ~= Right.TypeScore then
-				return Left.TypeScore < Right.TypeScore
-			end
+		if not ForceRefresh
+			and FoodFeature.HungerSnapshot
+			and (Now - FoodFeature.LastHungerScanAt) < FoodFeature.HungerRefreshInterval then
+			return FoodFeature.HungerSnapshot
+		end
 
-			return Left.Name < Right.Name
-		end)
+		FoodFeature.HungerSnapshot = scanHungerSnapshot()
+		FoodFeature.LastHungerScanAt = Now
 
-		return Candidates[1] and Candidates[1].Value or nil
+		return FoodFeature.HungerSnapshot
 	end
 
 	local function isHungryFlag(Value)
@@ -416,20 +505,9 @@ return function(Config)
 		return false
 	end
 
-	local function getHungerState()
-		local StarvingValue = findBestValue(StarvingRanking, {
-			PartialMatcher = function(NameLower)
-				if string.find(NameLower, "starv", 1, true) then
-					return 100
-				end
-
-				if NameLower == "hungry" or NameLower == "ishungry" then
-					return 101
-				end
-
-				return nil
-			end
-		})
+	local function getHungerState(ForceRefresh)
+		local Snapshot = getHungerSnapshot(ForceRefresh)
+		local StarvingValue = Snapshot.StarvingValue
 
 		if isHungryFlag(StarvingValue) then
 			return {
@@ -438,48 +516,15 @@ return function(Config)
 			}
 		end
 
-		local PercentValue = findBestValue(HungerPercentRanking, {
-			PartialMatcher = function(NameLower)
-				local HasFoodName = string.find(NameLower, "hunger", 1, true) or string.find(NameLower, "food", 1, true)
-				local HasPercentName = string.find(NameLower, "percent", 1, true) or string.find(NameLower, "ratio", 1, true)
-
-				if HasFoodName and HasPercentName then
-					return 100
-				end
-
-				return nil
-			end
-		})
-		local CurrentValue = findBestValue(HungerCurrentRanking, {
-			PartialMatcher = function(NameLower)
-				local HasFoodName = string.find(NameLower, "hunger", 1, true) or string.find(NameLower, "food", 1, true)
-				local IsMax = string.find(NameLower, "max", 1, true)
-				local IsPercent = string.find(NameLower, "percent", 1, true) or string.find(NameLower, "ratio", 1, true)
-
-				if HasFoodName and not IsMax and not IsPercent then
-					return 100
-				end
-
-				return nil
-			end
-		})
-		local MaxValue = findBestValue(HungerMaxRanking, {
-			PartialMatcher = function(NameLower)
-				local HasFoodName = string.find(NameLower, "hunger", 1, true) or string.find(NameLower, "food", 1, true)
-
-				if HasFoodName and string.find(NameLower, "max", 1, true) then
-					return 100
-				end
-
-				return nil
-			end
-		})
+		local PercentValue = Snapshot.PercentValue
+		local CurrentValue = Snapshot.CurrentValue
+		local MaxValue = Snapshot.MaxValue
 
 		local PercentNumber = parsePercentValue(PercentValue)
 		local CurrentNumber = parseLooseNumber(CurrentValue)
 		local MaxNumber = parseLooseNumber(MaxValue)
 		local RatioCurrent, RatioMax = parseRatio(CurrentValue)
-		local HasSignal = StarvingValue ~= nil or PercentValue ~= nil or CurrentValue ~= nil or MaxValue ~= nil
+		local HasSignal = Snapshot.HasSignal
 
 		if (CurrentNumber == nil or MaxNumber == nil) and RatioCurrent and RatioMax then
 			CurrentNumber = RatioCurrent
@@ -916,7 +961,7 @@ return function(Config)
 			return LeftValue == RightValue
 		end
 
-		return Left.Name == Right.Name
+		return false
 	end
 
 	local function isToolEquipped(Tool, Character)
@@ -1098,6 +1143,7 @@ return function(Config)
 		end
 
 		FoodFeature.IsEating = true
+		FoodFeature.StopRequested = false
 		FoodFeature.LastEatAt = os.clock()
 
 		task.spawn(function()
@@ -1130,6 +1176,10 @@ return function(Config)
 			end
 
 			for _ = 1, FoodFeature.MaxActivationAttempts do
+				if FoodFeature.StopRequested then
+					break
+				end
+
 				if not Tool.Parent then
 					break
 				end
@@ -1163,7 +1213,7 @@ return function(Config)
 
 				task.wait(FoodFeature.ActivationDelay)
 
-				local HungerState = getHungerState()
+				local HungerState = getHungerState(true)
 
 				if HungerState.HasSignal and not HungerState.ShouldEat then
 					break
@@ -1171,6 +1221,10 @@ return function(Config)
 			end
 
 			unequipFoodTools(ShouldManageTool and Tool or nil)
+
+			if FoodFeature.AutoManagedTool and isSameTool(FoodFeature.AutoManagedTool, Tool) then
+				FoodFeature.AutoManagedTool = nil
+			end
 
 			if PreviouslyEquippedTool and PreviouslyEquippedTool.Parent then
 				selectToolFromHotbar(PreviouslyEquippedTool)
@@ -1183,14 +1237,26 @@ return function(Config)
 			end
 
 			FoodFeature.IsEating = false
+			FoodFeature.StopRequested = false
 		end)
 	end
 
 	function FoodFeature:SetEnabled(Value)
 		self.Enabled = Value and true or false
+		self.HungerSnapshot = nil
+		self.LastHungerScanAt = 0
+
+		if self.Enabled then
+			self.StopRequested = false
+			self.Elapsed = self.ScanInterval
+		else
+			self.StopRequested = true
+		end
 
 		if not self.Enabled then
-			unequipFoodTools()
+			if self.AutoManagedTool and not self.IsEating then
+				unequipFoodTools(self.AutoManagedTool)
+			end
 		end
 
 		if not self.Connection then
@@ -1218,7 +1284,6 @@ return function(Config)
 				end
 
 				if not HungerState.ShouldEat then
-					unequipFoodTools()
 					return
 				end
 
@@ -1239,8 +1304,15 @@ return function(Config)
 	function FoodFeature:Destroy()
 		self.Enabled = false
 		self.IsEating = false
-		unequipFoodTools()
+		self.StopRequested = true
+
+		if self.AutoManagedTool then
+			unequipFoodTools(self.AutoManagedTool)
+		end
+
 		self.AutoManagedTool = nil
+		self.HungerSnapshot = nil
+		self.LastHungerScanAt = 0
 		self.KnownHotbarOrder = {}
 		self.RemoteCache = {}
 
