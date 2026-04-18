@@ -737,6 +737,60 @@ return function(Config)
 		return 40
 	end
 
+	local function isMainScriptStatsHandle(Handle)
+		if not Handle or not Handle.Instance then
+			return false
+		end
+
+		local MainScript = findMainScript()
+		local MainScriptStats = MainScript and MainScript:FindFirstChild("Stats")
+
+		return isInstanceInHierarchy(Handle.Instance, MainScriptStats)
+	end
+
+	local function isMainScriptLogicHandle(Handle)
+		if not Handle or not Handle.Instance then
+			return false
+		end
+
+		local MainScript = findMainScript()
+
+		if not MainScript or not isInstanceInHierarchy(Handle.Instance, MainScript) then
+			return false
+		end
+
+		return not isMainScriptStatsHandle(Handle)
+	end
+
+	local function isInterestingLogicName(NameLower)
+		if type(NameLower) ~= "string" or NameLower == "" then
+			return false
+		end
+
+		return string.find(NameLower, "stamina", 1, true) ~= nil
+			or string.find(NameLower, "dash", 1, true) ~= nil
+			or string.find(NameLower, "sprint", 1, true) ~= nil
+			or string.find(NameLower, "run", 1, true) ~= nil
+			or string.find(NameLower, "attack", 1, true) ~= nil
+			or string.find(NameLower, "combat", 1, true) ~= nil
+			or string.find(NameLower, "cooldown", 1, true) ~= nil
+			or string.find(NameLower, "cost", 1, true) ~= nil
+			or string.find(NameLower, "locked", 1, true) ~= nil
+			or string.find(NameLower, "input", 1, true) ~= nil
+	end
+
+	local function shouldBootstrapLogicHandle(GroupName, Handle, Confidence, SourceKind)
+		if GroupName ~= "Current" and GroupName ~= "Max" then
+			return false
+		end
+
+		if SourceKind == "env" or SourceKind == "script-env" then
+			return true
+		end
+
+		return (Confidence or 0) >= 105 and isMainScriptLogicHandle(Handle)
+	end
+
 	local function getRemoteDisplayName(Remote)
 		local Success, Value = pcall(function()
 			return Remote:GetFullName()
@@ -872,7 +926,9 @@ return function(Config)
 				PromotionReason = nil
 			}
 
-			if GroupName == "Flags" and ExactAlias and (Confidence or 0) >= 85 then
+			if ExactAlias and shouldBootstrapLogicHandle(GroupName, Handle, Confidence, SourceKind) then
+				promoteCandidate(Candidate, "logic-local", 7, "exact_logic_bootstrap")
+			elseif GroupName == "Flags" and ExactAlias and (Confidence or 0) >= 85 then
 				promoteCandidate(Candidate, "flags", 5, "exact_flag_bootstrap")
 			elseif GroupName == "Spend" and ExactAlias and (Confidence or 0) >= 85 then
 				promoteCandidate(Candidate, "spend", 5, "exact_spend_bootstrap")
@@ -894,6 +950,10 @@ return function(Config)
 		Candidate.ExactAlias = ExactAlias
 		Candidate.Active = true
 		Candidate.LastObservedAt = Now
+
+		if ExactAlias and shouldBootstrapLogicHandle(GroupName, Handle, Candidate.Confidence, Candidate.SourceKind) then
+			promoteCandidate(Candidate, "logic-local", 7, "exact_logic_bootstrap")
+		end
 
 		if Candidate.LastValue == nil and InitialValue ~= nil then
 			Candidate.LastValue = InitialValue
@@ -1784,6 +1844,138 @@ return function(Config)
 			end
 		end
 
+		local function shouldRecurseEnvTable(KeyName, TableValue, Depth)
+			if type(TableValue) ~= "table" or Depth >= 2 then
+				return false
+			end
+
+			if tableBelongsToLocalPlayer(TableValue) then
+				return true
+			end
+
+			if type(KeyName) == "string" and isInterestingLogicName(string.lower(KeyName)) then
+				return true
+			end
+
+			local Hits = 0
+			local Scanned = 0
+			local Success = pcall(function()
+				for InnerKey in pairs(TableValue) do
+					Scanned = Scanned + 1
+
+					if type(InnerKey) == "string" then
+						local InnerKeyLower = string.lower(InnerKey)
+						local GroupName = classifyName(InnerKey)
+
+						if GroupName ~= nil or isInterestingLogicName(InnerKeyLower) then
+							Hits = Hits + 1
+						end
+					end
+
+					if Scanned >= 24 then
+						break
+					end
+				end
+			end)
+
+			return Success and Hits > 0
+		end
+
+		local function visitEnvTable(TableValue, Confidence, Depth, Visited)
+			if type(TableValue) ~= "table" then
+				return
+			end
+
+			Visited = Visited or {}
+
+			if Visited[TableValue] then
+				return
+			end
+
+			Visited[TableValue] = true
+
+			local Scanned = 0
+			local Success = pcall(function()
+				for Key, Value in pairs(TableValue) do
+					Scanned = Scanned + 1
+
+					if type(Key) == "string" then
+						local GroupName, NameLower = classifyName(Key)
+
+						if GroupName then
+							recordHandle(GroupName, Key, NameLower, createTableHandle(TableValue, Key), Value, Confidence, "env")
+						end
+
+						if type(Value) == "table"
+							and shouldRecurseEnvTable(Key, Value, Depth) then
+							visitEnvTable(Value, math.max((Confidence or 0) - 8, 80), Depth + 1, Visited)
+						end
+					elseif type(Value) == "table"
+						and Depth == 0
+						and shouldRecurseEnvTable(nil, Value, Depth) then
+						visitEnvTable(Value, math.max((Confidence or 0) - 8, 80), Depth + 1, Visited)
+					end
+
+					if Scanned >= 64 then
+						break
+					end
+				end
+			end)
+
+			if not Success then
+				return
+			end
+		end
+
+		local function visitScriptEnvironments()
+			if type(getsenv) ~= "function" then
+				return
+			end
+
+			local MainScript = findMainScript()
+
+			if not MainScript then
+				return
+			end
+
+			local Seen = {}
+
+			local function tryVisitScript(ScriptInstance, Confidence)
+				if not ScriptInstance or Seen[ScriptInstance] then
+					return
+				end
+
+				Seen[ScriptInstance] = true
+
+				local Success, EnvironmentTable = pcall(getsenv, ScriptInstance)
+
+				if Success and type(EnvironmentTable) == "table" then
+					visitEnvTable(EnvironmentTable, Confidence or 135, 0, {})
+				end
+			end
+
+			tryVisitScript(MainScript, 140)
+
+			for _, Descendant in ipairs(MainScript:GetDescendants()) do
+				local IsScript = Descendant:IsA("LocalScript")
+					or Descendant:IsA("ModuleScript")
+					or Descendant:IsA("Script")
+
+				if IsScript then
+					local NameLower = string.lower(Descendant.Name)
+					local Confidence = 130
+
+					if Descendant.Name == "CRnInput" then
+						Confidence = 155
+					elseif isInterestingLogicName(NameLower) then
+						Confidence = 145
+					end
+
+					tryVisitScript(Descendant, Confidence)
+				end
+			end
+		end
+
 		local function visitRoots(Roots)
 			for _, Root in ipairs(Roots) do
 				visitInstance(Root)
@@ -1818,6 +2010,10 @@ return function(Config)
 
 		if ForceRefresh and not hasRecordedPrimary() then
 			visitRoots(buildSearchRoots(true))
+		end
+
+		if ForceRefresh or not hasRecordedPrimary() or StaminaFeature.DebugEnabled then
+			visitScriptEnvironments()
 		end
 
 		if IncludeGc
@@ -2412,7 +2608,14 @@ return function(Config)
 			string.format("DebugEnabled: %s", tostring(self.DebugEnabled)),
 			string.format("Profile: %s", self.DebugProfile),
 			string.format("PromotedLocal: %d", countPromotedLocalCandidates()),
-			string.format("PromotedRemote: %d", countPromotedRemoteCandidates())
+			string.format("PromotedRemote: %d", countPromotedRemoteCandidates()),
+			string.format(
+				"Handles: C=%d M=%d F=%d S=%d",
+				#self.Handles.Current,
+				#self.Handles.Max,
+				#self.Handles.Flags,
+				#self.Handles.Spend
+			)
 		}
 
 		local Session = self.CaptureSession
