@@ -35,63 +35,42 @@ local function executeSource(SourceCode, SourceLabel)
 end
 
 local function loadScript(LocalPath, RemoteUrl)
-	local SourceCode
-	local SourceLabel = LocalPath
-	local LocalLoadError
-
-	if type(readfile) == "function" then
-		local Success, Result = pcall(readfile, LocalPath)
-
-		if Success and type(Result) == "string" and Result ~= "" then
-			SourceCode = Result
-		end
-	end
-
-	if SourceCode then
-		local Success, Result = pcall(executeSource, SourceCode, LocalPath)
-
-		if Success then
-			return Result
-		end
-
-		LocalLoadError = tostring(Result)
-	end
-
 	if type(RemoteUrl) == "string" and RemoteUrl ~= "" then
 		local Success, Result = pcall(function()
 			return game:HttpGet(RemoteUrl)
 		end)
 
 		if Success and type(Result) == "string" and Result ~= "" then
-			SourceCode = Result
-			SourceLabel = RemoteUrl
-		else
-			error(string.format("Failed to fetch %s: %s", LocalPath, tostring(Result)), 0)
+			local ExecuteSuccess, ExecuteResult = pcall(executeSource, Result, RemoteUrl)
+
+			if ExecuteSuccess then
+				return ExecuteResult
+			end
+
+			if type(readfile) ~= "function" then
+				error(string.format("Remote %s failed: %s", LocalPath, tostring(ExecuteResult)), 0)
+			end
 		end
 	end
 
-	if not SourceCode or SourceCode == "" then
-		if LocalLoadError then
-			error(LocalLoadError, 0)
+	if type(readfile) == "function" then
+		local Success, Result = pcall(readfile, LocalPath)
+
+		if Success and type(Result) == "string" and Result ~= "" then
+			local ExecuteSuccess, ExecuteResult = pcall(executeSource, Result, LocalPath)
+
+			if ExecuteSuccess then
+				return ExecuteResult
+			end
+
+			error(string.format("Local %s failed: %s", LocalPath, tostring(ExecuteResult)), 0)
 		end
-
-		error(string.format("No source available for %s", LocalPath), 0)
 	end
 
-	local Success, Result = pcall(executeSource, SourceCode, SourceLabel)
-
-	if Success then
-		return Result
-	end
-
-	if LocalLoadError then
-		error(string.format("%s | Remote fallback failed: %s", LocalLoadError, tostring(Result)), 0)
-	end
-
-	error(tostring(Result), 0)
+	error(string.format("No source available for %s", LocalPath), 0)
 end
 
-local RemoteVersion = "20260418-1"
+local RemoteVersion = "20260418-2"
 
 local function buildRemoteUrl(Path)
 	return string.format("https://raw.githubusercontent.com/Waikuls/Synx/main/%s?v=%s", Path, RemoteVersion)
@@ -150,54 +129,142 @@ local function createFallbackStaminaFeature(ErrorMessage)
 	}
 end
 
+local function createFallbackESP(ErrorMessage)
+	notifyModuleFailure("features/esp.lua", ErrorMessage)
+
+	return {
+		SetEnabled = function()
+			return false
+		end,
+		SetDistanceLimit = function()
+		end,
+		SetShowName = function()
+		end,
+		SetShowHealth = function()
+		end,
+		Destroy = function()
+		end
+	}
+end
+
+local function createFallbackFoodFeature(ErrorMessage)
+	notifyModuleFailure("features/food.lua", ErrorMessage)
+
+	return {
+		SetEnabled = function()
+			return false
+		end,
+		GetEatThreshold = function()
+			return 15
+		end,
+		SetEatThreshold = function()
+		end,
+		GetNoFoodAction = function()
+			return "Do nothing"
+		end,
+		SetNoFoodAction = function()
+		end,
+		Destroy = function()
+		end
+	}
+end
+
+local function createFallbackStatsFeature(ErrorMessage)
+	notifyModuleFailure("features/stats.lua", ErrorMessage)
+
+	return {
+		GetPanels = function()
+			return {"Stats unavailable."}, {"Check loader output."}
+		end,
+		GetPlayerOptions = function()
+			return {game.Players.LocalPlayer.Name}
+		end,
+		GetTargetPlayerName = function()
+			return game.Players.LocalPlayer.Name
+		end,
+		SetTargetPlayer = function()
+			return game.Players.LocalPlayer
+		end
+	}
+end
+
+local function createFallbackUI(ModulePath, ErrorMessage)
+	notifyModuleFailure(ModulePath, ErrorMessage)
+
+	return function()
+	end
+end
+
+local function createFallbackStatsUI(ErrorMessage)
+	notifyModuleFailure("ui/stats.lua", ErrorMessage)
+
+	return {
+		Destroy = function()
+		end
+	}
+end
+
+local function safeLoadModule(ModulePath, FallbackFactory)
+	local Success, Result = pcall(loadScript, ModulePath, buildRemoteUrl(ModulePath))
+
+	if Success then
+		return Result
+	end
+
+	if type(FallbackFactory) == "function" then
+		return FallbackFactory(Result)
+	end
+
+	error(tostring(Result), 0)
+end
+
+local function safeCreateModule(ModulePath, Factory, Arguments, FallbackFactory)
+	if type(Factory) == "table" then
+		return Factory
+	end
+
+	if type(Factory) ~= "function" then
+		if type(FallbackFactory) == "function" then
+			return FallbackFactory(string.format("%s did not return a function", ModulePath))
+		end
+
+		error(string.format("%s did not return a function", ModulePath), 0)
+	end
+
+	local Success, Result = pcall(Factory, Arguments)
+
+	if Success then
+		return Result
+	end
+
+	if type(FallbackFactory) == "function" then
+		return FallbackFactory(Result)
+	end
+
+	error(tostring(Result), 0)
+end
+
+local function safeRunModule(ModulePath, Factory, Arguments)
+	if type(Factory) ~= "function" then
+		notifyModuleFailure(ModulePath, string.format("%s did not return a function", ModulePath))
+		return false
+	end
+
+	local Success, Result = pcall(Factory, Arguments)
+
+	if not Success then
+		notifyModuleFailure(ModulePath, Result)
+		return false
+	end
+
+	return Result
+end
+
 local Window = Fatality.new({
 	Name = "FATALITY",
 	Expire = "never",
 });
 local MainWindowGui = Fatality.Windows[#Fatality.Windows]
-local CreateESP = loadScript("features/esp.lua", buildRemoteUrl("features/esp.lua"))
-local CreateFoodFeature = loadScript("features/food.lua", buildRemoteUrl("features/food.lua"))
-local CreateStatsFeature = loadScript("features/stats.lua", buildRemoteUrl("features/stats.lua"))
-local CreateMainUI = loadScript("ui/main.lua", buildRemoteUrl("ui/main.lua"))
-local CreateVisualUI = loadScript("ui/visual.lua", buildRemoteUrl("ui/visual.lua"))
-local CreateStatsUI = loadScript("ui/stats.lua", buildRemoteUrl("ui/stats.lua"))
-local CreateStaminaFeature
-local StaminaLoadError
-
-do
-	local Success, Result = pcall(loadScript, "features/stamina.lua", buildRemoteUrl("features/stamina.lua"))
-
-	if Success then
-		CreateStaminaFeature = Result
-	else
-		StaminaLoadError = Result
-	end
-end
-
-local ESP = CreateESP({
-	Notification = Notification
-})
-local FoodFeature = CreateFoodFeature({
-	Notification = Notification
-})
-local StatsFeature = CreateStatsFeature()
-local StaminaFeature
-
-if type(CreateStaminaFeature) == "function" then
-	local Success, Result = pcall(CreateStaminaFeature, {
-		Notification = Notification
-	})
-
-	if Success then
-		StaminaFeature = Result
-	else
-		StaminaLoadError = Result
-	end
-end
-
-if not StaminaFeature then
-	StaminaFeature = createFallbackStaminaFeature(StaminaLoadError or "Unknown stamina module error")
-end
 
 local Main = Window:AddMenu({
 	Name = "MAIN",
@@ -223,11 +290,38 @@ local Skins = Window:AddMenu({
 	Name = "SKINS",
 	Icon = "palette"
 })
-local StatsUI = CreateStatsUI({
+
+local CreateESP = safeLoadModule("features/esp.lua", createFallbackESP)
+local CreateFoodFeature = safeLoadModule("features/food.lua", createFallbackFoodFeature)
+local CreateStaminaFeature = safeLoadModule("features/stamina.lua", createFallbackStaminaFeature)
+local CreateStatsFeature = safeLoadModule("features/stats.lua", createFallbackStatsFeature)
+local CreateMainUI = safeLoadModule("ui/main.lua", function(ErrorMessage)
+	return createFallbackUI("ui/main.lua", ErrorMessage)
+end)
+local CreateVisualUI = safeLoadModule("ui/visual.lua", function(ErrorMessage)
+	return createFallbackUI("ui/visual.lua", ErrorMessage)
+end)
+local CreateStatsUI = safeLoadModule("ui/stats.lua", function(ErrorMessage)
+	return function()
+		return createFallbackStatsUI(ErrorMessage)
+	end
+end)
+
+local ESP = safeCreateModule("features/esp.lua", CreateESP, {
+	Notification = Notification
+}, createFallbackESP)
+local FoodFeature = safeCreateModule("features/food.lua", CreateFoodFeature, {
+	Notification = Notification
+}, createFallbackFoodFeature)
+local StaminaFeature = safeCreateModule("features/stamina.lua", CreateStaminaFeature, {
+	Notification = Notification
+}, createFallbackStaminaFeature)
+local StatsFeature = safeCreateModule("features/stats.lua", CreateStatsFeature, {}, createFallbackStatsFeature)
+local StatsUI = safeCreateModule("ui/stats.lua", CreateStatsUI, {
 	Window = Window,
 	Fatality = Fatality,
 	StatsFeature = StatsFeature
-})
+}, createFallbackStatsUI)
 
 do
 	local Aim = Legit:AddSection({
@@ -428,13 +522,13 @@ do
 	})
 end
 
-CreateMainUI({
+safeRunModule("ui/main.lua", CreateMainUI, {
 	Main = Main,
 	FoodFeature = FoodFeature,
 	StaminaFeature = StaminaFeature
 })
 
-CreateVisualUI({
+safeRunModule("ui/visual.lua", CreateVisualUI, {
 	Visual = Visual,
 	Window = Window,
 	ESP = ESP
