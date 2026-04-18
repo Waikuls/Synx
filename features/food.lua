@@ -15,6 +15,7 @@ return function(Config)
 		LastMissingFoodAt = 0,
 		ScanInterval = 0.5,
 		HungerRefreshInterval = 1,
+		MissingFoodRetryDelay = 2,
 		EatCooldown = 3,
 		EquipDelay = 0.35,
 		EquipRetryDelay = 0.12,
@@ -26,6 +27,7 @@ return function(Config)
 		DirectHungerThreshold = 15,
 		HungerThreshold = 0.15,
 		FallbackThreshold = 15,
+		NoFoodAction = "Do nothing",
 		AutoManagedTool = nil,
 		HungerSnapshot = nil,
 		LastHungerScanAt = 0,
@@ -622,10 +624,27 @@ return function(Config)
 	end
 
 	local function scanHungerSnapshot()
+		local DirectHungerValue = getDirectHungerValue()
+
+		if DirectHungerValue ~= nil then
+			return {
+				DirectHungerValue = DirectHungerValue,
+				StarvingValue = nil,
+				PercentValue = nil,
+				CurrentValue = DirectHungerValue,
+				MaxValue = 100,
+				TextSignal = {
+					HasSignal = false,
+					ShouldEat = false,
+					Text = nil
+				},
+				HasSignal = true
+			}
+		end
+
 		local Roots = buildScanRoots()
 		local BestCandidates = {}
 		local TextSignal = scanHungerTextSignal()
-		local DirectHungerValue = getDirectHungerValue()
 
 		local function recordCandidate(Kind, Name, Value, Priority)
 			local NameLower = string.lower(Name)
@@ -733,8 +752,18 @@ return function(Config)
 	end
 
 	local function getHungerState(ForceRefresh)
+		local DirectHungerValue = parseLooseNumber(getDirectHungerValue())
+
+		if DirectHungerValue ~= nil then
+			return {
+				HasSignal = true,
+				ShouldEat = DirectHungerValue <= FoodFeature.DirectHungerThreshold,
+				CurrentValue = DirectHungerValue
+			}
+		end
+
 		local Snapshot = getHungerSnapshot(ForceRefresh)
-		local DirectHungerValue = parseLooseNumber(Snapshot.DirectHungerValue)
+		DirectHungerValue = parseLooseNumber(Snapshot.DirectHungerValue)
 		local StarvingValue = Snapshot.StarvingValue
 		local TextSignal = Snapshot.TextSignal
 
@@ -828,6 +857,20 @@ return function(Config)
 
 	function FoodFeature:GetEatThreshold()
 		return self.DirectHungerThreshold
+	end
+
+	function FoodFeature:SetNoFoodAction(Value)
+		if Value ~= "Do nothing" and Value ~= "Kick" then
+			return false
+		end
+
+		self.NoFoodAction = Value
+
+		return true
+	end
+
+	function FoodFeature:GetNoFoodAction()
+		return self.NoFoodAction
 	end
 
 	local function getToolScore(Tool)
@@ -1379,22 +1422,24 @@ return function(Config)
 		end
 	end
 
-	local function notifyMissingFood()
+	local function handleMissingFood()
 		local Now = os.clock()
 
-		if Now - FoodFeature.LastMissingFoodAt < 10 then
+		if Now - FoodFeature.LastMissingFoodAt < FoodFeature.MissingFoodRetryDelay then
 			return
 		end
 
 		FoodFeature.LastMissingFoodAt = Now
 
-		if Notification then
-			Notification:Notify({
-				Title = "Food",
-				Content = "No food found in your backpack.",
-				Duration = 4,
-				Icon = "info"
-			})
+		if FoodFeature.NoFoodAction == "Kick" then
+			FoodFeature.Enabled = false
+			FoodFeature.StopRequested = true
+
+			task.defer(function()
+				LocalPlayer:Kick("Auto eat: no food found in your backpack.")
+			end)
+
+			return
 		end
 	end
 
@@ -1512,7 +1557,7 @@ return function(Config)
 		self.Enabled = Value and true or false
 		self.HungerSnapshot = nil
 		self.LastHungerScanAt = 0
-		self.HungerValueObject = nil
+		self.LastMissingFoodAt = 0
 
 		if self.Enabled then
 			self.StopRequested = false
@@ -1555,12 +1600,18 @@ return function(Config)
 					return
 				end
 
+				if self.LastMissingFoodAt > 0 and (os.clock() - self.LastMissingFoodAt) < self.MissingFoodRetryDelay then
+					return
+				end
+
 				local Tool = findFoodTool()
 
 				if not Tool then
-					notifyMissingFood()
+					handleMissingFood()
 					return
 				end
+
+				self.LastMissingFoodAt = 0
 
 				consumeFood(Tool)
 			end)

@@ -25,4 +25,14 @@ return function(Config)
 		end,
 		Flag = "AutoEatThreshold"
 	})
+
+	Food:AddDropdown({
+		Name = "No food",
+		Default = FoodFeature:GetNoFoodAction(),
+		Values = {"Do nothing", "Kick"},
+		Callback = function(Value)
+			FoodFeature:SetNoFoodAction(Value)
+		end,
+		Flag = "AutoEatNoFoodAction"
+	})
 end
