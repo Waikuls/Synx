@@ -3202,12 +3202,13 @@ return function(Config)
 			return "logic_ineffective", string.lower(Profile) .. "_still_drains", Profile, true
 		end
 
-		if ActionPressure and FailureReason then
-			return "logic_ineffective", FailureReason, Profile, true
-		end
-
 		if ActionPressure then
 			noteVerifiedLogic()
+
+			if FailureReason then
+				return "verified", string.lower(Profile) .. "_primary_stable", Profile, false
+			end
+
 			return "verified", string.lower(Profile) .. "_stable", Profile, false
 		end
 
