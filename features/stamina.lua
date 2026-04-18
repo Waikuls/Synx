@@ -106,7 +106,7 @@ return function(Config)
 		HeartbeatConnection = nil,
 		CharacterAddedConnection = nil,
 		HandleSignals = {},
-		StepInterval = 0.1,
+		StepInterval = 0.03,
 		ResolveInterval = 2.5,
 		GcResolveInterval = 15,
 		LastResolveAt = 0,
@@ -2729,6 +2729,18 @@ return function(Config)
 		clearHandleSignals()
 
 		local Connected = {}
+		local function onTrackedHandleChanged()
+			if not shouldRunRuntime() then
+				return
+			end
+
+			if StaminaFeature.Enabled and not StaminaFeature.StepBusy then
+				StaminaFeature:Step(false, false)
+				return
+			end
+
+			scheduleStep()
+		end
 
 		local function attach(Entry)
 			if not Entry or Connected[Entry.Key] then
@@ -2737,7 +2749,7 @@ return function(Config)
 
 			if Entry.Handle.Kind == "value" then
 				local Success, Connection = pcall(function()
-					return Entry.Handle.Instance:GetPropertyChangedSignal("Value"):Connect(scheduleStep)
+					return Entry.Handle.Instance:GetPropertyChangedSignal("Value"):Connect(onTrackedHandleChanged)
 				end)
 
 				if Success and Connection then
@@ -2750,7 +2762,7 @@ return function(Config)
 
 			if Entry.Handle.Kind == "attribute" then
 				local Success, Connection = pcall(function()
-					return Entry.Handle.Instance:GetAttributeChangedSignal(Entry.Handle.Attribute):Connect(scheduleStep)
+					return Entry.Handle.Instance:GetAttributeChangedSignal(Entry.Handle.Attribute):Connect(onTrackedHandleChanged)
 				end)
 
 				if Success and Connection then
