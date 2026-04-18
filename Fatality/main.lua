@@ -91,7 +91,13 @@ local function loadScript(LocalPath, RemoteUrl)
 	error(tostring(Result), 0)
 end
 
-local Fatality = loadScript("src/source.luau", "https://raw.githubusercontent.com/Waikuls/Synx/main/src/source.luau")
+local RemoteVersion = "20260418-1"
+
+local function buildRemoteUrl(Path)
+	return string.format("https://raw.githubusercontent.com/Waikuls/Synx/main/%s?v=%s", Path, RemoteVersion)
+end
+
+local Fatality = loadScript("src/source.luau", buildRemoteUrl("src/source.luau"))
 local CoreGui = game:GetService("CoreGui")
 local ExistingCoreGuis = {}
 
@@ -125,13 +131,13 @@ local Window = Fatality.new({
 	Expire = "never",
 });
 local MainWindowGui = Fatality.Windows[#Fatality.Windows]
-local CreateESP = loadScript("features/esp.lua", "https://raw.githubusercontent.com/Waikuls/Synx/main/features/esp.lua")
-local CreateFoodFeature = loadScript("features/food.lua", "https://raw.githubusercontent.com/Waikuls/Synx/main/features/food.lua")
-local CreateStaminaFeature = loadScript("features/stamina.lua", "https://raw.githubusercontent.com/Waikuls/Synx/main/features/stamina.lua")
-local CreateStatsFeature = loadScript("features/stats.lua", "https://raw.githubusercontent.com/Waikuls/Synx/main/features/stats.lua")
-local CreateMainUI = loadScript("ui/main.lua", "https://raw.githubusercontent.com/Waikuls/Synx/main/ui/main.lua")
-local CreateVisualUI = loadScript("ui/visual.lua", "https://raw.githubusercontent.com/Waikuls/Synx/main/ui/visual.lua")
-local CreateStatsUI = loadScript("ui/stats.lua", "https://raw.githubusercontent.com/Waikuls/Synx/main/ui/stats.lua")
+local CreateESP = loadScript("features/esp.lua", buildRemoteUrl("features/esp.lua"))
+local CreateFoodFeature = loadScript("features/food.lua", buildRemoteUrl("features/food.lua"))
+local CreateStaminaFeature = loadScript("features/stamina.lua", buildRemoteUrl("features/stamina.lua"))
+local CreateStatsFeature = loadScript("features/stats.lua", buildRemoteUrl("features/stats.lua"))
+local CreateMainUI = loadScript("ui/main.lua", buildRemoteUrl("ui/main.lua"))
+local CreateVisualUI = loadScript("ui/visual.lua", buildRemoteUrl("ui/visual.lua"))
+local CreateStatsUI = loadScript("ui/stats.lua", buildRemoteUrl("ui/stats.lua"))
 local ESP = CreateESP({
 	Notification = Notification
 })
