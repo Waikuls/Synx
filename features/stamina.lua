@@ -1439,6 +1439,25 @@ return function(Config)
 		return Count
 	end
 
+	local function countLogicPrimaryEntries()
+		local CurrentCount = 0
+		local MaxCount = 0
+
+		for _, Entry in ipairs(StaminaFeature.Handles.Current) do
+			if isLogicLocalCandidate(Entry.Candidate) then
+				CurrentCount = CurrentCount + 1
+			end
+		end
+
+		for _, Entry in ipairs(StaminaFeature.Handles.Max) do
+			if isLogicLocalCandidate(Entry.Candidate) then
+				MaxCount = MaxCount + 1
+			end
+		end
+
+		return CurrentCount, MaxCount
+	end
+
 	local function warnMissingHandles()
 		if not Notification then
 			return
@@ -1513,6 +1532,22 @@ return function(Config)
 
 	local function hasPrimaryHandles()
 		return #StaminaFeature.Handles.Current > 0 or #StaminaFeature.Handles.Max > 0
+	end
+
+	local function hasLogicPrimaryHandles()
+		for _, Entry in ipairs(StaminaFeature.Handles.Current) do
+			if isLogicLocalCandidate(Entry.Candidate) then
+				return true
+			end
+		end
+
+		for _, Entry in ipairs(StaminaFeature.Handles.Max) do
+			if isLogicLocalCandidate(Entry.Candidate) then
+				return true
+			end
+		end
+
+		return false
 	end
 
 	local function hasHandles()
@@ -1905,6 +1940,22 @@ return function(Config)
 			return next(EntryMaps.Current) ~= nil or next(EntryMaps.Max) ~= nil
 		end
 
+		local function hasRecordedLogicPrimary()
+			for _, Entry in pairs(EntryMaps.Current) do
+				if isLogicLocalCandidate(Entry.Candidate) then
+					return true
+				end
+			end
+
+			for _, Entry in pairs(EntryMaps.Max) do
+				if isLogicLocalCandidate(Entry.Candidate) then
+					return true
+				end
+			end
+
+			return false
+		end
+
 		local function recordHandle(GroupName, Name, NameLower, Handle, Value, Confidence, SourceKind)
 			if not GroupName or not isUsefulValue(GroupName, Value) then
 				return
@@ -2273,7 +2324,7 @@ return function(Config)
 			visitScriptEnvironments()
 		end
 
-		if IncludeGc or ((ForceRefresh or StaminaFeature.DebugEnabled) and not hasRecordedPrimary()) then
+		if IncludeGc or ((ForceRefresh or StaminaFeature.DebugEnabled) and not hasRecordedLogicPrimary()) then
 			visitGcFunctions()
 		end
 
@@ -2517,6 +2568,11 @@ return function(Config)
 	end
 
 	local function shouldQueueGcResolve()
+		if not hasLogicPrimaryHandles() then
+			StaminaFeature.DropEventCount = StaminaFeature.DropEventCount + 1
+			return StaminaFeature.DropEventCount >= StaminaFeature.DropEventLimit
+		end
+
 		if not hasPrimaryHandles() or #StaminaFeature.Handles.Current == 0 then
 			StaminaFeature.DropEventCount = StaminaFeature.DropEventCount + 1
 			return StaminaFeature.DropEventCount >= StaminaFeature.DropEventLimit
@@ -2865,6 +2921,8 @@ return function(Config)
 			return {}
 		end
 
+		local LogicCurrentCount, LogicMaxCount = countLogicPrimaryEntries()
+
 		local Lines = {
 			string.format("DebugEnabled: %s", tostring(self.DebugEnabled)),
 			string.format("Profile: %s", self.DebugProfile),
@@ -2876,7 +2934,8 @@ return function(Config)
 				#self.Handles.Max,
 				#self.Handles.Flags,
 				#self.Handles.Spend
-			)
+			),
+			string.format("LogicHandles: C=%d M=%d", LogicCurrentCount, LogicMaxCount)
 		}
 
 		local Session = self.CaptureSession
@@ -2976,7 +3035,7 @@ return function(Config)
 			ensureHeartbeatConnection()
 			self:Step(true, false)
 
-			if not hasPrimaryHandles() or #self.Handles.Current == 0 then
+			if not hasLogicPrimaryHandles() or not hasPrimaryHandles() or #self.Handles.Current == 0 then
 				scheduleGcResolve()
 			end
 		else
