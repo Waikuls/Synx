@@ -135,6 +135,8 @@ return function(Config)
 		DropEventCount = 0,
 		DropThreshold = 1,
 		DropEventLimit = 3,
+		LastStepErrorAt = 0,
+		StepErrorCooldown = 2,
 		Handles = {
 			Current = {},
 			Max = {},
@@ -958,16 +960,32 @@ return function(Config)
 		return 0
 	end
 
-	local function shouldBootstrapLogicHandle(GroupName, Handle, Confidence, SourceKind)
+	local function shouldBootstrapLogicHandle(GroupName, Handle, Confidence, SourceKind, ExactAlias, NameLower)
 		if GroupName ~= "Current" and GroupName ~= "Max" then
 			return false
 		end
 
+		local ConfidenceValue = Confidence or 0
+
 		if SourceKind ~= "instance" then
+			if ExactAlias ~= true then
+				return false
+			end
+
+			if SourceKind == "upvalue" then
+				return ConfidenceValue >= 145
+			end
+
+			if (SourceKind == "table" or SourceKind == "env")
+				and type(NameLower) == "string"
+				and string.find(NameLower, "stamina", 1, true) ~= nil then
+				return ConfidenceValue >= 150
+			end
+
 			return false
 		end
 
-		return (Confidence or 0) >= 105 and isMainScriptLogicHandle(Handle)
+		return ConfidenceValue >= 105 and isMainScriptLogicHandle(Handle)
 	end
 
 	local function getRemoteDisplayName(Remote)
@@ -1228,7 +1246,7 @@ return function(Config)
 
 			if ExactAlias
 				and not Candidate.BootstrapBlocked
-				and shouldBootstrapLogicHandle(GroupName, Handle, Confidence, SourceKind) then
+				and shouldBootstrapLogicHandle(GroupName, Handle, Confidence, SourceKind, ExactAlias, NameLower) then
 				promoteCandidate(Candidate, "logic-local", 7, "exact_logic_bootstrap")
 			elseif GroupName == "Flags" and ExactAlias and (Confidence or 0) >= 85 then
 				promoteCandidate(Candidate, "flags", 5, "exact_flag_bootstrap")
@@ -1255,7 +1273,7 @@ return function(Config)
 
 		if ExactAlias
 			and not Candidate.BootstrapBlocked
-			and shouldBootstrapLogicHandle(GroupName, Handle, Candidate.Confidence, Candidate.SourceKind) then
+			and shouldBootstrapLogicHandle(GroupName, Handle, Candidate.Confidence, Candidate.SourceKind, ExactAlias, NameLower) then
 			promoteCandidate(Candidate, "logic-local", 7, "exact_logic_bootstrap")
 		end
 
@@ -4478,6 +4496,13 @@ return function(Config)
 			return Result
 		end
 
+		local Now = os.clock()
+
+		if (Now - (self.LastStepErrorAt or 0)) >= (self.StepErrorCooldown or 2) then
+			self.LastStepErrorAt = Now
+			warn("[Fatality][Stamina] Step failed: " .. tostring(Result))
+		end
+
 		return false
 	end
 
@@ -4494,6 +4519,7 @@ return function(Config)
 		self.DropEventCount = 0
 		self.LastRecoveryAt = 0
 		self.LastEffectiveLogicAt = 0
+		self.LastStepErrorAt = 0
 
 		if self.Enabled then
 			clearScopeCache()
@@ -4530,6 +4556,7 @@ return function(Config)
 		self.DropEventCount = 0
 		self.LastRecoveryAt = 0
 		self.LastEffectiveLogicAt = 0
+		self.LastStepErrorAt = 0
 		restoreOriginalFlags()
 		restoreOriginalSpends()
 		resetCaptureState(false)
@@ -4573,6 +4600,7 @@ return function(Config)
 		StaminaFeature.DropEventCount = 0
 		StaminaFeature.LastRecoveryAt = 0
 		StaminaFeature.LastEffectiveLogicAt = 0
+		StaminaFeature.LastStepErrorAt = 0
 		table.clear(StaminaFeature.OriginalFlagValues)
 		table.clear(StaminaFeature.OriginalSpendValues)
 		resetCaptureState(false)
