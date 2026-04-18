@@ -5,35 +5,23 @@ return function(Config)
 	local LocalPlayer = Players.LocalPlayer
 	local Notification = Config and Config.Notification
 
-	local StaminaFeature = {
-		Enabled = false,
-		HeartbeatConnection = nil,
-		CharacterAddedConnection = nil,
-		HandleSignals = {},
-		StepInterval = 0.1,
-		ResolveInterval = 2.5,
-		GcResolveInterval = 15,
-		LastResolveAt = 0,
-		LastGcResolveAt = 0,
-		LastStepAt = 0,
-		LastWarnAt = 0,
-		WarnCooldown = 5,
-		LastKnownTargets = {},
-		StepBusy = false,
-		StepQueued = false,
-		GcResolveQueued = false,
-		DropEventCount = 0,
-		DropThreshold = 1,
-		DropEventLimit = 3,
-		Handles = {
-			Current = {},
-			Max = {},
-			Flags = {},
-			Spend = {}
+	local CaptureProfiles = {
+		Free = {
+			BaselineDuration = 0.75,
+			ActiveDuration = 5.5
 		},
-		OriginalFlagValues = {},
-		OriginalSpendValues = {},
-		HookControllerId = nil
+		Run = {
+			BaselineDuration = 0.75,
+			ActiveDuration = 6
+		},
+		Dash = {
+			BaselineDuration = 0.6,
+			ActiveDuration = 5.5
+		},
+		Attack = {
+			BaselineDuration = 0.6,
+			ActiveDuration = 5.5
+		}
 	}
 
 	local ExactAliases = {
@@ -109,6 +97,45 @@ return function(Config)
 
 	local ScopeCache = setmetatable({}, {__mode = "k"})
 
+	local StaminaFeature = {
+		Enabled = false,
+		DebugEnabled = false,
+		DebugProfile = "Run",
+		HeartbeatConnection = nil,
+		CharacterAddedConnection = nil,
+		HandleSignals = {},
+		StepInterval = 0.1,
+		ResolveInterval = 2.5,
+		GcResolveInterval = 15,
+		LastResolveAt = 0,
+		LastGcResolveAt = 0,
+		LastStepAt = 0,
+		LastWarnAt = 0,
+		WarnCooldown = 5,
+		LastKnownTargets = {},
+		StepBusy = false,
+		StepQueued = false,
+		GcResolveQueued = false,
+		DropEventCount = 0,
+		DropThreshold = 1,
+		DropEventLimit = 3,
+		Handles = {
+			Current = {},
+			Max = {},
+			Flags = {},
+			Spend = {}
+		},
+		OriginalFlagValues = {},
+		OriginalSpendValues = {},
+		HookControllerId = nil,
+		CandidateRegistry = {},
+		CandidateOrder = {},
+		RemoteCandidates = {},
+		RemoteCandidateOrder = {},
+		CaptureSession = nil,
+		LastCaptureSummary = {}
+	}
+
 	local function clearScopeCache()
 		for Key in pairs(ScopeCache) do
 			ScopeCache[Key] = nil
@@ -125,6 +152,58 @@ return function(Config)
 		end
 
 		return nil
+	end
+
+	local function formatNumber(Value)
+		if typeof(Value) ~= "number" then
+			return tostring(Value)
+		end
+
+		if math.abs(Value) >= 1000 then
+			return string.format("%.0f", Value)
+		end
+
+		return string.format("%.2f", Value)
+	end
+
+	local function summarizeValue(Value)
+		local ValueType = typeof(Value)
+
+		if Value == nil then
+			return "nil"
+		end
+
+		if ValueType == "number" then
+			return formatNumber(Value)
+		end
+
+		if ValueType == "boolean" then
+			return tostring(Value)
+		end
+
+		if ValueType == "Instance" then
+			return Value.Name
+		end
+
+		local Result = tostring(Value)
+
+		if #Result > 42 then
+			return string.sub(Result, 1, 39) .. "..."
+		end
+
+		return Result
+	end
+
+	local function valuesEquivalent(Left, Right)
+		if Left == Right then
+			return true
+		end
+
+		if typeof(Left) == "number" and typeof(Right) == "number" then
+			return math.abs(Left - Right) <= 0.001
+		end
+
+		return tostring(Left) == tostring(Right)
 	end
 
 	local function isLocalPlayerFolder(Instance)
@@ -282,6 +361,10 @@ return function(Config)
 			return "run"
 		end
 
+		if string.find(NameLower, "combat", 1, true) then
+			return "combat"
+		end
+
 		if string.find(NameLower, "attack", 1, true) then
 			return "attack"
 		end
@@ -301,6 +384,7 @@ return function(Config)
 			or string.find(NameLower, "drain", 1, true) ~= nil
 			or string.find(NameLower, "deplete", 1, true) ~= nil
 			or string.find(NameLower, "cooldown", 1, true) ~= nil
+			or string.find(NameLower, "locked", 1, true) ~= nil
 	end
 
 	local function classifyName(Name)
@@ -509,7 +593,7 @@ return function(Config)
 	end
 
 	local function isUsefulValue(GroupName, Value)
-		if GroupName == "Flags" then
+		if GroupName == "Flags" or GroupName == "Spend" then
 			local ValueType = typeof(Value)
 
 			return ValueType == "boolean" or ValueType == "number" or ValueType == "string"
@@ -637,7 +721,60 @@ return function(Config)
 		return 40
 	end
 
-	local function disconnectHandleSignals()
+	local function getRemoteDisplayName(Remote)
+		local Success, Value = pcall(function()
+			return Remote:GetFullName()
+		end)
+
+		if Success and Value then
+			return Value
+		end
+
+		return Remote.Name
+	end
+
+	local function summarizeArguments(Arguments)
+		local Parts = {}
+		local Count = math.min(Arguments.n or #Arguments, 3)
+
+		for Index = 1, Count do
+			table.insert(Parts, summarizeValue(Arguments[Index]))
+		end
+
+		if (Arguments.n or #Arguments) > Count then
+			table.insert(Parts, "...")
+		end
+
+		return table.concat(Parts, ", ")
+	end
+
+	local function initialCategoryForGroup(GroupName)
+		if GroupName == "Flags" then
+			return "flags"
+		end
+
+		if GroupName == "Spend" then
+			return "spend"
+		end
+
+		return "display"
+	end
+
+	local function getCandidateRegistryKey(GroupName, Handle)
+		return "local:" .. GroupName .. ":" .. getHandleKey(Handle)
+	end
+
+	local function getRemoteRegistryKey(Remote, Method)
+		return "remote:" .. tostring(Method) .. ":" .. getInstanceKey(Remote)
+	end
+
+	local function clearCandidateActivity()
+		for _, Candidate in pairs(StaminaFeature.CandidateRegistry) do
+			Candidate.Active = false
+		end
+	end
+
+	local function clearHandleSignals()
 		for _, Connection in ipairs(StaminaFeature.HandleSignals) do
 			Connection:Disconnect()
 		end
@@ -646,11 +783,138 @@ return function(Config)
 	end
 
 	local function clearHandles()
-		disconnectHandleSignals()
+		clearHandleSignals()
 		table.clear(StaminaFeature.Handles.Current)
 		table.clear(StaminaFeature.Handles.Max)
 		table.clear(StaminaFeature.Handles.Flags)
 		table.clear(StaminaFeature.Handles.Spend)
+	end
+
+	local function clearRuntimeCandidates()
+		table.clear(StaminaFeature.CandidateRegistry)
+		table.clear(StaminaFeature.CandidateOrder)
+		table.clear(StaminaFeature.RemoteCandidates)
+		table.clear(StaminaFeature.RemoteCandidateOrder)
+	end
+
+	local function getCandidateDisplayName(Candidate)
+		return Candidate.DisplayName or Candidate.Name or Candidate.NameLower or Candidate.RegistryKey
+	end
+
+	local function promoteCandidate(Candidate, Category, Score, Reason)
+		Candidate.Category = Category
+		Candidate.Promoted = true
+		Candidate.Score = math.max(Candidate.Score or 0, Score or 0)
+		Candidate.PromotionReason = Reason or Candidate.PromotionReason
+	end
+
+	local function normalizeCandidate(Candidate)
+		if Candidate.Group == "Flags" then
+			Candidate.Category = "flags"
+		elseif Candidate.Group == "Spend" then
+			Candidate.Category = "spend"
+		else
+			Candidate.Category = "display"
+		end
+
+		Candidate.Promoted = false
+	end
+
+	local function upsertLocalCandidate(GroupName, Name, NameLower, Handle, InitialValue, Confidence, SourceKind)
+		local RegistryKey = getCandidateRegistryKey(GroupName, Handle)
+		local Candidate = StaminaFeature.CandidateRegistry[RegistryKey]
+		local ExactAlias = Lookups[GroupName] and Lookups[GroupName][NameLower] == true or false
+		local Now = os.clock()
+
+		if not Candidate then
+			Candidate = {
+				RegistryKey = RegistryKey,
+				Group = GroupName,
+				Name = Name,
+				NameLower = NameLower,
+				DisplayName = Name,
+				Handle = Handle,
+				HandleKey = getHandleKey(Handle),
+				Family = getFamily(NameLower),
+				SourceKind = SourceKind or "instance",
+				Confidence = Confidence or 0,
+				ExactAlias = ExactAlias,
+				Category = initialCategoryForGroup(GroupName),
+				Promoted = false,
+				Score = 0,
+				ChangeCount = 0,
+				LocalWriteCount = 0,
+				ExternalWriteCount = 0,
+				LastWriteResult = nil,
+				LastValue = InitialValue,
+				PreviousValue = nil,
+				LastChangeTime = 0,
+				LastObservedAt = Now,
+				ObservationHits = 0,
+				CaptureHits = 0,
+				Active = true,
+				PromotionReason = nil
+			}
+
+			if GroupName == "Flags" and ExactAlias and (Confidence or 0) >= 85 then
+				promoteCandidate(Candidate, "flags", 5, "exact_flag_bootstrap")
+			elseif GroupName == "Spend" and ExactAlias and (Confidence or 0) >= 85 then
+				promoteCandidate(Candidate, "spend", 5, "exact_spend_bootstrap")
+			end
+
+			StaminaFeature.CandidateRegistry[RegistryKey] = Candidate
+			table.insert(StaminaFeature.CandidateOrder, Candidate)
+		end
+
+		Candidate.Group = GroupName
+		Candidate.Name = Name
+		Candidate.NameLower = NameLower
+		Candidate.DisplayName = Name
+		Candidate.Handle = Handle
+		Candidate.HandleKey = getHandleKey(Handle)
+		Candidate.Family = getFamily(NameLower)
+		Candidate.SourceKind = SourceKind or Candidate.SourceKind
+		Candidate.Confidence = math.max(Candidate.Confidence or 0, Confidence or 0)
+		Candidate.ExactAlias = ExactAlias
+		Candidate.Active = true
+		Candidate.LastObservedAt = Now
+
+		if Candidate.LastValue == nil and InitialValue ~= nil then
+			Candidate.LastValue = InitialValue
+		end
+
+		return Candidate
+	end
+
+	local function upsertRemoteCandidate(Remote, Method, Arguments)
+		local RegistryKey = getRemoteRegistryKey(Remote, Method)
+		local Candidate = StaminaFeature.RemoteCandidates[RegistryKey]
+
+		if not Candidate then
+			Candidate = {
+				RegistryKey = RegistryKey,
+				Name = getRemoteDisplayName(Remote),
+				Method = Method,
+				Remote = Remote,
+				Category = "logic-remote",
+				Promoted = false,
+				Count = 0,
+				CaptureHits = 0,
+				Score = 0,
+				LastCallTime = 0,
+				LastArgsSummary = "",
+				BlockedCount = 0
+			}
+
+			StaminaFeature.RemoteCandidates[RegistryKey] = Candidate
+			table.insert(StaminaFeature.RemoteCandidateOrder, Candidate)
+		end
+
+		Candidate.Count = Candidate.Count + 1
+		Candidate.LastCallTime = os.clock()
+		Candidate.LastArgsSummary = summarizeArguments(Arguments)
+
+		return Candidate
 	end
 
 	local function getTruthyValue(Value)
@@ -689,6 +953,268 @@ return function(Config)
 		return 0
 	end
 
+	local function getCharacterMetrics()
+		local Character = LocalPlayer.Character
+		local Humanoid = Character and Character:FindFirstChildOfClass("Humanoid")
+		local RootPart = Character and Character:FindFirstChild("HumanoidRootPart")
+		local ToolEquipped = false
+
+		if Character then
+			for _, Item in ipairs(Character:GetChildren()) do
+				if Item:IsA("Tool") then
+					ToolEquipped = true
+					break
+				end
+			end
+		end
+
+		return {
+			Character = Character,
+			Humanoid = Humanoid,
+			RootPart = RootPart,
+			MoveMagnitude = Humanoid and Humanoid.MoveDirection.Magnitude or 0,
+			WalkSpeed = Humanoid and Humanoid.WalkSpeed or 0,
+			VelocityMagnitude = RootPart and RootPart.AssemblyLinearVelocity.Magnitude or 0,
+			ToolEquipped = ToolEquipped
+		}
+	end
+
+	local function getProfileConfig(Profile)
+		return CaptureProfiles[Profile] or CaptureProfiles.Run
+	end
+
+	local function getProfileFamily(Profile)
+		if Profile == "Run" then
+			return "run"
+		end
+
+		if Profile == "Dash" then
+			return "dash"
+		end
+
+		if Profile == "Attack" then
+			return "attack"
+		end
+
+		return nil
+	end
+
+	local function createCaptureSession(Profile)
+		local SelectedProfile = CaptureProfiles[Profile] and Profile or "Run"
+		local ProfileConfig = getProfileConfig(SelectedProfile)
+		local Now = os.clock()
+
+		return {
+			Profile = SelectedProfile,
+			State = "baseline",
+			StartedAt = Now,
+			BaselineEndsAt = Now + ProfileConfig.BaselineDuration,
+			EndsAt = Now + ProfileConfig.BaselineDuration + ProfileConfig.ActiveDuration,
+			Observations = {},
+			RemoteObservations = {},
+			ActionValid = SelectedProfile == "Free",
+			MaxSpeed = 0,
+			MaxMoveMagnitude = 0,
+			ToolSeen = false,
+			RemoteCallCount = 0,
+			AttackSignalCount = 0
+		}
+	end
+
+	local function recordCaptureCandidateValue(Candidate, Value, Source)
+		local Session = StaminaFeature.CaptureSession
+
+		if not Session or Session.State == "completed" then
+			return
+		end
+
+		local Observation = Session.Observations[Candidate.RegistryKey]
+		local NumberValue = toNumber(Value)
+
+		if not Observation then
+			Observation = {
+				Name = getCandidateDisplayName(Candidate),
+				Group = Candidate.Group,
+				Category = Candidate.Category,
+				Family = Candidate.Family,
+				Confidence = Candidate.Confidence,
+				SourceKind = Candidate.SourceKind,
+				BaselineValue = Value,
+				LastValue = Value,
+				MinValue = NumberValue,
+				MaxValue = NumberValue,
+				TotalChanges = 0,
+				LocalWrites = 0,
+				ExternalWrites = 0,
+				DeltaMagnitude = 0
+			}
+
+			Session.Observations[Candidate.RegistryKey] = Observation
+		end
+
+		if Session.State == "baseline" then
+			Observation.BaselineValue = Value
+			Observation.LastValue = Value
+
+			if NumberValue ~= nil then
+				Observation.MinValue = NumberValue
+				Observation.MaxValue = NumberValue
+			end
+
+			return
+		end
+
+		if not valuesEquivalent(Value, Observation.LastValue) then
+			Observation.TotalChanges = Observation.TotalChanges + 1
+		end
+
+		if Source == "local_write" then
+			Observation.LocalWrites = Observation.LocalWrites + 1
+		elseif Source == "external_write" then
+			Observation.ExternalWrites = Observation.ExternalWrites + 1
+		end
+
+		if NumberValue ~= nil then
+			if Observation.MinValue == nil or NumberValue < Observation.MinValue then
+				Observation.MinValue = NumberValue
+			end
+
+			if Observation.MaxValue == nil or NumberValue > Observation.MaxValue then
+				Observation.MaxValue = NumberValue
+			end
+
+			local BaselineNumber = toNumber(Observation.BaselineValue)
+
+			if BaselineNumber ~= nil then
+				local DeltaMagnitude = math.abs(NumberValue - BaselineNumber)
+
+				if DeltaMagnitude > Observation.DeltaMagnitude then
+					Observation.DeltaMagnitude = DeltaMagnitude
+				end
+			end
+		end
+
+		if Session.Profile == "Attack" and Candidate.Family == "attack" then
+			Session.AttackSignalCount = Session.AttackSignalCount + 1
+		end
+
+		Observation.LastValue = Value
+	end
+
+	local function recordCaptureRemoteValue(RemoteCandidate)
+		local Session = StaminaFeature.CaptureSession
+
+		if not Session or Session.State ~= "active" then
+			return
+		end
+
+		local Observation = Session.RemoteObservations[RemoteCandidate.RegistryKey]
+
+		if not Observation then
+			Observation = {
+				Name = RemoteCandidate.Name,
+				Method = RemoteCandidate.Method,
+				Count = 0,
+				LastArgsSummary = ""
+			}
+
+			Session.RemoteObservations[RemoteCandidate.RegistryKey] = Observation
+		end
+
+		Observation.Count = Observation.Count + 1
+		Observation.LastArgsSummary = RemoteCandidate.LastArgsSummary
+		Session.RemoteCallCount = Session.RemoteCallCount + 1
+	end
+
+	local function observeCandidateValue(Candidate, Value, Source)
+		if not Candidate then
+			return Value
+		end
+
+		local Now = os.clock()
+
+		if Candidate.LastValue == nil and Value ~= nil then
+			Candidate.LastValue = Value
+		end
+
+		if not valuesEquivalent(Value, Candidate.LastValue) then
+			Candidate.PreviousValue = Candidate.LastValue
+			Candidate.LastValue = Value
+			Candidate.LastChangeTime = Now
+			Candidate.ChangeCount = Candidate.ChangeCount + 1
+		end
+
+		if Source == "local_write" then
+			Candidate.LocalWriteCount = Candidate.LocalWriteCount + 1
+		elseif Source == "external_write" then
+			Candidate.ExternalWriteCount = Candidate.ExternalWriteCount + 1
+		end
+
+		Candidate.ObservationHits = Candidate.ObservationHits + 1
+		Candidate.LastObservedAt = Now
+		recordCaptureCandidateValue(Candidate, Value, Source)
+
+		if Source == "external_write"
+			and (Candidate.Group == "Flags" or Candidate.Group == "Spend")
+			and Candidate.ExactAlias then
+			promoteCandidate(Candidate, initialCategoryForGroup(Candidate.Group), 6, "runtime_external_write")
+		elseif Source == "external_write"
+			and (Candidate.Group == "Current" or Candidate.Group == "Max")
+			and Candidate.ExternalWriteCount >= 2 then
+			promoteCandidate(Candidate, "logic-local", 6 + Candidate.ExternalWriteCount, "runtime_external_write")
+		end
+
+		return Value
+	end
+
+	local function readEntryValue(Entry)
+		local Value = readHandle(Entry.Handle)
+
+		if Entry.Candidate then
+			observeCandidateValue(Entry.Candidate, Value, "read")
+		end
+
+		return Value
+	end
+
+	local function writeEntryValue(Entry, Value)
+		local Success = writeHandle(Entry.Handle, Value)
+
+		if Entry.Candidate then
+			Entry.Candidate.LastWriteResult = Success
+
+			if Success then
+				observeCandidateValue(Entry.Candidate, Value, "local_write")
+			end
+		end
+
+		return Success
+	end
+
+	local function countPromotedLocalCandidates()
+		local Count = 0
+
+		for _, Candidate in ipairs(StaminaFeature.CandidateOrder) do
+			if Candidate.Promoted then
+				Count = Count + 1
+			end
+		end
+
+		return Count
+	end
+
+	local function countPromotedRemoteCandidates()
+		local Count = 0
+
+		for _, Candidate in ipairs(StaminaFeature.RemoteCandidateOrder) do
+			if Candidate.Promoted then
+				Count = Count + 1
+			end
+		end
+
+		return Count
+	end
+
 	local function warnMissingHandles()
 		if not Notification then
 			return
@@ -704,9 +1230,61 @@ return function(Config)
 
 		Notification:Notify({
 			Title = "FATALITY",
-			Content = "Inf stamina could not find stamina handles yet.",
+			Content = "Inf stamina could not find logic stamina handles yet.",
 			Icon = "alert-circle"
 		})
+	end
+
+	local function shouldRunRuntime()
+		return StaminaFeature.Enabled
+			or StaminaFeature.DebugEnabled
+			or (StaminaFeature.CaptureSession and StaminaFeature.CaptureSession.State ~= "completed")
+	end
+
+	local function ensureHeartbeatConnection()
+		if StaminaFeature.HeartbeatConnection then
+			return
+		end
+
+		StaminaFeature.HeartbeatConnection = RunService.Heartbeat:Connect(function()
+			if shouldRunRuntime()
+				and (os.clock() - StaminaFeature.LastStepAt) >= StaminaFeature.StepInterval then
+				StaminaFeature:Step(false, false)
+			end
+		end)
+	end
+
+	local function disconnectHeartbeatIfIdle()
+		if not shouldRunRuntime() and StaminaFeature.HeartbeatConnection then
+			StaminaFeature.HeartbeatConnection:Disconnect()
+			StaminaFeature.HeartbeatConnection = nil
+		end
+	end
+
+	local function isLogicLocalCandidate(Candidate)
+		return Candidate
+			and Candidate.Promoted
+			and Candidate.Category == "logic-local"
+	end
+
+	local function isFlagCandidate(Candidate)
+		return Candidate
+			and Candidate.Promoted
+			and Candidate.Category == "flags"
+	end
+
+	local function isSpendCandidate(Candidate)
+		return Candidate
+			and Candidate.Promoted
+			and Candidate.Category == "spend"
+	end
+
+	local function isDisplayCandidate(Candidate)
+		return Candidate
+			and (
+				Candidate.Category == "display"
+				or Candidate.Promoted == false
+			)
 	end
 
 	local function hasPrimaryHandles()
@@ -720,8 +1298,288 @@ return function(Config)
 			or #StaminaFeature.Handles.Spend > 0
 	end
 
+	local function refreshCaptureWindow(Session)
+		if not Session then
+			return
+		end
+
+		for _, Candidate in ipairs(StaminaFeature.CandidateOrder) do
+			if Candidate.Active and Candidate.Handle then
+				local Value = readHandle(Candidate.Handle)
+
+				recordCaptureCandidateValue(Candidate, Value, "read")
+			end
+		end
+	end
+
+	local function buildSummaryLine(Candidate, Observation)
+		return string.format(
+			"%s [%s] score=%.1f chg=%d ext=%d delta=%s",
+			getCandidateDisplayName(Candidate),
+			Candidate.Category,
+			Candidate.Score or 0,
+			Observation.TotalChanges or 0,
+			Observation.ExternalWrites or 0,
+			formatNumber(Observation.DeltaMagnitude or 0)
+		)
+	end
+
+	local function finalizeCaptureSession()
+		local Session = StaminaFeature.CaptureSession
+
+		if not Session or Session.State == "completed" then
+			return
+		end
+
+		local ProfileFamily = getProfileFamily(Session.Profile)
+		local PromotedLogic = {}
+		local DisplaySuspects = {}
+		local RemoteSuspects = {}
+		local LogicLocalCount = 0
+
+		for _, Candidate in ipairs(StaminaFeature.CandidateOrder) do
+			local Observation = Session.Observations[Candidate.RegistryKey]
+
+			if Observation then
+				local Score = (Candidate.Confidence or 0) / 35
+
+				if Candidate.Group == "Flags" then
+					Score = Score + 3
+				elseif Candidate.Group == "Spend" then
+					Score = Score + 4
+				end
+
+				Score = Score + math.min(Observation.TotalChanges or 0, 4)
+				Score = Score + math.min((Observation.ExternalWrites or 0) * 2, 6)
+
+				if (Observation.DeltaMagnitude or 0) > 0.5 then
+					Score = Score + 2
+				end
+
+				if Candidate.SourceKind == "table" then
+					Score = Score + 1
+				end
+
+				if ProfileFamily ~= nil and Candidate.Family == ProfileFamily then
+					Score = Score + 2
+				end
+
+				if (Candidate.Group == "Current" or Candidate.Group == "Max")
+					and (
+						Candidate.NameLower == "stamina"
+						or Candidate.NameLower == "staminainstat"
+						or Candidate.NameLower == "maxstamina"
+					)
+					and (Observation.ExternalWrites or 0) == 0
+					and (Observation.TotalChanges or 0) <= 1 then
+					Score = Score - 4
+				end
+
+				Candidate.Score = math.max(Candidate.Score or 0, Score)
+
+				if Candidate.Group == "Flags" then
+					if Score >= 4 then
+						promoteCandidate(Candidate, "flags", Score, "capture_flags")
+						table.insert(PromotedLogic, {
+							Candidate = Candidate,
+							Observation = Observation
+						})
+						LogicLocalCount = LogicLocalCount + 1
+					end
+				elseif Candidate.Group == "Spend" then
+					if Score >= 4 then
+						promoteCandidate(Candidate, "spend", Score, "capture_spend")
+						table.insert(PromotedLogic, {
+							Candidate = Candidate,
+							Observation = Observation
+						})
+						LogicLocalCount = LogicLocalCount + 1
+					end
+				elseif Score >= 6 or (Observation.ExternalWrites or 0) >= 2 then
+					promoteCandidate(Candidate, "logic-local", Score, "capture_logic")
+					table.insert(PromotedLogic, {
+						Candidate = Candidate,
+						Observation = Observation
+					})
+					LogicLocalCount = LogicLocalCount + 1
+				else
+					normalizeCandidate(Candidate)
+
+					if Score >= 1 then
+						table.insert(DisplaySuspects, {
+							Candidate = Candidate,
+							Observation = Observation
+						})
+					end
+				end
+			end
+		end
+
+		table.sort(PromotedLogic, function(Left, Right)
+			return (Left.Candidate.Score or 0) > (Right.Candidate.Score or 0)
+		end)
+
+		table.sort(DisplaySuspects, function(Left, Right)
+			return (Left.Candidate.Score or 0) > (Right.Candidate.Score or 0)
+		end)
+
+		for _, Candidate in ipairs(StaminaFeature.RemoteCandidateOrder) do
+			local Observation = Session.RemoteObservations[Candidate.RegistryKey]
+
+			if Observation then
+				Candidate.Score = math.max(Candidate.Score or 0, Observation.Count * 2)
+
+				if LogicLocalCount == 0 and Session.ActionValid and Observation.Count >= 2 then
+					Candidate.CaptureHits = (Candidate.CaptureHits or 0) + 1
+
+					if Candidate.CaptureHits >= 2 then
+						Candidate.Promoted = true
+					end
+				end
+
+				table.insert(RemoteSuspects, {
+					Candidate = Candidate,
+					Observation = Observation
+				})
+			end
+		end
+
+		table.sort(RemoteSuspects, function(Left, Right)
+			return (Left.Observation.Count or 0) > (Right.Observation.Count or 0)
+		end)
+
+		local Lines = {
+			string.format("LastProfile: %s", Session.Profile),
+			string.format("ActionValid: %s", tostring(Session.ActionValid)),
+			string.format("MaxSpeed: %s", formatNumber(Session.MaxSpeed or 0)),
+			string.format("PromotedLogic: %d", LogicLocalCount),
+			string.format("RemoteCalls: %d", Session.RemoteCallCount or 0)
+		}
+
+		if #PromotedLogic > 0 then
+			table.insert(Lines, "TopPromoted:")
+
+			for Index = 1, math.min(#PromotedLogic, 4) do
+				table.insert(Lines, buildSummaryLine(PromotedLogic[Index].Candidate, PromotedLogic[Index].Observation))
+			end
+		end
+
+		if #DisplaySuspects > 0 then
+			table.insert(Lines, "DisplaySuspects:")
+
+			for Index = 1, math.min(#DisplaySuspects, 3) do
+				table.insert(Lines, buildSummaryLine(DisplaySuspects[Index].Candidate, DisplaySuspects[Index].Observation))
+			end
+		end
+
+		if #RemoteSuspects > 0 then
+			table.insert(Lines, "RemoteSuspects:")
+
+			for Index = 1, math.min(#RemoteSuspects, 3) do
+				local Observation = RemoteSuspects[Index].Observation
+				local Candidate = RemoteSuspects[Index].Candidate
+
+				table.insert(Lines, string.format(
+					"%s [%s] count=%d args=%s",
+					Candidate.Name,
+					Candidate.Method,
+					Observation.Count or 0,
+					Observation.LastArgsSummary or ""
+				))
+			end
+		end
+
+		StaminaFeature.LastCaptureSummary = Lines
+		Session.State = "completed"
+	end
+
+	local function advanceCaptureSession()
+		local Session = StaminaFeature.CaptureSession
+
+		if not Session or Session.State == "completed" then
+			return
+		end
+
+		local Now = os.clock()
+		local Metrics = getCharacterMetrics()
+
+		if Metrics.VelocityMagnitude > (Session.MaxSpeed or 0) then
+			Session.MaxSpeed = Metrics.VelocityMagnitude
+		end
+
+		if Metrics.MoveMagnitude > (Session.MaxMoveMagnitude or 0) then
+			Session.MaxMoveMagnitude = Metrics.MoveMagnitude
+		end
+
+		if Metrics.ToolEquipped then
+			Session.ToolSeen = true
+		end
+
+		if Session.Profile == "Free" then
+			Session.ActionValid = true
+		elseif Session.Profile == "Run" then
+			if Metrics.MoveMagnitude > 0.35
+				or Metrics.VelocityMagnitude > math.max(Metrics.WalkSpeed * 0.65, 7) then
+				Session.ActionValid = true
+			end
+		elseif Session.Profile == "Dash" then
+			if Metrics.VelocityMagnitude > math.max(Metrics.WalkSpeed * 1.6, 20) then
+				Session.ActionValid = true
+			end
+		elseif Session.Profile == "Attack" then
+			if Metrics.ToolEquipped
+				or (Session.AttackSignalCount or 0) > 0
+				or (Session.RemoteCallCount or 0) > 0 then
+				Session.ActionValid = true
+			end
+		end
+
+		if Session.State == "baseline" and Now >= Session.BaselineEndsAt then
+			Session.State = "active"
+			refreshCaptureWindow(Session)
+		elseif Session.State == "active" and Now >= Session.EndsAt then
+			finalizeCaptureSession()
+		end
+	end
+
+	local function clearCaptureSessionState()
+		StaminaFeature.CaptureSession = nil
+		table.clear(StaminaFeature.LastCaptureSummary)
+	end
+
+	local function resetCaptureState()
+		clearCaptureSessionState()
+
+		for _, Candidate in ipairs(StaminaFeature.RemoteCandidateOrder) do
+			Candidate.Promoted = false
+			Candidate.CaptureHits = 0
+			Candidate.Score = 0
+		end
+
+		for _, Candidate in ipairs(StaminaFeature.CandidateOrder) do
+			Candidate.Score = 0
+			Candidate.CaptureHits = 0
+
+			if Candidate.Group == "Flags" then
+				if Candidate.ExactAlias and Candidate.Confidence >= 85 then
+					promoteCandidate(Candidate, "flags", 5, "exact_flag_bootstrap")
+				else
+					normalizeCandidate(Candidate)
+				end
+			elseif Candidate.Group == "Spend" then
+				if Candidate.ExactAlias and Candidate.Confidence >= 85 then
+					promoteCandidate(Candidate, "spend", 5, "exact_spend_bootstrap")
+				else
+					normalizeCandidate(Candidate)
+				end
+			else
+				normalizeCandidate(Candidate)
+			end
+		end
+	end
+
 	local function scheduleGcResolve()
-		if not StaminaFeature.Enabled
+		if not shouldRunRuntime()
 			or StaminaFeature.GcResolveQueued
 			or type(getgc) ~= "function" then
 			return
@@ -738,14 +1596,14 @@ return function(Config)
 		task.delay(0.6, function()
 			StaminaFeature.GcResolveQueued = false
 
-			if StaminaFeature.Enabled then
+			if shouldRunRuntime() then
 				StaminaFeature:Step(true, true)
 			end
 		end)
 	end
 
 	local function scheduleStep()
-		if not StaminaFeature.Enabled or StaminaFeature.StepQueued then
+		if not shouldRunRuntime() or StaminaFeature.StepQueued then
 			return
 		end
 
@@ -754,14 +1612,14 @@ return function(Config)
 		task.defer(function()
 			StaminaFeature.StepQueued = false
 
-			if StaminaFeature.Enabled then
+			if shouldRunRuntime() then
 				StaminaFeature:Step(false, false)
 			end
 		end)
 	end
 
 	local function connectHandleSignals()
-		disconnectHandleSignals()
+		clearHandleSignals()
 
 		local Connected = {}
 
@@ -810,6 +1668,7 @@ return function(Config)
 		end
 
 		clearHandles()
+		clearCandidateActivity()
 
 		local EntryMaps = {
 			Current = {},
@@ -822,12 +1681,12 @@ return function(Config)
 			return next(EntryMaps.Current) ~= nil or next(EntryMaps.Max) ~= nil
 		end
 
-		local function recordHandle(GroupName, NameLower, Handle, Value, Confidence, SourceKind)
+		local function recordHandle(GroupName, Name, NameLower, Handle, Value, Confidence, SourceKind)
 			if not GroupName or not isUsefulValue(GroupName, Value) then
 				return
 			end
 
-			local IsExactAlias = Lookups[GroupName] and Lookups[GroupName][NameLower] == true
+			local IsExactAlias = Lookups[GroupName] and Lookups[GroupName][NameLower] == true or false
 
 			if SourceKind == "table"
 				and string.find(NameLower, "stamina", 1, true) == nil
@@ -849,11 +1708,15 @@ return function(Config)
 				return
 			end
 
+			local Candidate = upsertLocalCandidate(GroupName, Name, NameLower, Handle, Value, Confidence, SourceKind)
+
 			EntryMaps[GroupName][Key] = {
 				Key = Key,
+				Name = Name,
 				NameLower = NameLower,
 				Family = getFamily(NameLower),
 				Handle = Handle,
+				Candidate = Candidate,
 				Confidence = Confidence or 0,
 				SourceKind = SourceKind or "instance"
 			}
@@ -870,7 +1733,7 @@ return function(Config)
 				local GroupName, NameLower = classifyName(Instance.Name)
 
 				if GroupName then
-					recordHandle(GroupName, NameLower, createValueHandle(Instance), Instance.Value, Confidence, "instance")
+					recordHandle(GroupName, Instance.Name, NameLower, createValueHandle(Instance), Instance.Value, Confidence, "instance")
 				end
 			end
 
@@ -878,7 +1741,7 @@ return function(Config)
 				local GroupName, NameLower = classifyName(AttributeName)
 
 				if GroupName then
-					recordHandle(GroupName, NameLower, createAttributeHandle(Instance, AttributeName), Value, Confidence, "instance")
+					recordHandle(GroupName, AttributeName, NameLower, createAttributeHandle(Instance, AttributeName), Value, Confidence, "instance")
 				end
 			end
 		end
@@ -894,7 +1757,7 @@ return function(Config)
 						local GroupName, NameLower = classifyName(Key)
 
 						if GroupName then
-							recordHandle(GroupName, NameLower, createTableHandle(TableValue, Key), Value, 15, "table")
+							recordHandle(GroupName, Key, NameLower, createTableHandle(TableValue, Key), Value, 15, "table")
 						end
 					end
 				end
@@ -999,8 +1862,8 @@ return function(Config)
 	local function computeTargets()
 		local Targets = {}
 
-		for _, Entry in ipairs(StaminaFeature.Handles.Max) do
-			local Value = toNumber(readHandle(Entry.Handle))
+		local function considerEntry(Entry)
+			local Value = toNumber(readEntryValue(Entry))
 
 			if Value ~= nil then
 				local Current = Targets[Entry.Family]
@@ -1011,15 +1874,27 @@ return function(Config)
 			end
 		end
 
+		for _, Entry in ipairs(StaminaFeature.Handles.Max) do
+			if isLogicLocalCandidate(Entry.Candidate) then
+				considerEntry(Entry)
+			end
+		end
+
 		for _, Entry in ipairs(StaminaFeature.Handles.Current) do
-			local Value = toNumber(readHandle(Entry.Handle))
+			if isLogicLocalCandidate(Entry.Candidate) then
+				considerEntry(Entry)
+			end
+		end
 
-			if Value ~= nil then
-				local Current = Targets[Entry.Family]
+		for _, Entry in ipairs(StaminaFeature.Handles.Max) do
+			if Targets[Entry.Family] == nil then
+				considerEntry(Entry)
+			end
+		end
 
-				if Current == nil or Value > Current then
-					Targets[Entry.Family] = Value
-				end
+		for _, Entry in ipairs(StaminaFeature.Handles.Current) do
+			if Targets[Entry.Family] == nil then
+				considerEntry(Entry)
 			end
 		end
 
@@ -1053,7 +1928,7 @@ return function(Config)
 		end
 
 		if Target == nil then
-			Target = toNumber(readHandle(Entry.Handle))
+			Target = toNumber(readEntryValue(Entry))
 		end
 
 		return Target
@@ -1061,16 +1936,18 @@ return function(Config)
 
 	local function rememberOriginalFlags()
 		for _, Entry in ipairs(StaminaFeature.Handles.Flags) do
-			if StaminaFeature.OriginalFlagValues[Entry.Key] == nil then
-				StaminaFeature.OriginalFlagValues[Entry.Key] = readHandle(Entry.Handle)
+			if isFlagCandidate(Entry.Candidate)
+				and StaminaFeature.OriginalFlagValues[Entry.Key] == nil then
+				StaminaFeature.OriginalFlagValues[Entry.Key] = readEntryValue(Entry)
 			end
 		end
 	end
 
 	local function rememberOriginalSpends()
 		for _, Entry in ipairs(StaminaFeature.Handles.Spend) do
-			if StaminaFeature.OriginalSpendValues[Entry.Key] == nil then
-				StaminaFeature.OriginalSpendValues[Entry.Key] = readHandle(Entry.Handle)
+			if isSpendCandidate(Entry.Candidate)
+				and StaminaFeature.OriginalSpendValues[Entry.Key] == nil then
+				StaminaFeature.OriginalSpendValues[Entry.Key] = readEntryValue(Entry)
 			end
 		end
 	end
@@ -1079,11 +1956,13 @@ return function(Config)
 		rememberOriginalFlags()
 
 		for _, Entry in ipairs(StaminaFeature.Handles.Flags) do
-			local CurrentValue = readHandle(Entry.Handle)
-			local DesiredValue = getTruthyValue(CurrentValue)
+			if isFlagCandidate(Entry.Candidate) then
+				local CurrentValue = readEntryValue(Entry)
+				local DesiredValue = getTruthyValue(CurrentValue)
 
-			if CurrentValue ~= DesiredValue then
-				writeHandle(Entry.Handle, DesiredValue)
+				if CurrentValue ~= DesiredValue then
+					writeEntryValue(Entry, DesiredValue)
+				end
 			end
 		end
 	end
@@ -1092,11 +1971,13 @@ return function(Config)
 		rememberOriginalSpends()
 
 		for _, Entry in ipairs(StaminaFeature.Handles.Spend) do
-			local CurrentValue = readHandle(Entry.Handle)
-			local DesiredValue = getZeroLikeValue(CurrentValue)
+			if isSpendCandidate(Entry.Candidate) then
+				local CurrentValue = readEntryValue(Entry)
+				local DesiredValue = getZeroLikeValue(CurrentValue)
 
-			if CurrentValue ~= DesiredValue then
-				writeHandle(Entry.Handle, DesiredValue)
+				if CurrentValue ~= DesiredValue then
+					writeEntryValue(Entry, DesiredValue)
+				end
 			end
 		end
 	end
@@ -1104,31 +1985,62 @@ return function(Config)
 	local function applyMaxHandles()
 		for _, Entry in ipairs(StaminaFeature.Handles.Max) do
 			local Target = getTargetForEntry(Entry)
-			local CurrentValue = toNumber(readHandle(Entry.Handle))
+			local CurrentValue = toNumber(readEntryValue(Entry))
 
-			if Target ~= nil and (CurrentValue == nil or math.abs(CurrentValue - Target) > 0.001) then
-				writeHandle(Entry.Handle, Target)
+			if Target ~= nil
+				and isLogicLocalCandidate(Entry.Candidate)
+				and (CurrentValue == nil or math.abs(CurrentValue - Target) > 0.001) then
+				writeEntryValue(Entry, Target)
+			end
+		end
+
+		for _, Entry in ipairs(StaminaFeature.Handles.Max) do
+			local Target = getTargetForEntry(Entry)
+			local CurrentValue = toNumber(readEntryValue(Entry))
+
+			if Target ~= nil
+				and isDisplayCandidate(Entry.Candidate)
+				and (CurrentValue == nil or math.abs(CurrentValue - Target) > 0.001) then
+				writeEntryValue(Entry, Target)
 			end
 		end
 	end
 
 	local function applyCurrentHandles()
-		local Applied = false
+		local AppliedLogic = false
+		local AppliedDisplay = false
 
 		for _, Entry in ipairs(StaminaFeature.Handles.Current) do
 			local Target = getTargetForEntry(Entry)
-			local CurrentValue = toNumber(readHandle(Entry.Handle))
+			local CurrentValue = toNumber(readEntryValue(Entry))
 
-			if Target ~= nil and (CurrentValue == nil or math.abs(CurrentValue - Target) > 0.001) then
-				writeHandle(Entry.Handle, Target)
+			if Target ~= nil
+				and isLogicLocalCandidate(Entry.Candidate)
+				and (CurrentValue == nil or math.abs(CurrentValue - Target) > 0.001) then
+				writeEntryValue(Entry, Target)
 			end
 
-			if Target ~= nil then
-				Applied = true
+			if Target ~= nil and isLogicLocalCandidate(Entry.Candidate) then
+				AppliedLogic = true
 			end
 		end
 
-		return Applied
+		for _, Entry in ipairs(StaminaFeature.Handles.Current) do
+			local Target = getTargetForEntry(Entry)
+			local CurrentValue = toNumber(readEntryValue(Entry))
+
+			if Target ~= nil
+				and isDisplayCandidate(Entry.Candidate)
+				and (CurrentValue == nil or math.abs(CurrentValue - Target) > 0.001) then
+				writeEntryValue(Entry, Target)
+			end
+
+			if Target ~= nil and isDisplayCandidate(Entry.Candidate) then
+				AppliedDisplay = true
+			end
+		end
+
+		return AppliedLogic, AppliedDisplay
 	end
 
 	local function shouldQueueGcResolve()
@@ -1137,15 +2049,24 @@ return function(Config)
 			return StaminaFeature.DropEventCount >= StaminaFeature.DropEventLimit
 		end
 
+		local HasPromotedLogic = false
 		local HasDrop = false
 
 		for _, Entry in ipairs(StaminaFeature.Handles.Current) do
 			local Target = getTargetForEntry(Entry)
-			local CurrentValue = toNumber(readHandle(Entry.Handle))
+			local CurrentValue = toNumber(readEntryValue(Entry))
 
-			if Target ~= nil and CurrentValue ~= nil and CurrentValue < (Target - StaminaFeature.DropThreshold) then
-				HasDrop = true
-				break
+			if isLogicLocalCandidate(Entry.Candidate) then
+				HasPromotedLogic = true
+			end
+
+			if Target ~= nil
+				and CurrentValue ~= nil
+				and CurrentValue < (Target - StaminaFeature.DropThreshold) then
+				if isLogicLocalCandidate(Entry.Candidate) or not HasPromotedLogic then
+					HasDrop = true
+					break
+				end
 			end
 		end
 
@@ -1163,7 +2084,7 @@ return function(Config)
 			local OriginalValue = StaminaFeature.OriginalFlagValues[Entry.Key]
 
 			if OriginalValue ~= nil then
-				writeHandle(Entry.Handle, OriginalValue)
+				writeEntryValue(Entry, OriginalValue)
 			end
 		end
 
@@ -1175,7 +2096,7 @@ return function(Config)
 			local OriginalValue = StaminaFeature.OriginalSpendValues[Entry.Key]
 
 			if OriginalValue ~= nil then
-				writeHandle(Entry.Handle, OriginalValue)
+				writeEntryValue(Entry, OriginalValue)
 			end
 		end
 
@@ -1204,13 +2125,22 @@ return function(Config)
 		return State
 	end
 
-	local function getEnabledController()
+	local function controllerNeedsHooks(Controller)
+		return type(Controller) == "table"
+			and (
+				Controller.Enabled
+				or Controller.DebugEnabled
+				or (Controller.CaptureSession and Controller.CaptureSession.State ~= "completed")
+			)
+	end
+
+	local function getActiveController()
 		if not HookState then
 			return nil
 		end
 
 		for _, Controller in pairs(HookState.Controllers) do
-			if type(Controller) == "table" and Controller.Enabled then
+			if controllerNeedsHooks(Controller) then
 				return Controller
 			end
 		end
@@ -1218,43 +2148,50 @@ return function(Config)
 		return nil
 	end
 
-	local function getInterceptTarget(NameLower, IncomingValue)
-		local Controller = getEnabledController()
+	local function syncHookController()
+		HookState = getHookState()
 
-		if not Controller then
+		if not HookState then
+			return
+		end
+
+		if controllerNeedsHooks(StaminaFeature) then
+			if not StaminaFeature.HookControllerId then
+				HookState.NextId = (HookState.NextId or 0) + 1
+				StaminaFeature.HookControllerId = HookState.NextId
+			end
+
+			HookState.Controllers[StaminaFeature.HookControllerId] = StaminaFeature
+		elseif StaminaFeature.HookControllerId then
+			HookState.Controllers[StaminaFeature.HookControllerId] = nil
+		end
+	end
+
+	local function getInterceptTarget(Candidate, IncomingValue)
+		if not Candidate then
 			return nil, false
 		end
 
-		local GroupName = nil
-
-		for Group, Lookup in pairs(Lookups) do
-			if Lookup[NameLower] then
-				GroupName = Group
-				break
-			end
-		end
-
-		if not GroupName then
-			GroupName = select(1, classifyName(NameLower))
-		end
-
-		if GroupName == "Flags" then
+		if Candidate.Group == "Flags" and isFlagCandidate(Candidate) then
 			return getTruthyValue(IncomingValue), true
 		end
 
-		if GroupName == "Spend" then
+		if Candidate.Group == "Spend" and isSpendCandidate(Candidate) then
 			return getZeroLikeValue(IncomingValue), true
 		end
 
-		if GroupName ~= "Current" and GroupName ~= "Max" then
+		if Candidate.Group ~= "Current" and Candidate.Group ~= "Max" then
 			return nil, false
 		end
 
-		local Family = getFamily(NameLower)
-		local Targets = Controller.LastKnownTargets
-		local Target = Targets[Family]
+		if not isLogicLocalCandidate(Candidate) then
+			return nil, false
+		end
 
-		if Target == nil and Family ~= "base" then
+		local Targets = StaminaFeature.LastKnownTargets
+		local Target = Targets[Candidate.Family]
+
+		if Target == nil and Candidate.Family ~= "base" then
 			Target = Targets.base
 		end
 
@@ -1269,13 +2206,32 @@ return function(Config)
 		return coerceLike(IncomingValue, Target), true
 	end
 
+	local function inspectIncomingLocalChange(GroupName, Name, NameLower, Handle, IncomingValue, Confidence, SourceKind)
+		local Controller = getActiveController()
+
+		if not Controller or not GroupName then
+			return nil, false
+		end
+
+		local Candidate = upsertLocalCandidate(GroupName, Name, NameLower, Handle, IncomingValue, Confidence, SourceKind)
+
+		observeCandidateValue(Candidate, IncomingValue, "external_write")
+
+		if not Controller.Enabled then
+			return nil, false
+		end
+
+		return getInterceptTarget(Candidate, IncomingValue)
+	end
+
+	local function shouldBlockRemote(RemoteCandidate)
+		return StaminaFeature.Enabled
+			and RemoteCandidate
+			and RemoteCandidate.Promoted
+	end
+
 	local function installHooks()
 		HookState = getHookState()
-
-		if HookState then
-			HookState.ResolveIntercept = getInterceptTarget
-			HookState.IsLocalRelatedInstance = isLocalRelatedInstance
-		end
 
 		if not HookState or HookState.Installed or type(hookmetamethod) ~= "function" then
 			return
@@ -1288,23 +2244,30 @@ return function(Config)
 		local OriginalNewIndex
 		local SuccessNewIndex = pcall(function()
 			OriginalNewIndex = hookmetamethod(game, "__newindex", Wrap(function(Self, Key, Value)
-				local ScopeCheck = HookState and HookState.IsLocalRelatedInstance
-				local ResolveIntercept = HookState and HookState.ResolveIntercept
-
 				if Key == "Value"
 					and typeof(Self) == "Instance"
 					and Self:IsA("ValueBase")
-					and type(ScopeCheck) == "function"
-					and ScopeCheck(Self)
-					and type(ResolveIntercept) == "function" then
-					local Replacement, ShouldReplace = ResolveIntercept(string.lower(Self.Name), Value)
+					and isLocalRelatedInstance(Self) then
+					local GroupName, NameLower = classifyName(Self.Name)
 
-					if ShouldReplace then
-						if typeof(Replacement) == "number" and Self:IsA("IntValue") then
-							Replacement = math.floor(Replacement + 0.5)
+					if GroupName then
+						local Replacement, ShouldReplace = inspectIncomingLocalChange(
+							GroupName,
+							Self.Name,
+							NameLower,
+							createValueHandle(Self),
+							Value,
+							getInstanceConfidence(Self),
+							"instance"
+						)
+
+						if ShouldReplace then
+							if typeof(Replacement) == "number" and Self:IsA("IntValue") then
+								Replacement = math.floor(Replacement + 0.5)
+							end
+
+							return OriginalNewIndex(Self, Key, Replacement)
 						end
-
-						return OriginalNewIndex(Self, Key, Replacement)
 					end
 				end
 
@@ -1316,23 +2279,47 @@ return function(Config)
 		local SuccessNamecall = pcall(function()
 			OriginalNamecall = hookmetamethod(game, "__namecall", Wrap(function(Self, ...)
 				local Method = type(getnamecallmethod) == "function" and getnamecallmethod() or nil
-				local ScopeCheck = HookState and HookState.IsLocalRelatedInstance
-				local ResolveIntercept = HookState and HookState.ResolveIntercept
 
 				if Method == "SetAttribute"
 					and typeof(Self) == "Instance"
-					and type(ScopeCheck) == "function"
-					and ScopeCheck(Self)
-					and type(ResolveIntercept) == "function" then
+					and isLocalRelatedInstance(Self) then
 					local Arguments = table.pack(...)
 					local AttributeName = Arguments[1]
 
 					if type(AttributeName) == "string" then
-						local Replacement, ShouldReplace = ResolveIntercept(string.lower(AttributeName), Arguments[2])
+						local GroupName, NameLower = classifyName(AttributeName)
 
-						if ShouldReplace then
-							Arguments[2] = Replacement
-							return OriginalNamecall(Self, table.unpack(Arguments, 1, Arguments.n))
+						if GroupName then
+							local Replacement, ShouldReplace = inspectIncomingLocalChange(
+								GroupName,
+								AttributeName,
+								NameLower,
+								createAttributeHandle(Self, AttributeName),
+								Arguments[2],
+								getInstanceConfidence(Self),
+								"instance"
+							)
+
+							if ShouldReplace then
+								Arguments[2] = Replacement
+								return OriginalNamecall(Self, table.unpack(Arguments, 1, Arguments.n))
+							end
+						end
+					end
+				elseif (Method == "FireServer" or Method == "InvokeServer")
+					and typeof(Self) == "Instance"
+					and (Self:IsA("RemoteEvent") or Self:IsA("RemoteFunction")) then
+					local Controller = getActiveController()
+
+					if Controller then
+						local Arguments = table.pack(...)
+						local RemoteCandidate = upsertRemoteCandidate(Self, Method, Arguments)
+
+						recordCaptureRemoteValue(RemoteCandidate)
+
+						if shouldBlockRemote(RemoteCandidate) then
+							RemoteCandidate.BlockedCount = RemoteCandidate.BlockedCount + 1
+							return nil
 						end
 					end
 				end
@@ -1344,20 +2331,84 @@ return function(Config)
 		HookState.Installed = SuccessNewIndex or SuccessNamecall
 	end
 
-	local function ensureHookController()
-		HookState = getHookState()
+	function StaminaFeature:SetDebugEnabled(Value)
+		self.DebugEnabled = Value and true or false
 
-		if not HookState then
-			return
+		if not self.DebugEnabled then
+			clearCaptureSessionState()
 		end
 
-		if not StaminaFeature.HookControllerId then
-			HookState.NextId = (HookState.NextId or 0) + 1
-			StaminaFeature.HookControllerId = HookState.NextId
-		end
-
-		HookState.Controllers[StaminaFeature.HookControllerId] = StaminaFeature
+		syncHookController()
 		installHooks()
+		ensureHeartbeatConnection()
+		disconnectHeartbeatIfIdle()
+	end
+
+	function StaminaFeature:IsDebugEnabled()
+		return self.DebugEnabled
+	end
+
+	function StaminaFeature:GetDebugProfile()
+		return self.DebugProfile
+	end
+
+	function StaminaFeature:SetDebugProfile(Profile)
+		if CaptureProfiles[Profile] then
+			self.DebugProfile = Profile
+		end
+	end
+
+	function StaminaFeature:StartDebugCapture(Profile)
+		self:SetDebugProfile(Profile or self.DebugProfile)
+
+		if not self.DebugEnabled then
+			self:SetDebugEnabled(true)
+		end
+
+		table.clear(self.LastCaptureSummary)
+		self.CaptureSession = createCaptureSession(self.DebugProfile)
+		syncHookController()
+		installHooks()
+		ensureHeartbeatConnection()
+		refreshCaptureWindow(self.CaptureSession)
+		scheduleStep()
+
+		return true
+	end
+
+	function StaminaFeature:ClearDebugCapture()
+		clearCaptureSessionState()
+		syncHookController()
+		disconnectHeartbeatIfIdle()
+	end
+
+	function StaminaFeature:GetDebugLines()
+		if not self.DebugEnabled then
+			return {}
+		end
+
+		local Lines = {
+			string.format("DebugEnabled: %s", tostring(self.DebugEnabled)),
+			string.format("Profile: %s", self.DebugProfile),
+			string.format("PromotedLocal: %d", countPromotedLocalCandidates()),
+			string.format("PromotedRemote: %d", countPromotedRemoteCandidates())
+		}
+
+		local Session = self.CaptureSession
+
+		if Session then
+			table.insert(Lines, string.format("CaptureState: %s", Session.State))
+			table.insert(Lines, string.format("ActionValid: %s", tostring(Session.ActionValid)))
+			table.insert(Lines, string.format("CaptureSpeed: %s", formatNumber(Session.MaxSpeed or 0)))
+		else
+			table.insert(Lines, "CaptureState: idle")
+		end
+
+		for _, Line in ipairs(self.LastCaptureSummary) do
+			table.insert(Lines, Line)
+		end
+
+		return Lines
 	end
 
 	function StaminaFeature:Step(ForceRefresh, IncludeGc)
@@ -1370,29 +2421,46 @@ return function(Config)
 
 		local Success, Result = pcall(function()
 			resolveHandles(ForceRefresh, IncludeGc == true)
+			advanceCaptureSession()
 
 			if not hasHandles() then
-				scheduleGcResolve()
-				warnMissingHandles()
+				if shouldRunRuntime() then
+					scheduleGcResolve()
+				end
+
+				if self.Enabled then
+					warnMissingHandles()
+				end
+
 				return false
 			end
 
 			computeTargets()
+
+			if not self.Enabled then
+				return true
+			end
+
 			applyFlags()
 			applySpend()
 			applyMaxHandles()
-			local Applied = applyCurrentHandles()
+			local AppliedLogic, AppliedDisplay = applyCurrentHandles()
 
 			if shouldQueueGcResolve() then
 				self.DropEventCount = 0
 				scheduleGcResolve()
+
+				if self.DebugEnabled
+					and (not self.CaptureSession or self.CaptureSession.State == "completed") then
+					self:StartDebugCapture(self.DebugProfile)
+				end
 			end
 
-			if not Applied and #self.Handles.Current == 0 then
+			if not AppliedLogic then
 				warnMissingHandles()
 			end
 
-			return Applied or #self.Handles.Flags > 0 or #self.Handles.Spend > 0
+			return AppliedLogic or AppliedDisplay
 		end)
 
 		self.StepBusy = false
@@ -1416,18 +2484,12 @@ return function(Config)
 		self.DropEventCount = 0
 
 		if self.Enabled then
-			ensureHookController()
 			clearScopeCache()
 			clearHandles()
+			syncHookController()
+			installHooks()
+			ensureHeartbeatConnection()
 			self:Step(true, false)
-
-			if not self.HeartbeatConnection then
-				self.HeartbeatConnection = RunService.Heartbeat:Connect(function()
-					if self.Enabled and (os.clock() - self.LastStepAt) >= self.StepInterval then
-						self:Step(false, false)
-					end
-				end)
-			end
 
 			if not hasPrimaryHandles() or #self.Handles.Current == 0 then
 				scheduleGcResolve()
@@ -1435,13 +2497,11 @@ return function(Config)
 		else
 			restoreOriginalFlags()
 			restoreOriginalSpends()
+			resetCaptureState()
 
-			if self.HeartbeatConnection then
-				self.HeartbeatConnection:Disconnect()
-				self.HeartbeatConnection = nil
-			end
-
-			disconnectHandleSignals()
+			clearHandleSignals()
+			syncHookController()
+			disconnectHeartbeatIfIdle()
 		end
 
 		return true
@@ -1449,12 +2509,14 @@ return function(Config)
 
 	function StaminaFeature:Destroy()
 		self.Enabled = false
+		self.DebugEnabled = false
 		self.StepBusy = false
 		self.StepQueued = false
 		self.GcResolveQueued = false
 		self.DropEventCount = 0
 		restoreOriginalFlags()
 		restoreOriginalSpends()
+		resetCaptureState()
 
 		if self.HeartbeatConnection then
 			self.HeartbeatConnection:Disconnect()
@@ -1466,6 +2528,8 @@ return function(Config)
 			self.CharacterAddedConnection = nil
 		end
 
+		HookState = getHookState()
+
 		if HookState and self.HookControllerId then
 			HookState.Controllers[self.HookControllerId] = nil
 			self.HookControllerId = nil
@@ -1474,7 +2538,9 @@ return function(Config)
 		self.LastResolveAt = 0
 		self.LastGcResolveAt = 0
 		self.LastKnownTargets = {}
+		clearScopeCache()
 		clearHandles()
+		clearRuntimeCandidates()
 	end
 
 	StaminaFeature.CharacterAddedConnection = LocalPlayer.CharacterAdded:Connect(function()
@@ -1488,10 +2554,13 @@ return function(Config)
 		StaminaFeature.DropEventCount = 0
 		table.clear(StaminaFeature.OriginalFlagValues)
 		table.clear(StaminaFeature.OriginalSpendValues)
+		resetCaptureState()
 		clearScopeCache()
 		clearHandles()
+		clearRuntimeCandidates()
+		syncHookController()
 
-		if StaminaFeature.Enabled then
+		if shouldRunRuntime() then
 			scheduleStep()
 			scheduleGcResolve()
 		end

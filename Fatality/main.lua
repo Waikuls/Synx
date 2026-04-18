@@ -324,6 +324,27 @@ local function createFallbackStatsFeature(ErrorMessage)
 		end,
 		SetTargetPlayer = function()
 			return game.Players.LocalPlayer
+		end,
+		IsStaminaDebugAvailable = function()
+			return false
+		end,
+		IsStaminaDebugEnabled = function()
+			return false
+		end,
+		SetStaminaDebugEnabled = function()
+		end,
+		GetStaminaDebugProfile = function()
+			return "Run"
+		end,
+		GetStaminaCaptureProfiles = function()
+			return {"Free", "Run", "Dash", "Attack"}
+		end,
+		SetStaminaDebugProfile = function()
+		end,
+		StartStaminaDebugCapture = function()
+			return false
+		end,
+		ClearStaminaDebugCapture = function()
 		end
 	}
 end
@@ -456,7 +477,9 @@ local FoodFeature = safeCreateModule("features/food.lua", CreateFoodFeature, {
 local StaminaFeature = safeCreateModule("features/stamina.lua", CreateStaminaFeature, {
 	Notification = Notification
 }, createFallbackStaminaFeature)
-local StatsFeature = safeCreateModule("features/stats.lua", CreateStatsFeature, {}, createFallbackStatsFeature)
+local StatsFeature = safeCreateModule("features/stats.lua", CreateStatsFeature, {
+	StaminaFeature = StaminaFeature
+}, createFallbackStatsFeature)
 local StatsUI = safeCreateModule("ui/stats.lua", CreateStatsUI, {
 	Window = Window,
 	Fatality = Fatality,
