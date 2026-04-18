@@ -10,15 +10,18 @@ return function(Config)
 		HeartbeatConnection = nil,
 		CharacterAddedConnection = nil,
 		HandleSignals = {},
+		StepInterval = 0.05,
 		ResolveInterval = 1,
 		GcResolveInterval = 8,
 		LastResolveAt = 0,
 		LastGcResolveAt = 0,
+		LastStepAt = 0,
 		LastWarnAt = 0,
 		WarnCooldown = 5,
 		LastKnownTargets = {},
 		StepBusy = false,
 		StepQueued = false,
+		GcResolveQueued = false,
 		Handles = {
 			Current = {},
 			Max = {},
@@ -36,27 +39,56 @@ return function(Config)
 			"StaminaInStat",
 			"CurrentStamina",
 			"StaminaValue",
+			"Energy",
+			"CurrentEnergy",
+			"EnergyValue",
+			"Eevee",
 			"DashStamina",
+			"DashEnergy",
 			"SprintStamina",
+			"SprintEnergy",
 			"RunStamina",
+			"RunEnergy",
 			"CombatStamina",
-			"AttackStamina"
+			"CombatEnergy",
+			"AttackStamina",
+			"AttackEnergy"
 		},
 		Max = {
 			"MaxStamina",
 			"MaximumStamina",
 			"StaminaMax",
+			"MaxEnergy",
+			"MaximumEnergy",
+			"EnergyMax",
+			"MaxEevee",
+			"MaximumEevee",
+			"EeveeMax",
 			"MaxDashStamina",
+			"MaxDashEnergy",
 			"MaxSprintStamina",
+			"MaxSprintEnergy",
 			"MaxRunStamina",
+			"MaxRunEnergy",
 			"MaxCombatStamina",
-			"MaxAttackStamina"
+			"MaxCombatEnergy",
+			"MaxAttackStamina",
+			"MaxAttackEnergy"
 		},
 		Flags = {
 			"NoStaminaCost",
 			"CanUseStamina",
 			"HasStamina",
-			"EnoughStamina"
+			"EnoughStamina",
+			"NoEeveeDeplete",
+			"NoEnergyDeplete",
+			"NoEnergyCost",
+			"CanUseEnergy",
+			"HasEnergy",
+			"EnoughEnergy",
+			"CanUseEevee",
+			"HasEevee",
+			"EnoughEevee"
 		},
 		Guard = {
 			"Exhaustion",
@@ -64,15 +96,23 @@ return function(Config)
 			"BodyFatique",
 			"LowStamina",
 			"OutOfStamina",
+			"LowEnergy",
+			"OutOfEnergy",
 			"Exhausted",
 			"IsExhausted",
 			"Tired",
 			"IsTired",
 			"StaminaLocked",
+			"EnergyLocked",
 			"StaminaCost",
+			"EnergyCost",
 			"StaminaDrain",
+			"EnergyDrain",
 			"StaminaDeplete",
-			"StaminaCooldown"
+			"EnergyDeplete",
+			"EeveeDeplete",
+			"StaminaCooldown",
+			"EnergyCooldown"
 		}
 	}
 
@@ -301,6 +341,10 @@ return function(Config)
 			return "attack"
 		end
 
+		if string.find(NameLower, "energy", 1, true) or string.find(NameLower, "eevee", 1, true) then
+			return "energy"
+		end
+
 		return "base"
 	end
 
@@ -311,23 +355,39 @@ return function(Config)
 
 	local function containsFlag(NameLower)
 		return string.sub(NameLower, 1, 9) == "nostamina"
+			or string.sub(NameLower, 1, 8) == "noeevee"
+			or string.sub(NameLower, 1, 8) == "noenergy"
 			or NameLower == "canusestamina"
 			or NameLower == "hasstamina"
 			or NameLower == "enoughstamina"
+			or NameLower == "canuseenergy"
+			or NameLower == "hasenergy"
+			or NameLower == "enoughenergy"
+			or NameLower == "canuseeevee"
+			or NameLower == "haseevee"
+			or NameLower == "enougheevee"
 	end
 
 	local function containsGuard(NameLower)
+		local HasResourceName = string.find(NameLower, "stamina", 1, true) ~= nil
+			or string.find(NameLower, "energy", 1, true) ~= nil
+			or string.find(NameLower, "eevee", 1, true) ~= nil
+
 		return string.find(NameLower, "fatigue", 1, true) ~= nil
 			or string.find(NameLower, "fatique", 1, true) ~= nil
 			or string.find(NameLower, "exhaust", 1, true) ~= nil
-			or string.find(NameLower, "locked", 1, true) ~= nil
+			or string.find(NameLower, "tired", 1, true) ~= nil
+			or (HasResourceName and string.find(NameLower, "locked", 1, true) ~= nil)
 			or string.find(NameLower, "lowstamina", 1, true) ~= nil
 			or string.find(NameLower, "outofstamina", 1, true) ~= nil
 			or string.find(NameLower, "out_of_stamina", 1, true) ~= nil
-			or string.find(NameLower, "cost", 1, true) ~= nil
-			or string.find(NameLower, "drain", 1, true) ~= nil
-			or string.find(NameLower, "deplete", 1, true) ~= nil
-			or string.find(NameLower, "cooldown", 1, true) ~= nil
+			or string.find(NameLower, "lowenergy", 1, true) ~= nil
+			or string.find(NameLower, "outofenergy", 1, true) ~= nil
+			or string.find(NameLower, "out_of_energy", 1, true) ~= nil
+			or (HasResourceName and string.find(NameLower, "cost", 1, true) ~= nil)
+			or (HasResourceName and string.find(NameLower, "drain", 1, true) ~= nil)
+			or (HasResourceName and string.find(NameLower, "deplete", 1, true) ~= nil)
+			or (HasResourceName and string.find(NameLower, "cooldown", 1, true) ~= nil)
 	end
 
 	local function classifyName(Name)
@@ -336,6 +396,9 @@ return function(Config)
 		end
 
 		local NameLower = string.lower(Name)
+		local HasResourceName = string.find(NameLower, "stamina", 1, true) ~= nil
+			or string.find(NameLower, "energy", 1, true) ~= nil
+			or string.find(NameLower, "eevee", 1, true) ~= nil
 
 		for GroupName, Lookup in pairs(Lookups) do
 			if Lookup[NameLower] then
@@ -343,7 +406,7 @@ return function(Config)
 			end
 		end
 
-		if not string.find(NameLower, "stamina", 1, true) then
+		if not HasResourceName then
 			return nil, NameLower
 		end
 
@@ -702,6 +765,34 @@ return function(Config)
 		})
 	end
 
+	local function hasCurrentLikeHandles()
+		return #StaminaFeature.Handles.Current > 0 or #StaminaFeature.Handles.Max > 0
+	end
+
+	local function scheduleGcResolve()
+		if not StaminaFeature.Enabled
+			or StaminaFeature.GcResolveQueued
+			or type(getgc) ~= "function" then
+			return
+		end
+
+		local Now = os.clock()
+
+		if (Now - StaminaFeature.LastGcResolveAt) < StaminaFeature.GcResolveInterval then
+			return
+		end
+
+		StaminaFeature.GcResolveQueued = true
+
+		task.delay(0.1, function()
+			StaminaFeature.GcResolveQueued = false
+
+			if StaminaFeature.Enabled then
+				StaminaFeature:Step(true, true)
+			end
+		end)
+	end
+
 	local function scheduleStep()
 		if not StaminaFeature.Enabled or StaminaFeature.StepQueued then
 			return
@@ -713,7 +804,7 @@ return function(Config)
 			StaminaFeature.StepQueued = false
 
 			if StaminaFeature.Enabled then
-				StaminaFeature:Step(false)
+				StaminaFeature:Step(false, false)
 			end
 		end)
 	end
@@ -760,7 +851,7 @@ return function(Config)
 		end
 	end
 
-	local function resolveHandles(ForceRefresh)
+	local function resolveHandles(ForceRefresh, IncludeGc)
 		local Now = os.clock()
 
 		if not ForceRefresh and (Now - StaminaFeature.LastResolveAt) < StaminaFeature.ResolveInterval then
@@ -841,7 +932,9 @@ return function(Config)
 			end
 		end
 
-		if type(getgc) == "function" and (ForceRefresh or (Now - StaminaFeature.LastGcResolveAt) >= StaminaFeature.GcResolveInterval) then
+		if IncludeGc
+			and type(getgc) == "function"
+			and (ForceRefresh or (Now - StaminaFeature.LastGcResolveAt) >= StaminaFeature.GcResolveInterval) then
 			local Success, Objects = pcall(function()
 				return getgc(true)
 			end)
@@ -920,7 +1013,7 @@ return function(Config)
 		end
 
 		if Targets.base == nil then
-			for _, Family in ipairs({"dash", "sprint", "run", "combat", "attack"}) do
+			for _, Family in ipairs({"dash", "sprint", "run", "combat", "attack", "energy"}) do
 				local Value = Targets[Family]
 
 				if Value ~= nil and (Targets.base == nil or Value > Targets.base) then
@@ -929,14 +1022,27 @@ return function(Config)
 			end
 		end
 
+		if Targets.energy == nil and Targets.base ~= nil then
+			Targets.energy = Targets.base
+		end
+
+		if Targets.base == nil and Targets.energy ~= nil then
+			Targets.base = Targets.energy
+		end
+
 		mergeTargets(Targets)
 	end
 
 	local function getTargetForEntry(Entry)
-		local Target = StaminaFeature.LastKnownTargets[Entry.Family]
+		local Targets = StaminaFeature.LastKnownTargets
+		local Target = Targets[Entry.Family]
 
-		if Target == nil then
-			Target = StaminaFeature.LastKnownTargets.base
+		if Target == nil and Entry.Family == "base" then
+			Target = Targets.energy
+		elseif Target == nil and Entry.Family == "energy" then
+			Target = Targets.base
+		elseif Target == nil then
+			Target = Targets.base or Targets.energy
 		end
 
 		if Target == nil then
@@ -1118,7 +1224,13 @@ return function(Config)
 		end
 
 		local Family = getFamily(NameLower)
-		local Target = Controller.LastKnownTargets[Family] or Controller.LastKnownTargets.base
+		local Target = Controller.LastKnownTargets[Family]
+
+		if Target == nil and Family == "energy" then
+			Target = Controller.LastKnownTargets.base
+		elseif Target == nil then
+			Target = Controller.LastKnownTargets.base or Controller.LastKnownTargets.energy
+		end
 
 		if Target == nil then
 			Target = toNumber(IncomingValue)
@@ -1222,19 +1334,25 @@ return function(Config)
 		installHooks()
 	end
 
-	function StaminaFeature:Step(ForceRefresh)
+	function StaminaFeature:Step(ForceRefresh, IncludeGc)
 		if self.StepBusy then
 			return false
 		end
 
 		self.StepBusy = true
+		self.LastStepAt = os.clock()
 
 		local Success, Result = pcall(function()
-			resolveHandles(ForceRefresh)
+			resolveHandles(ForceRefresh, IncludeGc == true)
 
 			if not hasHandles() then
+				scheduleGcResolve()
 				warnMissingHandles()
 				return false
+			end
+
+			if not hasCurrentLikeHandles() then
+				scheduleGcResolve()
 			end
 
 			computeTargets()
@@ -1257,20 +1375,26 @@ return function(Config)
 	function StaminaFeature:SetEnabled(Value)
 		self.Enabled = Value and true or false
 		self.LastResolveAt = 0
+		self.LastGcResolveAt = 0
+		self.LastStepAt = 0
 		self.LastKnownTargets = {}
 		self.StepBusy = false
 		self.StepQueued = false
+		self.GcResolveQueued = false
 
 		if self.Enabled then
 			ensureHookController()
 			clearScopeCache()
-			resolveHandles(true)
-			self:Step(true)
+			self:Step(true, false)
+
+			if not hasCurrentLikeHandles() then
+				scheduleGcResolve()
+			end
 
 			if not self.HeartbeatConnection then
 				self.HeartbeatConnection = RunService.Heartbeat:Connect(function()
-					if self.Enabled then
-						self:Step(false)
+					if self.Enabled and (os.clock() - self.LastStepAt) >= self.StepInterval then
+						self:Step(false, false)
 					end
 				end)
 			end
@@ -1293,6 +1417,7 @@ return function(Config)
 		self.Enabled = false
 		self.StepBusy = false
 		self.StepQueued = false
+		self.GcResolveQueued = false
 		restoreOriginalFlags()
 		restoreOriginalGuards()
 
@@ -1320,9 +1445,11 @@ return function(Config)
 	StaminaFeature.CharacterAddedConnection = LocalPlayer.CharacterAdded:Connect(function()
 		StaminaFeature.LastResolveAt = 0
 		StaminaFeature.LastGcResolveAt = 0
+		StaminaFeature.LastStepAt = 0
 		StaminaFeature.LastKnownTargets = {}
 		StaminaFeature.StepBusy = false
 		StaminaFeature.StepQueued = false
+		StaminaFeature.GcResolveQueued = false
 		table.clear(StaminaFeature.OriginalFlagValues)
 		table.clear(StaminaFeature.OriginalGuardValues)
 		clearScopeCache()
