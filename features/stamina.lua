@@ -3954,6 +3954,75 @@ return function(Config)
 			end
 		end
 
+		local function bootstrapHiddenRuntimePrimaries()
+			local HiddenCandidates = {}
+
+			for _, GroupName in ipairs({"Current", "Max"}) do
+				for _, Entry in pairs(EntryMaps[GroupName]) do
+					local Candidate = Entry.Candidate
+					local NameLower = Candidate and Candidate.NameLower or ""
+					local Confidence = Candidate and Candidate.Confidence or 0
+					local ChangeCount = Candidate and Candidate.ChangeCount or 0
+					local ObservationHits = Candidate and Candidate.ObservationHits or 0
+					local ExternalWriteCount = Candidate and Candidate.ExternalWriteCount or 0
+					local HasHiddenNameSignal = string.find(NameLower, "stamina", 1, true) ~= nil
+						or string.find(NameLower, "exhaust", 1, true) ~= nil
+						or string.find(NameLower, "fatigue", 1, true) ~= nil
+						or string.find(NameLower, "breath", 1, true) ~= nil
+						or string.find(NameLower, "tired", 1, true) ~= nil
+						or string.find(NameLower, "winded", 1, true) ~= nil
+
+					if Candidate
+						and not Candidate.BootstrapBlocked
+						and Candidate.SourceKind ~= "instance"
+						and (
+							HasHiddenNameSignal
+							or Candidate.ExactAlias == true
+							or Confidence >= 155
+						)
+						and (
+							ChangeCount >= 2
+							or ObservationHits >= 6
+							or ExternalWriteCount >= 1
+						) then
+						local Score = 10
+							+ math.min(ChangeCount, 4)
+							+ math.min(math.floor(ObservationHits / 3), 4)
+							+ math.min(ExternalWriteCount * 2, 4)
+
+						if Candidate.SourceKind == "upvalue" then
+							Score = Score + 3
+						elseif Candidate.SourceKind == "env" or Candidate.SourceKind == "table" then
+							Score = Score + 2
+						end
+
+						if HasHiddenNameSignal then
+							Score = Score + 2
+						end
+
+						table.insert(HiddenCandidates, {
+							Candidate = Candidate,
+							Score = Score
+						})
+					end
+				end
+			end
+
+			table.sort(HiddenCandidates, function(Left, Right)
+				if Left.Score ~= Right.Score then
+					return Left.Score > Right.Score
+				end
+
+				return (Left.Candidate.Confidence or 0) > (Right.Candidate.Confidence or 0)
+			end)
+
+			for Index = 1, math.min(#HiddenCandidates, 2) do
+				local Item = HiddenCandidates[Index]
+
+				promoteCandidate(Item.Candidate, "logic-local", Item.Score, "runtime_hidden_logic")
+			end
+		end
+
 		visitRoots(buildSearchRoots(false))
 
 		if ForceRefresh and not hasRecordedPrimary() then
@@ -3978,6 +4047,7 @@ return function(Config)
 		end
 
 		bootstrapSupportedStatsPrimaries()
+		bootstrapHiddenRuntimePrimaries()
 
 		if IncludeGc
 			and type(getgc) == "function"
