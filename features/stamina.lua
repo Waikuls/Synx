@@ -152,6 +152,8 @@ return function(Config)
 		DropEventLimit = 3,
 		LastStepErrorAt = 0,
 		StepErrorCooldown = 2,
+		GuardedHumanoid = nil,
+		HumanoidStateRestore = {},
 		Handles = {
 			Current = {},
 			Max = {},
@@ -1495,6 +1497,11 @@ return function(Config)
 		"EeveeDeplete"
 	})
 
+	local DirectStatsFillToMaxLookup = createLookup({
+		"DownedHealth",
+		"RecoveryHealth"
+	})
+
 	local function getCharacterMetrics()
 		local Character = LocalPlayer.Character
 		local Humanoid = Character and Character:FindFirstChildOfClass("Humanoid")
@@ -1519,6 +1526,93 @@ return function(Config)
 			VelocityMagnitude = RootPart and RootPart.AssemblyLinearVelocity.Magnitude or 0,
 			ToolEquipped = ToolEquipped
 		}
+	end
+
+	local GuardedHumanoidStates = {
+		Enum.HumanoidStateType.FallingDown,
+		Enum.HumanoidStateType.Ragdoll,
+		Enum.HumanoidStateType.Physics,
+		Enum.HumanoidStateType.PlatformStanding,
+		Enum.HumanoidStateType.Seated
+	}
+
+	local function restoreHumanoidGuards()
+		local Humanoid = StaminaFeature.GuardedHumanoid
+
+		if Humanoid and Humanoid.Parent then
+			for StateName, WasEnabled in pairs(StaminaFeature.HumanoidStateRestore or {}) do
+				local State = Enum.HumanoidStateType[StateName]
+
+				if State ~= nil then
+					pcall(function()
+						Humanoid:SetStateEnabled(State, WasEnabled)
+					end)
+				end
+			end
+		end
+
+		StaminaFeature.GuardedHumanoid = nil
+		StaminaFeature.HumanoidStateRestore = {}
+	end
+
+	local function applyHumanoidAntiCollapse()
+		local Metrics = getCharacterMetrics()
+		local Humanoid = Metrics and Metrics.Humanoid
+
+		if not Humanoid then
+			restoreHumanoidGuards()
+			return
+		end
+
+		if StaminaFeature.GuardedHumanoid ~= Humanoid then
+			restoreHumanoidGuards()
+			StaminaFeature.GuardedHumanoid = Humanoid
+		end
+
+		for _, State in ipairs(GuardedHumanoidStates) do
+			local StateName = State.Name
+
+			if StaminaFeature.HumanoidStateRestore[StateName] == nil then
+				local Success, Enabled = pcall(function()
+					return Humanoid:GetStateEnabled(State)
+				end)
+
+				if Success then
+					StaminaFeature.HumanoidStateRestore[StateName] = Enabled
+				end
+			end
+
+			pcall(function()
+				Humanoid:SetStateEnabled(State, false)
+			end)
+		end
+
+		pcall(function()
+			Humanoid.PlatformStand = false
+		end)
+
+		pcall(function()
+			Humanoid.Sit = false
+		end)
+
+		local CurrentState = nil
+		pcall(function()
+			CurrentState = Humanoid:GetState()
+		end)
+
+		if CurrentState == Enum.HumanoidStateType.Seated
+			or CurrentState == Enum.HumanoidStateType.FallingDown
+			or CurrentState == Enum.HumanoidStateType.Ragdoll
+			or CurrentState == Enum.HumanoidStateType.PlatformStanding
+			or CurrentState == Enum.HumanoidStateType.Physics then
+			pcall(function()
+				Humanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
+			end)
+
+			pcall(function()
+				Humanoid:ChangeState(Enum.HumanoidStateType.Running)
+			end)
+		end
 	end
 
 	local function getProfileConfig(Profile)
@@ -4355,6 +4449,14 @@ return function(Config)
 			return
 		end
 
+		local NamedValues = {}
+
+		local function captureNamedValue(Name, Value)
+			if type(Name) == "string" and Value ~= nil then
+				NamedValues[string.lower(Name)] = Value
+			end
+		end
+
 		local function applyOverride(Name, Handle, Value)
 			if type(Name) ~= "string" or not Handle then
 				return
@@ -4369,6 +4471,13 @@ return function(Config)
 				DesiredValue = getZeroLikeValue(Value)
 			elseif DirectStatsSpendZeroLookup[NameLower] then
 				DesiredValue = getZeroLikeValue(Value)
+			elseif DirectStatsFillToMaxLookup[NameLower] then
+				local MaxValue = NamedValues.maxdownedhealth
+				local NumericMax = toNumber(MaxValue)
+
+				if NumericMax ~= nil then
+					DesiredValue = coerceLike(Value, NumericMax)
+				end
 			end
 
 			if DesiredValue == nil or valuesEquivalent(Value, DesiredValue) then
@@ -4376,6 +4485,20 @@ return function(Config)
 			end
 
 			writeHandle(Handle, DesiredValue)
+		end
+
+		local function collectInstanceValues(Instance)
+			if not Instance then
+				return
+			end
+
+			if Instance:IsA("ValueBase") then
+				captureNamedValue(Instance.Name, Instance.Value)
+			end
+
+			for AttributeName, Value in pairs(Instance:GetAttributes()) do
+				captureNamedValue(AttributeName, Value)
+			end
 		end
 
 		local function visitInstance(Instance)
@@ -4392,9 +4515,22 @@ return function(Config)
 			end
 		end
 
-		visitInstance(Stats)
+		collectInstanceValues(Stats)
 
 		local VisitedChildren = 0
+
+		for _, Descendant in ipairs(Stats:GetDescendants()) do
+			VisitedChildren = VisitedChildren + 1
+
+			if VisitedChildren > 48 then
+				break
+			end
+
+			collectInstanceValues(Descendant)
+		end
+
+		visitInstance(Stats)
+		VisitedChildren = 0
 
 		for _, Descendant in ipairs(Stats:GetDescendants()) do
 			VisitedChildren = VisitedChildren + 1
@@ -5102,6 +5238,7 @@ return function(Config)
 			applyFlags()
 			applySpend()
 			applyDirectStatsOverrides()
+			applyHumanoidAntiCollapse()
 			applyMaxHandles()
 			local AppliedLogic, AppliedDisplay = applyCurrentHandles()
 			local VerificationState, FailureReason, ActionProfile, ShouldRecover = evaluateRuntimeVerification(AppliedLogic, AppliedDisplay)
@@ -5182,6 +5319,7 @@ return function(Config)
 		else
 			restoreOriginalFlags()
 			restoreOriginalSpends()
+			restoreHumanoidGuards()
 			resetCaptureState(true)
 
 			clearHandleSignals()
@@ -5206,6 +5344,7 @@ return function(Config)
 		self.LastStepErrorAt = 0
 		restoreOriginalFlags()
 		restoreOriginalSpends()
+		restoreHumanoidGuards()
 		resetCaptureState(false)
 
 		if self.HeartbeatConnection then
@@ -5251,6 +5390,7 @@ return function(Config)
 		StaminaFeature.LastStepErrorAt = 0
 		table.clear(StaminaFeature.OriginalFlagValues)
 		table.clear(StaminaFeature.OriginalSpendValues)
+		restoreHumanoidGuards()
 		resetCaptureState(false)
 		clearScopeCache()
 		clearHandles()
