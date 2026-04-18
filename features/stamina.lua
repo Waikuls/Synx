@@ -2177,6 +2177,11 @@ return function(Config)
 
 		StaminaFeature.LastCaptureSummary = Lines
 		Session.State = "completed"
+
+		if PrimaryLogicCount > 0 and Session.ActionValid then
+			noteVerifiedLogic()
+		end
+
 		refreshStatusSummary()
 
 		if StaminaFeature.Enabled then
@@ -3141,7 +3146,7 @@ return function(Config)
 				end
 
 				if FailureReason then
-					return "logic_ineffective", FailureReason, Profile, true
+					return "logic_unverified", FailureReason, Profile, true
 				end
 
 				if ActionPressure then
