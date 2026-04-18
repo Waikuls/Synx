@@ -65,6 +65,15 @@ return function(Config)
 			"LowStamina",
 			"OutOfStamina",
 			"StaminaLocked",
+			"Exhaustion",
+			"Exhausted",
+			"Fatigue",
+			"Fatigued",
+			"Breath",
+			"OutOfBreath",
+			"BreathLocked",
+			"ExhaustionLevel",
+			"FatigueLevel",
 			"DashCost",
 			"SprintCost",
 			"RunCost",
@@ -422,6 +431,9 @@ return function(Config)
 			or string.find(NameLower, "drain", 1, true) ~= nil
 			or string.find(NameLower, "deplete", 1, true) ~= nil
 			or string.find(NameLower, "cooldown", 1, true) ~= nil
+			or string.find(NameLower, "exhaust", 1, true) ~= nil
+			or string.find(NameLower, "fatigue", 1, true) ~= nil
+			or string.find(NameLower, "breath", 1, true) ~= nil
 			or string.find(NameLower, "locked", 1, true) ~= nil
 	end
 
@@ -2164,6 +2176,15 @@ return function(Config)
 				Score = Score + 3
 			end
 		elseif GroupName == "Spend" then
+			if NameLower == "exhaustion"
+				or NameLower == "exhausted"
+				or NameLower == "fatigue"
+				or NameLower == "fatigued"
+				or NameLower == "breath"
+				or NameLower == "outofbreath" then
+				Score = Score + 9
+			end
+
 			if string.find(NameLower, "eevee", 1, true) ~= nil then
 				Score = Score + 5
 			end
@@ -2262,6 +2283,8 @@ return function(Config)
 			or string.find(NameLower, "attack", 1, true) ~= nil
 			or string.find(NameLower, "combat", 1, true) ~= nil
 			or string.find(NameLower, "exhaust", 1, true) ~= nil
+			or string.find(NameLower, "fatigue", 1, true) ~= nil
+			or string.find(NameLower, "breath", 1, true) ~= nil
 	end
 
 	local function shouldMirrorDisplayCandidate(Candidate)
