@@ -29,20 +29,36 @@ return function(Config)
 		"StaminaInStat",
 		"CurrentStamina",
 		"StaminaValue",
+		"Eevee",
+		"Energy",
+		"CurrentEnergy",
+		"Adrenaline",
 		"DashStamina",
 		"SprintStamina",
 		"RunStamina",
 		"AttackStamina",
-		"CombatStamina"
+		"CombatStamina",
+		"DashEnergy",
+		"SprintEnergy",
+		"CombatEnergy"
 	}
 	local MaxAliases = {
 		"MaxStamina",
 		"MaximumStamina",
 		"StaminaMax",
+		"MaxEnergy",
+		"MaximumEnergy",
+		"EnergyMax",
+		"MaxEevee",
+		"MaximumEevee",
+		"EeveeMax",
 		"MaxDashStamina",
 		"MaxSprintStamina",
 		"MaxRunStamina",
-		"MaxCombatStamina"
+		"MaxCombatStamina",
+		"MaxDashEnergy",
+		"MaxSprintEnergy",
+		"MaxCombatEnergy"
 	}
 	local FlagAliases = {
 		"NoStaminaCost",
@@ -52,7 +68,16 @@ return function(Config)
 		"NoSprintCooldown",
 		"NoDashCost",
 		"NoSprintCost",
-		"NoAttackCost"
+		"NoAttackCost",
+		"CanDash",
+		"CanSprint",
+		"CanRun",
+		"CanAttack",
+		"CanUseStamina",
+		"HasStamina",
+		"HasEevee",
+		"EnoughStamina",
+		"EnoughEnergy"
 	}
 	local GuardAliases = {
 		"Exhaustion",
@@ -66,7 +91,20 @@ return function(Config)
 		"AttackCost",
 		"DashCooldown",
 		"SprintCooldown",
-		"AttackCooldown"
+		"AttackCooldown",
+		"Exhausted",
+		"IsExhausted",
+		"Tired",
+		"IsTired",
+		"LowStamina",
+		"OutOfStamina",
+		"StaminaLocked",
+		"DashDisabled",
+		"SprintDisabled",
+		"AttackDisabled",
+		"CannotDash",
+		"CannotSprint",
+		"CannotAttack"
 	}
 
 	local function createAliasLookup(Aliases)
@@ -199,6 +237,14 @@ return function(Config)
 		}
 	end
 
+	local function createTableHandle(TableValue, FieldName)
+		return {
+			Kind = "table",
+			Table = TableValue,
+			Field = FieldName
+		}
+	end
+
 	local function getInstanceKey(Instance)
 		if not Instance then
 			return "nil"
@@ -216,7 +262,15 @@ return function(Config)
 	end
 
 	local function getHandleKey(Handle)
-		if not Handle or not Handle.Instance then
+		if not Handle then
+			return "nil"
+		end
+
+		if Handle.Kind == "table" then
+			return tostring(Handle.Table) .. "@" .. tostring(Handle.Field)
+		end
+
+		if not Handle.Instance then
 			return "nil"
 		end
 
@@ -228,7 +282,15 @@ return function(Config)
 	end
 
 	local function isHandleValid(Handle)
-		if not Handle or not Handle.Instance then
+		if not Handle then
+			return false
+		end
+
+		if Handle.Kind == "table" then
+			return type(Handle.Table) == "table" and Handle.Field ~= nil
+		end
+
+		if not Handle.Instance then
 			return false
 		end
 
@@ -241,6 +303,18 @@ return function(Config)
 
 	local function readHandle(Handle)
 		if not isHandleValid(Handle) then
+			return nil
+		end
+
+		if Handle.Kind == "table" then
+			local Success, Value = pcall(function()
+				return Handle.Table[Handle.Field]
+			end)
+
+			if Success then
+				return Value
+			end
+
 			return nil
 		end
 
@@ -272,6 +346,12 @@ return function(Config)
 			return false
 		end
 
+		if Handle.Kind == "table" then
+			return pcall(function()
+				Handle.Table[Handle.Field] = Value
+			end)
+		end
+
 		if Handle.Kind == "attribute" then
 			return pcall(function()
 				Handle.Instance:SetAttribute(Handle.Attribute, Value)
@@ -290,11 +370,15 @@ return function(Config)
 	local function classifyName(Name)
 		local Lower = string.lower(Name)
 		local HasStaminaName = string.find(Lower, "stamina", 1, true) ~= nil
+		local HasEnergyName = string.find(Lower, "energy", 1, true) ~= nil
+			or string.find(Lower, "eevee", 1, true) ~= nil
+			or string.find(Lower, "adrenaline", 1, true) ~= nil
 		local HasDashName = string.find(Lower, "dash", 1, true) ~= nil
 		local HasSprintName = string.find(Lower, "sprint", 1, true) ~= nil
 		local HasRunName = string.find(Lower, "run", 1, true) ~= nil
 		local HasAttackName = string.find(Lower, "attack", 1, true) ~= nil
-		local HasActionName = HasStaminaName or HasDashName or HasSprintName or HasRunName or HasAttackName
+		local HasActionName = HasStaminaName or HasEnergyName or HasDashName or HasSprintName or HasRunName or HasAttackName
+		local HasResourceName = HasStaminaName or HasEnergyName
 		local HasMaxName = string.find(Lower, "max", 1, true) ~= nil or string.find(Lower, "maximum", 1, true) ~= nil
 		local HasCostName = string.find(Lower, "cost", 1, true) ~= nil
 		local HasDrainName = string.find(Lower, "drain", 1, true) ~= nil
@@ -302,9 +386,18 @@ return function(Config)
 		local HasCooldownName = string.find(Lower, "cooldown", 1, true) ~= nil
 		local HasDelayName = string.find(Lower, "delay", 1, true) ~= nil
 		local HasPercentName = string.find(Lower, "percent", 1, true) ~= nil or string.find(Lower, "ratio", 1, true) ~= nil
+		local StartsWithNo = string.sub(Lower, 1, 2) == "no"
+		local StartsWithCan = string.sub(Lower, 1, 3) == "can"
+		local StartsWithHas = string.sub(Lower, 1, 3) == "has"
+		local StartsWithEnough = string.sub(Lower, 1, 6) == "enough"
+		local HasDisabledName = string.find(Lower, "disabled", 1, true) ~= nil
+		local HasLockedName = string.find(Lower, "locked", 1, true) ~= nil
+		local HasTiredName = string.find(Lower, "tired", 1, true) ~= nil
+		local HasOutName = string.find(Lower, "outof", 1, true) ~= nil or string.find(Lower, "out_of", 1, true) ~= nil
 
 		if FlagLookup[Lower]
-			or (string.sub(Lower, 1, 2) == "no" and (HasActionName or HasCooldownName or HasCostName or HasDepleteName or HasDrainName)) then
+			or (StartsWithNo and (HasActionName or HasCooldownName or HasCostName or HasDepleteName or HasDrainName))
+			or ((StartsWithCan or StartsWithHas or StartsWithEnough) and (HasActionName or HasResourceName)) then
 			return "Flags"
 		end
 
@@ -312,11 +405,15 @@ return function(Config)
 			or string.find(Lower, "fatigue", 1, true)
 			or string.find(Lower, "fatique", 1, true)
 			or string.find(Lower, "exhaust", 1, true)
-			or ((HasActionName or string.find(Lower, "eevee", 1, true)) and (HasCostName or HasDrainName or HasDepleteName or HasCooldownName)) then
+			or HasTiredName
+			or HasLockedName
+			or HasDisabledName
+			or HasOutName
+			or (HasActionName and (HasCostName or HasDrainName or HasDepleteName or HasCooldownName)) then
 			return "Guard"
 		end
 
-		if MaxLookup[Lower] or (HasStaminaName and HasMaxName) then
+		if MaxLookup[Lower] or (HasResourceName and HasMaxName) then
 			return "Max"
 		end
 
@@ -324,7 +421,7 @@ return function(Config)
 			return "Current"
 		end
 
-		if HasStaminaName
+		if HasResourceName
 			and not HasMaxName
 			and not HasCostName
 			and not HasDrainName
@@ -435,6 +532,38 @@ return function(Config)
 			end
 		end
 
+		local function scanGcTables()
+			if type(getgc) ~= "function" then
+				return
+			end
+
+			local Success, Objects = pcall(function()
+				return getgc(true)
+			end)
+
+			if not Success or type(Objects) ~= "table" then
+				Success, Objects = pcall(getgc)
+			end
+
+			if not Success or type(Objects) ~= "table" then
+				return
+			end
+
+			for _, Object in ipairs(Objects) do
+				if type(Object) == "table" then
+					for Key, Value in pairs(Object) do
+						if type(Key) == "string" then
+							local GroupName = classifyName(Key)
+
+							if GroupName then
+								recordHandle(GroupName, createTableHandle(Object, Key), Value)
+							end
+						end
+					end
+				end
+			end
+		end
+
 		for _, Root in ipairs(buildSearchRoots()) do
 			visit(Root)
 
@@ -442,6 +571,8 @@ return function(Config)
 				visit(Descendant)
 			end
 		end
+
+		scanGcTables()
 
 		StaminaFeature.LastResolveAt = Now
 	end
