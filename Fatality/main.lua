@@ -44,6 +44,28 @@ local function canReadLocalFile(LocalPath)
 	return Success and type(Result) == "string" and Result ~= ""
 end
 
+local function hasCompleteLocalProject()
+	local RequiredLocalFiles = {
+		"src/source.luau",
+		"Fatality/main.lua",
+		"ui/main.lua",
+		"ui/visual.lua",
+		"ui/stats.lua",
+		"features/esp.lua",
+		"features/food.lua",
+		"features/stamina.lua",
+		"features/stats.lua"
+	}
+
+	for _, LocalPath in ipairs(RequiredLocalFiles) do
+		if not canReadLocalFile(LocalPath) then
+			return false
+		end
+	end
+
+	return true
+end
+
 local function getSourceMode()
 	local Environment = type(getgenv) == "function" and getgenv() or nil
 	local ForcedMode = Environment and Environment.__FatalitySourceMode
@@ -52,31 +74,92 @@ local function getSourceMode()
 		return ForcedMode
 	end
 
-	-- Default to remote so a stale local checkout does not silently override
-	-- the freshly fetched GitHub entry script and leave menus half-loaded.
+	if hasCompleteLocalProject() then
+		return "local"
+	end
+
 	return "remote"
 end
 
 local SourceMode = getSourceMode()
 
-local function loadScript(LocalPath, RemoteUrl)
-	local Attempts = (SourceMode == "local" and {"local", "remote"}) or {"remote", "local"}
+local function getRemoteSeed()
+	local Environment = type(getgenv) == "function" and getgenv() or nil
+
+	if Environment and type(Environment.__FatalityRemoteSeed) == "string" and Environment.__FatalityRemoteSeed ~= "" then
+		return Environment.__FatalityRemoteSeed
+	end
+
+	local Timestamp = "0"
+	local SuccessDateTime, DateTimeValue = pcall(function()
+		return DateTime.now().UnixTimestampMillis
+	end)
+
+	if SuccessDateTime and DateTimeValue then
+		Timestamp = tostring(DateTimeValue)
+	elseif type(os.time) == "function" then
+		local SuccessOsTime, OsTimeValue = pcall(os.time)
+
+		if SuccessOsTime and OsTimeValue then
+			Timestamp = tostring(OsTimeValue)
+		end
+	end
+
+	local JobId = tostring(game.JobId or "")
+
+	if JobId == "" then
+		JobId = tostring(math.floor(os.clock() * 1000000))
+	end
+
+	local Seed = string.format("%s-%s", Timestamp, JobId)
+
+	if Environment then
+		Environment.__FatalityRemoteSeed = Seed
+	end
+
+	return Seed
+end
+
+local RemoteSeed = getRemoteSeed()
+
+local function buildRemoteUrls(Path)
+	local EncodedPath = string.gsub(Path, "\\", "/")
+
+	return {
+		string.format("https://raw.githubusercontent.com/Waikuls/Synx/main/%s?v=%s", EncodedPath, RemoteSeed),
+		string.format("https://cdn.jsdelivr.net/gh/Waikuls/Synx@main/%s?v=%s", EncodedPath, RemoteSeed)
+	}
+end
+
+local function tryLoadLocal(LocalPath)
+	if not canReadLocalFile(LocalPath) then
+		return false, string.format("Local %s unavailable", LocalPath)
+	end
+
+	local Success, Result = pcall(readfile, LocalPath)
+
+	if not Success or type(Result) ~= "string" or Result == "" then
+		return false, string.format("Local %s unreadable", LocalPath)
+	end
+
+	local ExecuteSuccess, ExecuteResult = pcall(executeSource, Result, LocalPath)
+
+	if ExecuteSuccess then
+		return true, ExecuteResult
+	end
+
+	return false, string.format("Local %s failed: %s", LocalPath, tostring(ExecuteResult))
+end
+
+local function tryLoadRemote(LocalPath, RemoteUrls)
 	local Errors = {}
 
-	for _, Attempt in ipairs(Attempts) do
-		if Attempt == "local" and canReadLocalFile(LocalPath) then
-			local Success, Result = pcall(readfile, LocalPath)
+	if type(RemoteUrls) ~= "table" or #RemoteUrls == 0 then
+		return false, string.format("No remote urls available for %s", LocalPath)
+	end
 
-			if Success and type(Result) == "string" and Result ~= "" then
-				local ExecuteSuccess, ExecuteResult = pcall(executeSource, Result, LocalPath)
-
-				if ExecuteSuccess then
-					return ExecuteResult
-				end
-
-				table.insert(Errors, string.format("Local %s failed: %s", LocalPath, tostring(ExecuteResult)))
-			end
-		elseif Attempt == "remote" and type(RemoteUrl) == "string" and RemoteUrl ~= "" then
+	for AttemptIndex = 1, 2 do
+		for _, RemoteUrl in ipairs(RemoteUrls) do
 			local Success, Result = pcall(function()
 				return game:HttpGet(RemoteUrl)
 			end)
@@ -85,11 +168,44 @@ local function loadScript(LocalPath, RemoteUrl)
 				local ExecuteSuccess, ExecuteResult = pcall(executeSource, Result, RemoteUrl)
 
 				if ExecuteSuccess then
-					return ExecuteResult
+					return true, ExecuteResult
 				end
 
 				table.insert(Errors, string.format("Remote %s failed: %s", LocalPath, tostring(ExecuteResult)))
+			else
+				table.insert(Errors, string.format("Remote %s request failed on attempt %d", LocalPath, AttemptIndex))
 			end
+		end
+
+		if AttemptIndex == 1 then
+			task.wait(0.2)
+		end
+	end
+
+	return false, table.concat(Errors, " | ")
+end
+
+local function loadScript(LocalPath, RemoteUrls)
+	local Attempts = (SourceMode == "local" and {"local", "remote"}) or {"remote", "local"}
+	local Errors = {}
+
+	for _, Attempt in ipairs(Attempts) do
+		if Attempt == "local" then
+			local Success, Result = tryLoadLocal(LocalPath)
+
+			if Success then
+				return Result
+			end
+
+			table.insert(Errors, Result)
+		elseif Attempt == "remote" then
+			local Success, Result = tryLoadRemote(LocalPath, RemoteUrls)
+
+			if Success then
+				return Result
+			end
+
+			table.insert(Errors, Result)
 		end
 	end
 
@@ -100,13 +216,7 @@ local function loadScript(LocalPath, RemoteUrl)
 	error(string.format("No source available for %s", LocalPath), 0)
 end
 
-local RemoteVersion = "20260418-4"
-
-local function buildRemoteUrl(Path)
-	return string.format("https://raw.githubusercontent.com/Waikuls/Synx/main/%s?v=%s", Path, RemoteVersion)
-end
-
-local Fatality = loadScript("src/source.luau", buildRemoteUrl("src/source.luau"))
+local Fatality = loadScript("src/source.luau", buildRemoteUrls("src/source.luau"))
 local CoreGui = game:GetService("CoreGui")
 local ExistingCoreGuis = {}
 
@@ -235,7 +345,7 @@ local function createFallbackStatsUI(ErrorMessage)
 end
 
 local function safeLoadModule(ModulePath, FallbackFactory)
-	local Success, Result = pcall(loadScript, ModulePath, buildRemoteUrl(ModulePath))
+	local Success, Result = pcall(loadScript, ModulePath, buildRemoteUrls(ModulePath))
 
 	if Success then
 		return Result
