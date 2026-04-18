@@ -45,6 +45,7 @@ return function(Config)
 			"DashStamina",
 			"SprintStamina",
 			"RunStamina",
+			"CombatStamina",
 			"AttackStamina"
 		},
 		Max = {
@@ -54,26 +55,37 @@ return function(Config)
 			"MaxDashStamina",
 			"MaxSprintStamina",
 			"MaxRunStamina",
+			"MaxCombatStamina",
 			"MaxAttackStamina"
 		},
 		Flags = {
 			"NoStaminaCost",
+			"NoCooldown",
 			"CanUseStamina",
 			"HasStamina",
-			"EnoughStamina"
+			"EnoughStamina",
+			"CanDash",
+			"CanSprint",
+			"CanRun",
+			"CanAttack"
 		},
 		Spend = {
 			"StaminaCost",
 			"StaminaDrain",
 			"StaminaDeplete",
 			"StaminaCooldown",
+			"LowStamina",
+			"OutOfStamina",
+			"StaminaLocked",
 			"DashCost",
 			"SprintCost",
 			"RunCost",
+			"CombatCost",
 			"AttackCost",
 			"DashCooldown",
 			"SprintCooldown",
 			"RunCooldown",
+			"CombatCooldown",
 			"AttackCooldown"
 		}
 	}
@@ -815,12 +827,17 @@ return function(Config)
 				return
 			end
 
-			if SourceKind == "table" and string.find(NameLower, "stamina", 1, true) == nil then
+			local IsExactAlias = Lookups[GroupName] and Lookups[GroupName][NameLower] == true
+
+			if SourceKind == "table"
+				and string.find(NameLower, "stamina", 1, true) == nil
+				and not IsExactAlias then
 				return
 			end
 
 			if GroupName == "Spend"
 				and string.find(NameLower, "stamina", 1, true) == nil
+				and not IsExactAlias
 				and (Confidence or 0) < 60 then
 				return
 			end
@@ -900,14 +917,9 @@ return function(Config)
 
 		local function finalizeGroup(GroupName)
 			local Entries = {}
-			local HasStrongInstance = false
 
 			for _, Entry in pairs(EntryMaps[GroupName]) do
 				table.insert(Entries, Entry)
-
-				if Entry.SourceKind ~= "table" and Entry.Confidence >= 60 then
-					HasStrongInstance = true
-				end
 			end
 
 			table.sort(Entries, function(Left, Right)
@@ -919,9 +931,7 @@ return function(Config)
 			end)
 
 			for _, Entry in ipairs(Entries) do
-				if not HasStrongInstance or Entry.SourceKind ~= "table" then
-					table.insert(StaminaFeature.Handles[GroupName], Entry)
-				end
+				table.insert(StaminaFeature.Handles[GroupName], Entry)
 			end
 		end
 
@@ -1014,7 +1024,7 @@ return function(Config)
 		end
 
 		if Targets.base == nil then
-			for _, Family in ipairs({"dash", "sprint", "run", "attack"}) do
+			for _, Family in ipairs({"dash", "sprint", "run", "combat", "attack"}) do
 				local Value = Targets[Family]
 
 				if Value ~= nil and (Targets.base == nil or Value > Targets.base) then
@@ -1024,7 +1034,7 @@ return function(Config)
 		end
 
 		if Targets.base ~= nil then
-			for _, Family in ipairs({"dash", "sprint", "run", "attack"}) do
+			for _, Family in ipairs({"dash", "sprint", "run", "combat", "attack"}) do
 				if Targets[Family] == nil then
 					Targets[Family] = Targets.base
 				end
