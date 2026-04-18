@@ -1,6 +1,7 @@
 return function(Config)
 	local Main = Config.Main
 	local FoodFeature = Config.FoodFeature
+	local StaminaFeature = Config.StaminaFeature
 
 	local Food = Main:AddSection({
 		Name = "FOOD",
@@ -37,9 +38,17 @@ return function(Config)
 		Flag = "AutoEatNoFoodAction"
 	})
 
-	Main:AddSection({
+	local Character = Main:AddSection({
 		Name = "CHARACTER",
 		Position = "left",
 		Height = 115
+	})
+
+	Character:AddToggle({
+		Name = "Inf stamina",
+		Callback = function(Value)
+			StaminaFeature:SetEnabled(Value)
+		end,
+		Flag = "InfStamina"
 	})
 end

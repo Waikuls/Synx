@@ -127,6 +127,7 @@ local Window = Fatality.new({
 local MainWindowGui = Fatality.Windows[#Fatality.Windows]
 local CreateESP = loadScript("features/esp.lua", "https://raw.githubusercontent.com/Waikuls/Synx/main/features/esp.lua")
 local CreateFoodFeature = loadScript("features/food.lua", "https://raw.githubusercontent.com/Waikuls/Synx/main/features/food.lua")
+local CreateStaminaFeature = loadScript("features/stamina.lua", "https://raw.githubusercontent.com/Waikuls/Synx/main/features/stamina.lua")
 local CreateStatsFeature = loadScript("features/stats.lua", "https://raw.githubusercontent.com/Waikuls/Synx/main/features/stats.lua")
 local CreateMainUI = loadScript("ui/main.lua", "https://raw.githubusercontent.com/Waikuls/Synx/main/ui/main.lua")
 local CreateVisualUI = loadScript("ui/visual.lua", "https://raw.githubusercontent.com/Waikuls/Synx/main/ui/visual.lua")
@@ -135,6 +136,9 @@ local ESP = CreateESP({
 	Notification = Notification
 })
 local FoodFeature = CreateFoodFeature({
+	Notification = Notification
+})
+local StaminaFeature = CreateStaminaFeature({
 	Notification = Notification
 })
 local StatsFeature = CreateStatsFeature()
@@ -345,6 +349,7 @@ do
 		Callback = function()
 			ESP:Destroy()
 			FoodFeature:Destroy()
+			StaminaFeature:Destroy()
 			StatsUI:Destroy()
 			table.clear(Fatality.DragBlacklist)
 
@@ -369,7 +374,8 @@ end
 
 CreateMainUI({
 	Main = Main,
-	FoodFeature = FoodFeature
+	FoodFeature = FoodFeature,
+	StaminaFeature = StaminaFeature
 })
 
 CreateVisualUI({
