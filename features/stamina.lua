@@ -913,6 +913,11 @@ return function(Config)
 		end
 
 		return string.find(NameLower, "stamina", 1, true) ~= nil
+			or string.find(NameLower, "exhaust", 1, true) ~= nil
+			or string.find(NameLower, "fatigue", 1, true) ~= nil
+			or string.find(NameLower, "breath", 1, true) ~= nil
+			or string.find(NameLower, "tired", 1, true) ~= nil
+			or string.find(NameLower, "winded", 1, true) ~= nil
 			or string.find(NameLower, "dash", 1, true) ~= nil
 			or string.find(NameLower, "sprint", 1, true) ~= nil
 			or string.find(NameLower, "run", 1, true) ~= nil
@@ -3509,6 +3514,11 @@ return function(Config)
 					string.find(ScopeTextLower, "nostaminacost", 1, true) ~= nil
 					or string.find(ScopeTextLower, "eevee", 1, true) ~= nil
 					or string.find(ScopeTextLower, "deplete", 1, true) ~= nil
+					or string.find(ScopeTextLower, "exhaust", 1, true) ~= nil
+					or string.find(ScopeTextLower, "fatigue", 1, true) ~= nil
+					or string.find(ScopeTextLower, "breath", 1, true) ~= nil
+					or string.find(ScopeTextLower, "tired", 1, true) ~= nil
+					or string.find(ScopeTextLower, "winded", 1, true) ~= nil
 					or string.find(ScopeTextLower, "stamina", 1, true) ~= nil
 				)
 				and string.find(NameLower, "max", 1, true) == nil
