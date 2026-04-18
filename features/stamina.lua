@@ -2244,7 +2244,7 @@ return function(Config)
 		table.clear(StaminaFeature.LastCaptureSummary)
 	end
 
-	local function resetCaptureState()
+	local function resetCaptureState(PreservePromotedLogic)
 		clearCaptureSessionState()
 		StaminaFeature.LastFailureCaptureAt = 0
 		StaminaFeature.LastRecoveryAt = 0
@@ -2262,7 +2262,13 @@ return function(Config)
 			Candidate.BootstrapBlocked = false
 			Candidate.LastFailureReason = nil
 
-			if Candidate.Group == "Flags" then
+			if PreservePromotedLogic
+				and Candidate.Group ~= "Flags"
+				and Candidate.Group ~= "Spend"
+				and Candidate.Category == "logic-local"
+				and Candidate.Promoted then
+				promoteCandidate(Candidate, "logic-local", 6, Candidate.PromotionReason or "preserved_logic")
+			elseif Candidate.Group == "Flags" then
 				if Candidate.ExactAlias and Candidate.Confidence >= 85 then
 					promoteCandidate(Candidate, "flags", 5, "exact_flag_bootstrap")
 				else
@@ -3760,7 +3766,7 @@ return function(Config)
 		else
 			restoreOriginalFlags()
 			restoreOriginalSpends()
-			resetCaptureState()
+			resetCaptureState(true)
 
 			clearHandleSignals()
 			setVerificationState("idle", "disabled", "Free")
@@ -3782,7 +3788,7 @@ return function(Config)
 		self.LastEffectiveLogicAt = 0
 		restoreOriginalFlags()
 		restoreOriginalSpends()
-		resetCaptureState()
+		resetCaptureState(false)
 
 		if self.HeartbeatConnection then
 			self.HeartbeatConnection:Disconnect()
@@ -3825,7 +3831,7 @@ return function(Config)
 		StaminaFeature.LastEffectiveLogicAt = 0
 		table.clear(StaminaFeature.OriginalFlagValues)
 		table.clear(StaminaFeature.OriginalSpendValues)
-		resetCaptureState()
+		resetCaptureState(false)
 		clearScopeCache()
 		clearHandles()
 		clearRuntimeCandidates()
