@@ -1048,6 +1048,68 @@ return function(Config)
 		return Candidate.DisplayName or Candidate.Name or Candidate.NameLower or Candidate.RegistryKey
 	end
 
+	local function getCompactParentPath(Instance, Depth)
+		if not Instance then
+			return ""
+		end
+
+		local Parts = {}
+		local Current = Instance.Parent
+		local Limit = math.max(1, Depth or 1)
+
+		while Current and #Parts < Limit do
+			table.insert(Parts, 1, Current.Name)
+			Current = Current.Parent
+		end
+
+		return table.concat(Parts, "/")
+	end
+
+	local function getCandidateLocationSuffix(Candidate)
+		local Handle = Candidate and Candidate.Handle
+
+		if not Handle then
+			return ""
+		end
+
+		if Handle.Kind == "attribute" and Handle.Instance then
+			local ParentPath = getCompactParentPath(Handle.Instance, 2)
+			local ScopeName = ParentPath ~= ""
+				and string.format("%s/%s", ParentPath, Handle.Instance.Name)
+				or Handle.Instance.Name
+
+			return string.format("@%s.%s", ScopeName, tostring(Handle.Attribute))
+		end
+
+		if Handle.Kind == "value" and Handle.Instance then
+			local ParentPath = getCompactParentPath(Handle.Instance, 2)
+
+			if ParentPath ~= "" then
+				return "@" .. ParentPath
+			end
+
+			return ""
+		end
+
+		if Handle.Kind == "upvalue" then
+			return string.format("@uv:%s", tostring(Handle.UpvalueName or Handle.UpvalueIndex or "?"))
+		end
+
+		if Handle.Kind == "table" then
+			return string.format("@tbl:%s", tostring(Handle.Field or "?"))
+		end
+
+		return ""
+	end
+
+	local function getCandidateConsoleLabel(Candidate)
+		if not Candidate then
+			return "none"
+		end
+
+		return string.format("%s%s", getCandidateDisplayName(Candidate), getCandidateLocationSuffix(Candidate))
+	end
+
 	local function promoteCandidate(Candidate, Category, Score, Reason)
 		Candidate.Category = Category
 		Candidate.Promoted = true
@@ -1587,7 +1649,7 @@ return function(Config)
 				if Predicate(Entry.Candidate) then
 					return string.format(
 						"%s[%s/%s]",
-						getCandidateDisplayName(Entry.Candidate),
+						getCandidateConsoleLabel(Entry.Candidate),
 						tostring(Entry.Candidate.Category or "unknown"),
 						tostring(Entry.Candidate.SourceKind or "unknown")
 					)
@@ -2025,7 +2087,7 @@ return function(Config)
 	local function buildSummaryLine(Candidate, Observation)
 		return string.format(
 			"%s [%s] score=%.1f chg=%d ext=%d delta=%s",
-			getCandidateDisplayName(Candidate),
+			getCandidateConsoleLabel(Candidate),
 			Candidate.Category,
 			Candidate.Score or 0,
 			Observation.TotalChanges or 0,
@@ -2041,7 +2103,7 @@ return function(Config)
 
 		return string.format(
 			"%s [%s/%s]",
-			getCandidateDisplayName(Candidate),
+			getCandidateConsoleLabel(Candidate),
 			tostring(Candidate.Category or "unknown"),
 			tostring(Candidate.SourceKind or "unknown")
 		)
@@ -2197,15 +2259,29 @@ return function(Config)
 
 		local Lines = {
 			string.format("PrimaryCandidate: %s", getCandidateSummaryLabel(PrimaryCandidate)),
-			string.format("FlagCandidate: %s", getCandidateSummaryLabel(FlagCandidate)),
-			string.format("SpendCandidate: %s", getCandidateSummaryLabel(SpendCandidate)),
-			string.format("LastProfile: %s", Session.Profile),
-			string.format("ActionValid: %s", tostring(Session.ActionValid)),
-			string.format("MaxSpeed: %s", formatNumber(Session.MaxSpeed or 0)),
-			string.format("PromotedPrimary: %d", PrimaryLogicCount),
-			string.format("PromotedSupport: %d", SupportLogicCount),
-			string.format("RemoteCalls: %d", Session.RemoteCallCount or 0)
+			string.format("FlagCandidate: %s", getCandidateSummaryLabel(FlagCandidate))
 		}
+
+		if not PrimaryCandidate and #DisplaySuspects > 0 then
+			for Index = 1, math.min(#DisplaySuspects, 2) do
+				table.insert(
+					Lines,
+					string.format(
+						"DisplayCandidate%d: %s",
+						Index,
+						buildSummaryLine(DisplaySuspects[Index].Candidate, DisplaySuspects[Index].Observation)
+					)
+				)
+			end
+		end
+
+		table.insert(Lines, string.format("SpendCandidate: %s", getCandidateSummaryLabel(SpendCandidate)))
+		table.insert(Lines, string.format("LastProfile: %s", Session.Profile))
+		table.insert(Lines, string.format("ActionValid: %s", tostring(Session.ActionValid)))
+		table.insert(Lines, string.format("MaxSpeed: %s", formatNumber(Session.MaxSpeed or 0)))
+		table.insert(Lines, string.format("PromotedPrimary: %d", PrimaryLogicCount))
+		table.insert(Lines, string.format("PromotedSupport: %d", SupportLogicCount))
+		table.insert(Lines, string.format("RemoteCalls: %d", Session.RemoteCallCount or 0))
 
 		if #PromotedLogic > 0 then
 			table.insert(Lines, "TopPromoted:")
@@ -2215,7 +2291,7 @@ return function(Config)
 			end
 		end
 
-		if #DisplaySuspects > 0 then
+		if PrimaryCandidate and #DisplaySuspects > 0 then
 			table.insert(Lines, "DisplaySuspects:")
 
 			for Index = 1, math.min(#DisplaySuspects, 3) do
@@ -2813,6 +2889,181 @@ return function(Config)
 			end
 		end
 
+		local function inferContextGroup(Name, Value, ScopeTextLower)
+			local GroupName, NameLower = classifyName(Name)
+
+			if GroupName then
+				return GroupName, NameLower
+			end
+
+			if type(Name) ~= "string" or Name == "" then
+				return nil, nil
+			end
+
+			NameLower = string.lower(Name)
+
+			if string.find(NameLower, "health", 1, true) ~= nil
+				or string.find(NameLower, "walk", 1, true) ~= nil
+				or string.find(NameLower, "speed", 1, true) ~= nil
+				or string.find(NameLower, "jump", 1, true) ~= nil
+				or string.find(NameLower, "ping", 1, true) ~= nil then
+				return nil, NameLower
+			end
+
+			local NumericValue = toNumber(Value)
+			local ValueType = typeof(Value)
+
+			if NumericValue == nil and ValueType ~= "boolean" then
+				return nil, NameLower
+			end
+
+			if type(ScopeTextLower) ~= "string"
+				or ScopeTextLower == ""
+				or (
+					not isInterestingLogicName(ScopeTextLower)
+					and string.find(ScopeTextLower, "cooldown", 1, true) == nil
+					and string.find(ScopeTextLower, "cost", 1, true) == nil
+				) then
+				return nil, NameLower
+			end
+
+			if ValueType == "boolean" then
+				return "Flags", NameLower
+			end
+
+			if string.find(NameLower, "max", 1, true) ~= nil
+				or string.find(NameLower, "limit", 1, true) ~= nil
+				or string.find(NameLower, "cap", 1, true) ~= nil then
+				return "Max", NameLower
+			end
+
+			if containsSpend(NameLower) then
+				return "Spend", NameLower
+			end
+
+			if string.find(NameLower, "timer", 1, true) ~= nil
+				or string.find(NameLower, "delay", 1, true) ~= nil
+				or string.find(NameLower, "cool", 1, true) ~= nil then
+				return "Spend", NameLower
+			end
+
+			if NumericValue ~= nil then
+				return "Current", NameLower
+			end
+
+			return nil, NameLower
+		end
+
+		local function visitSupportContexts()
+			if hasRecordedLogicPrimary() then
+				return
+			end
+
+			local QueuedScopes = {}
+			local ScopeQueue = {}
+
+			local function queueScope(Scope, AnchorNameLower, Depth)
+				if not Scope or not isLocalRelatedInstance(Scope) then
+					return
+				end
+
+				local ExistingDepth = QueuedScopes[Scope]
+
+				if ExistingDepth ~= nil and ExistingDepth <= Depth then
+					return
+				end
+
+				QueuedScopes[Scope] = Depth
+				table.insert(ScopeQueue, {
+					Scope = Scope,
+					AnchorNameLower = AnchorNameLower,
+					Depth = Depth
+				})
+			end
+
+			for _, GroupName in ipairs({"Flags", "Spend"}) do
+				for _, Entry in pairs(EntryMaps[GroupName]) do
+					local Candidate = Entry.Candidate
+					local Handle = Candidate and Candidate.Handle
+					local AnchorInstance = Handle and Handle.Instance
+
+					if Candidate
+						and Candidate.SourceKind == "instance"
+						and Candidate.ExactAlias
+						and AnchorInstance then
+						queueScope(AnchorInstance, Candidate.NameLower or Entry.NameLower, 0)
+						queueScope(AnchorInstance.Parent, Candidate.NameLower or Entry.NameLower, 1)
+						queueScope(AnchorInstance.Parent and AnchorInstance.Parent.Parent, Candidate.NameLower or Entry.NameLower, 2)
+					end
+				end
+			end
+
+			local function visitContextItem(Name, Handle, Value, Confidence, ScopeTextLower)
+				local GroupName, NameLower = inferContextGroup(Name, Value, ScopeTextLower)
+
+				if GroupName then
+					recordHandle(GroupName, Name, NameLower, Handle, Value, Confidence, "instance")
+				end
+			end
+
+			local function visitContextScope(Scope, AnchorNameLower, Depth)
+				local ScopeTextLower = string.lower(table.concat({
+					AnchorNameLower or "",
+					Scope.Name,
+					Scope.Parent and Scope.Parent.Name or ""
+				}, " "))
+				local Confidence = math.max(55, (getInstanceConfidence(Scope) or 55) - (Depth * 10))
+
+				if Scope:IsA("ValueBase") then
+					visitContextItem(Scope.Name, createValueHandle(Scope), Scope.Value, Confidence + 8, ScopeTextLower)
+				end
+
+				for AttributeName, Value in pairs(Scope:GetAttributes()) do
+					visitContextItem(
+						AttributeName,
+						createAttributeHandle(Scope, AttributeName),
+						Value,
+						Confidence + 6,
+						ScopeTextLower
+					)
+				end
+
+				local ChildCount = 0
+
+				for _, Child in ipairs(Scope:GetChildren()) do
+					ChildCount = ChildCount + 1
+
+					if ChildCount > 24 then
+						break
+					end
+
+					if Child:IsA("ValueBase") then
+						visitContextItem(
+							Child.Name,
+							createValueHandle(Child),
+							Child.Value,
+							Confidence + 10,
+							ScopeTextLower
+						)
+					end
+
+					for AttributeName, Value in pairs(Child:GetAttributes()) do
+						visitContextItem(
+							AttributeName,
+							createAttributeHandle(Child, AttributeName),
+							Value,
+							Confidence + 8,
+							ScopeTextLower
+						)
+					end
+				end
+			end
+
+			for _, Item in ipairs(ScopeQueue) do
+				visitContextScope(Item.Scope, Item.AnchorNameLower, Item.Depth)
+			end
+		end
+
 		local function finalizeGroup(GroupName)
 			local Entries = {}
 
@@ -2841,6 +3092,10 @@ return function(Config)
 
 		if ForceRefresh or not hasRecordedPrimary() or StaminaFeature.DebugEnabled then
 			visitScriptEnvironments()
+		end
+
+		if not hasRecordedLogicPrimary() then
+			visitSupportContexts()
 		end
 
 		if IncludeGc or ((ForceRefresh or StaminaFeature.DebugEnabled) and not hasRecordedLogicPrimary()) then
