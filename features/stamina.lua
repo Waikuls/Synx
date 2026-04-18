@@ -2225,7 +2225,7 @@ return function(Config)
 			return {}
 		end
 
-		if GroupName == "Spend" then
+		if GroupName == "Flags" or GroupName == "Spend" then
 			local ScopedEntries = {}
 
 			for _, Entry in ipairs(Group) do
@@ -2268,15 +2268,29 @@ return function(Config)
 				for _, Item in ipairs(ScopedEntries) do
 					local Candidate = Item.Entry.Candidate
 					local NameLower = Candidate and Candidate.NameLower or ""
-					local IsKeySpendName = string.find(NameLower, "exhaust", 1, true) ~= nil
-						or string.find(NameLower, "fatigue", 1, true) ~= nil
-						or string.find(NameLower, "breath", 1, true) ~= nil
-						or string.find(NameLower, "eevee", 1, true) ~= nil
-						or string.find(NameLower, "deplete", 1, true) ~= nil
+					local IsKeyScopedName
+
+					if GroupName == "Flags" then
+						IsKeyScopedName = NameLower == "nostaminacost"
+							or NameLower == "canusestamina"
+							or NameLower == "hasstamina"
+							or NameLower == "enoughstamina"
+							or NameLower == "cansprint"
+							or NameLower == "canrun"
+							or NameLower == "candash"
+							or NameLower == "canattack"
+							or string.find(NameLower, "stamina", 1, true) ~= nil
+					else
+						IsKeyScopedName = string.find(NameLower, "exhaust", 1, true) ~= nil
+							or string.find(NameLower, "fatigue", 1, true) ~= nil
+							or string.find(NameLower, "breath", 1, true) ~= nil
+							or string.find(NameLower, "eevee", 1, true) ~= nil
+							or string.find(NameLower, "deplete", 1, true) ~= nil
+					end
 
 					if Item.Score >= ScoreFloor
 						or (Candidate and Candidate.ExactAlias == true)
-						or IsKeySpendName then
+						or IsKeyScopedName then
 						table.insert(Entries, Item.Entry)
 					end
 				end
