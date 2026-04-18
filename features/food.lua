@@ -23,6 +23,7 @@ return function(Config)
 		MaxActivationAttempts = 3,
 		HungerThreshold = 0.35,
 		FallbackThreshold = 25,
+		AutoManagedTool = nil,
 		KnownHotbarOrder = {},
 		RemoteCache = {}
 	}
@@ -137,6 +138,99 @@ return function(Config)
 		end
 
 		return nil
+	end
+
+	local function trimString(Value)
+		if typeof(Value) ~= "string" then
+			return nil
+		end
+
+		return string.match(Value, "^%s*(.-)%s*$")
+	end
+
+	local function parseRatio(Value)
+		if typeof(Value) ~= "string" then
+			return nil, nil
+		end
+
+		local Left, Right = string.match(Value, "([%-%d%.]+)%s*/%s*([%-%d%.]+)")
+
+		if not Left or not Right then
+			return nil, nil
+		end
+
+		return tonumber(Left), tonumber(Right)
+	end
+
+	local function parseLooseNumber(Value)
+		local NumberValue = toNumber(Value)
+
+		if NumberValue ~= nil then
+			return NumberValue
+		end
+
+		if typeof(Value) ~= "string" then
+			return nil
+		end
+
+		local Trimmed = trimString(Value)
+
+		if not Trimmed or Trimmed == "" then
+			return nil
+		end
+
+		local RatioLeft = select(1, parseRatio(Trimmed))
+
+		if RatioLeft ~= nil then
+			return RatioLeft
+		end
+
+		local NumberText = string.match(Trimmed, "[%-%d%.]+")
+
+		if NumberText then
+			return tonumber(NumberText)
+		end
+
+		return nil
+	end
+
+	local function parsePercentValue(Value)
+		if typeof(Value) == "number" then
+			if Value <= 1 then
+				return Value * 100
+			end
+
+			return Value
+		end
+
+		if typeof(Value) ~= "string" then
+			return nil
+		end
+
+		local Trimmed = trimString(Value)
+
+		if not Trimmed or Trimmed == "" then
+			return nil
+		end
+
+		local RatioCurrent, RatioMax = parseRatio(Trimmed)
+
+		if RatioCurrent and RatioMax and RatioMax > 0 then
+			return (RatioCurrent / RatioMax) * 100
+		end
+
+		local NumberText = string.match(Trimmed, "[%-%d%.]+")
+		local NumberValue = NumberText and tonumber(NumberText) or nil
+
+		if NumberValue == nil then
+			return nil
+		end
+
+		if NumberValue <= 1 and not string.find(Trimmed, "%", 1, true) then
+			return NumberValue * 100
+		end
+
+		return NumberValue
 	end
 
 	local function toSlotIndex(Value)
@@ -297,22 +391,32 @@ return function(Config)
 			return Value
 		end
 
-		if typeof(Value) == "string" then
-			local Lower = string.lower(Value)
+		if typeof(Value) == "number" then
+			return Value > 0
+		end
 
-			if Lower == "true" then
+		if typeof(Value) == "string" then
+			local Lower = string.lower(trimString(Value) or Value)
+
+			if Lower == "true" or Lower == "yes" or Lower == "hungry" or Lower == "starving" then
 				return true
 			end
 
-			if Lower == "false" then
+			if Lower == "false" or Lower == "no" or Lower == "full" then
 				return false
+			end
+
+			local NumberValue = parseLooseNumber(Lower)
+
+			if NumberValue ~= nil then
+				return NumberValue > 0
 			end
 		end
 
 		return false
 	end
 
-	local function shouldEat()
+	local function getHungerState()
 		local StarvingValue = findBestValue(StarvingRanking, {
 			PartialMatcher = function(NameLower)
 				if string.find(NameLower, "starv", 1, true) then
@@ -328,7 +432,10 @@ return function(Config)
 		})
 
 		if isHungryFlag(StarvingValue) then
-			return true
+			return {
+				HasSignal = true,
+				ShouldEat = true
+			}
 		end
 
 		local PercentValue = findBestValue(HungerPercentRanking, {
@@ -368,28 +475,47 @@ return function(Config)
 			end
 		})
 
-		local PercentNumber = toNumber(PercentValue)
+		local PercentNumber = parsePercentValue(PercentValue)
+		local CurrentNumber = parseLooseNumber(CurrentValue)
+		local MaxNumber = parseLooseNumber(MaxValue)
+		local RatioCurrent, RatioMax = parseRatio(CurrentValue)
+		local HasSignal = StarvingValue ~= nil or PercentValue ~= nil or CurrentValue ~= nil or MaxValue ~= nil
 
-		if PercentNumber then
-			if PercentNumber <= 1 then
-				PercentNumber = PercentNumber * 100
-			end
-
-			return PercentNumber <= (FoodFeature.HungerThreshold * 100)
+		if (CurrentNumber == nil or MaxNumber == nil) and RatioCurrent and RatioMax then
+			CurrentNumber = RatioCurrent
+			MaxNumber = RatioMax
+			HasSignal = true
 		end
 
-		local CurrentNumber = toNumber(CurrentValue)
-		local MaxNumber = toNumber(MaxValue)
-
-		if CurrentNumber and MaxNumber and MaxNumber > 0 then
-			return (CurrentNumber / MaxNumber) <= FoodFeature.HungerThreshold
+		if PercentNumber ~= nil then
+			return {
+				HasSignal = true,
+				ShouldEat = PercentNumber <= (FoodFeature.HungerThreshold * 100)
+			}
 		end
 
-		if CurrentNumber then
-			return CurrentNumber <= FoodFeature.FallbackThreshold
+		if CurrentNumber ~= nil and MaxNumber ~= nil and MaxNumber > 0 then
+			return {
+				HasSignal = true,
+				ShouldEat = (CurrentNumber / MaxNumber) <= FoodFeature.HungerThreshold
+			}
 		end
 
-		return false
+		if CurrentNumber ~= nil then
+			return {
+				HasSignal = true,
+				ShouldEat = CurrentNumber <= FoodFeature.FallbackThreshold
+			}
+		end
+
+		return {
+			HasSignal = HasSignal,
+			ShouldEat = false
+		}
+	end
+
+	local function shouldEat()
+		return getHungerState().ShouldEat
 	end
 
 	local function getToolScore(Tool)
@@ -775,7 +901,22 @@ return function(Config)
 			return false
 		end
 
-		return Left:IsA("Tool") and Right:IsA("Tool") and Left.Name == Right.Name
+		if not Left:IsA("Tool") or not Right:IsA("Tool") then
+			return false
+		end
+
+		local LeftSuccess, LeftValue = pcall(function()
+			return Left:GetDebugId(0)
+		end)
+		local RightSuccess, RightValue = pcall(function()
+			return Right:GetDebugId(0)
+		end)
+
+		if LeftSuccess and RightSuccess then
+			return LeftValue == RightValue
+		end
+
+		return Left.Name == Right.Name
 	end
 
 	local function isToolEquipped(Tool, Character)
@@ -866,28 +1007,46 @@ return function(Config)
 		return BestTool
 	end
 
+	local function getEquippedFoodTool(Character)
+		if not Character then
+			return nil
+		end
+
+		for _, Item in ipairs(Character:GetChildren()) do
+			if Item:IsA("Tool") and isFoodTool(Item) then
+				return Item
+			end
+		end
+
+		return nil
+	end
+
 	local function unequipFoodTools(Tool)
 		local Character, Humanoid = getCharacterHumanoid()
 		local Backpack = LocalPlayer:FindFirstChildOfClass("Backpack")
+		local ManagedTool = Tool or FoodFeature.AutoManagedTool
 
 		if not Character or not Humanoid then
 			return
 		end
 
-		local HasEquippedFood = false
-
-		for _, Item in ipairs(Character:GetChildren()) do
-			if Item:IsA("Tool") and isFoodTool(Item) then
-				HasEquippedFood = true
-				break
-			end
+		if not ManagedTool then
+			return
 		end
 
-		if not HasEquippedFood then
-			if Tool then
-				syncHotbarState(Tool)
+		local EquippedFoodTool = getEquippedFoodTool(Character)
+
+		if not EquippedFoodTool then
+			syncHotbarState(ManagedTool)
+
+			if FoodFeature.AutoManagedTool and isSameTool(FoodFeature.AutoManagedTool, ManagedTool) then
+				FoodFeature.AutoManagedTool = nil
 			end
 
+			return
+		end
+
+		if not isSameTool(EquippedFoodTool, ManagedTool) then
 			return
 		end
 
@@ -895,13 +1054,17 @@ return function(Config)
 
 		if Backpack then
 			for _, Item in ipairs(Character:GetChildren()) do
-				if Item:IsA("Tool") and isFoodTool(Item) then
+				if Item:IsA("Tool") and isSameTool(Item, ManagedTool) then
 					Item.Parent = Backpack
 				end
 			end
 		end
 
-		syncHotbarState(Tool or getEquippedTool(Character))
+		syncHotbarState(ManagedTool)
+
+		if FoodFeature.AutoManagedTool and isSameTool(FoodFeature.AutoManagedTool, ManagedTool) then
+			FoodFeature.AutoManagedTool = nil
+		end
 	end
 
 	local function notifyMissingFood()
@@ -939,9 +1102,19 @@ return function(Config)
 
 		task.spawn(function()
 			local PreviouslyEquippedTool = getEquippedTool(Character)
+			local WasAlreadyHoldingFood = isToolEquipped(Tool, Character)
+			local ShouldManageTool = not WasAlreadyHoldingFood
 
 			if isFoodTool(PreviouslyEquippedTool) then
 				PreviouslyEquippedTool = nil
+			end
+
+			if FoodFeature.AutoManagedTool and isSameTool(FoodFeature.AutoManagedTool, Tool) then
+				ShouldManageTool = true
+			end
+
+			if ShouldManageTool then
+				FoodFeature.AutoManagedTool = Tool
 			end
 
 			local EquippedFood = equipFoodTool(Tool, Character, Humanoid)
@@ -990,12 +1163,14 @@ return function(Config)
 
 				task.wait(FoodFeature.ActivationDelay)
 
-				if not shouldEat() then
+				local HungerState = getHungerState()
+
+				if HungerState.HasSignal and not HungerState.ShouldEat then
 					break
 				end
 			end
 
-			unequipFoodTools(Tool)
+			unequipFoodTools(ShouldManageTool and Tool or nil)
 
 			if PreviouslyEquippedTool and PreviouslyEquippedTool.Parent then
 				selectToolFromHotbar(PreviouslyEquippedTool)
@@ -1036,7 +1211,13 @@ return function(Config)
 					return
 				end
 
-				if not shouldEat() then
+				local HungerState = getHungerState()
+
+				if not HungerState.HasSignal then
+					return
+				end
+
+				if not HungerState.ShouldEat then
 					unequipFoodTools()
 					return
 				end
@@ -1058,9 +1239,10 @@ return function(Config)
 	function FoodFeature:Destroy()
 		self.Enabled = false
 		self.IsEating = false
+		unequipFoodTools()
+		self.AutoManagedTool = nil
 		self.KnownHotbarOrder = {}
 		self.RemoteCache = {}
-		unequipFoodTools()
 
 		if self.Connection then
 			self.Connection:Disconnect()
