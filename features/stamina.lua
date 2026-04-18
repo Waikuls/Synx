@@ -3015,10 +3015,14 @@ return function(Config)
 			end
 
 			local IsExactAlias = Lookups[GroupName] and Lookups[GroupName][NameLower] == true or false
+			local AllowHiddenTablePrimary = SourceKind == "table"
+				and (GroupName == "Current" or GroupName == "Max")
+				and (Confidence or 0) >= 110
 
 			if SourceKind == "table"
 				and string.find(NameLower, "stamina", 1, true) == nil
-				and not IsExactAlias then
+				and not IsExactAlias
+				and not AllowHiddenTablePrimary then
 				return
 			end
 
@@ -3412,6 +3416,27 @@ return function(Config)
 			end
 
 			if NumericValue ~= nil and isStaminaDisplayName(NameLower) then
+				return "Current", NameLower
+			end
+
+			if NumericValue ~= nil
+				and (
+					string.find(ScopeTextLower, "nostaminacost", 1, true) ~= nil
+					or string.find(ScopeTextLower, "eevee", 1, true) ~= nil
+					or string.find(ScopeTextLower, "deplete", 1, true) ~= nil
+					or string.find(ScopeTextLower, "stamina", 1, true) ~= nil
+				)
+				and string.find(NameLower, "max", 1, true) == nil
+				and string.find(NameLower, "limit", 1, true) == nil
+				and string.find(NameLower, "cap", 1, true) == nil
+				and string.find(NameLower, "regen", 1, true) == nil
+				and string.find(NameLower, "recover", 1, true) == nil
+				and string.find(NameLower, "rate", 1, true) == nil
+				and string.find(NameLower, "delay", 1, true) == nil
+				and string.find(NameLower, "percent", 1, true) == nil
+				and string.find(NameLower, "ratio", 1, true) == nil
+				and string.find(NameLower, "cool", 1, true) == nil
+				and not containsSpend(NameLower) then
 				return "Current", NameLower
 			end
 
@@ -3922,9 +3947,11 @@ return function(Config)
 		for _, Entry in ipairs(getPreferredRuntimeFlagEntries()) do
 			local CurrentValue = readEntryValue(Entry)
 			local CanRewrite = supportsSafeRuntimeRewrite("Flags", CurrentValue, Entry.Candidate)
-			local DesiredValue = getTruthyValue(CurrentValue)
+			local DesiredValue = CurrentValue ~= nil and getTruthyValue(CurrentValue) or nil
 
-			if CanRewrite and not valuesEquivalent(CurrentValue, DesiredValue) then
+			if CanRewrite
+				and DesiredValue ~= nil
+				and not valuesEquivalent(CurrentValue, DesiredValue) then
 				local WriteSuccess = writeEntryValue(Entry, DesiredValue)
 				local ReadBackValue = readEntryValue(Entry)
 
@@ -3943,9 +3970,11 @@ return function(Config)
 		for _, Entry in ipairs(getPreferredRuntimeSpendEntries()) do
 			local CurrentValue = readEntryValue(Entry)
 			local CanRewrite = supportsSafeRuntimeRewrite("Spend", CurrentValue, Entry.Candidate)
-			local DesiredValue = getZeroLikeValue(CurrentValue)
+			local DesiredValue = CurrentValue ~= nil and getZeroLikeValue(CurrentValue) or nil
 
-			if CanRewrite and not valuesEquivalent(CurrentValue, DesiredValue) then
+			if CanRewrite
+				and DesiredValue ~= nil
+				and not valuesEquivalent(CurrentValue, DesiredValue) then
 				local WriteSuccess = writeEntryValue(Entry, DesiredValue)
 				local ReadBackValue = readEntryValue(Entry)
 
@@ -4072,9 +4101,9 @@ return function(Config)
 				if ActionPressure then
 					for _, Entry in ipairs(PreferredFlagEntries) do
 						local CurrentValue = readEntryValue(Entry)
-						local DesiredValue = getTruthyValue(CurrentValue)
+						local DesiredValue = CurrentValue ~= nil and getTruthyValue(CurrentValue) or nil
 
-						if not valuesEquivalent(CurrentValue, DesiredValue) then
+						if DesiredValue ~= nil and not valuesEquivalent(CurrentValue, DesiredValue) then
 							setSupportIssue("flag", Entry, CurrentValue, DesiredValue, "verify")
 							FailureReason = string.lower(Profile) .. "_flag_blocked"
 							break
@@ -4084,9 +4113,9 @@ return function(Config)
 					if not FailureReason then
 						for _, Entry in ipairs(PreferredSpendEntries) do
 							local CurrentValue = readEntryValue(Entry)
-							local DesiredValue = getZeroLikeValue(CurrentValue)
+							local DesiredValue = CurrentValue ~= nil and getZeroLikeValue(CurrentValue) or nil
 
-							if not valuesEquivalent(CurrentValue, DesiredValue) then
+							if DesiredValue ~= nil and not valuesEquivalent(CurrentValue, DesiredValue) then
 								setSupportIssue("spend", Entry, CurrentValue, DesiredValue, "verify")
 								FailureReason = string.lower(Profile) .. "_spend_locked"
 								break
@@ -4134,9 +4163,9 @@ return function(Config)
 		if ActionPressure then
 			for _, Entry in ipairs(PreferredFlagEntries) do
 				local CurrentValue = readEntryValue(Entry)
-				local DesiredValue = getTruthyValue(CurrentValue)
+				local DesiredValue = CurrentValue ~= nil and getTruthyValue(CurrentValue) or nil
 
-				if not valuesEquivalent(CurrentValue, DesiredValue) then
+				if DesiredValue ~= nil and not valuesEquivalent(CurrentValue, DesiredValue) then
 					setSupportIssue("flag", Entry, CurrentValue, DesiredValue, "verify")
 					FailureReason = string.lower(Profile) .. "_flag_blocked"
 					break
@@ -4146,9 +4175,9 @@ return function(Config)
 			if not FailureReason then
 				for _, Entry in ipairs(PreferredSpendEntries) do
 					local CurrentValue = readEntryValue(Entry)
-					local DesiredValue = getZeroLikeValue(CurrentValue)
+					local DesiredValue = CurrentValue ~= nil and getZeroLikeValue(CurrentValue) or nil
 
-					if not valuesEquivalent(CurrentValue, DesiredValue) then
+					if DesiredValue ~= nil and not valuesEquivalent(CurrentValue, DesiredValue) then
 						setSupportIssue("spend", Entry, CurrentValue, DesiredValue, "verify")
 						FailureReason = string.lower(Profile) .. "_spend_locked"
 						break
