@@ -1,6 +1,6 @@
 -- Main entry script for using the Fatality UI library.
 -- Core library code lives in src/source.luau.
-local LoaderVersion = "20260418-loader-7"
+local LoaderVersion = "20260419-loader-8"
 
 local function getScriptCompiler()
 	if type(loadstring) == "function" then
@@ -78,6 +78,10 @@ local function getSourceMode()
 
 	if Environment then
 		Environment.__FatalityLoaderVersion = LoaderVersion
+	end
+
+	if hasCompleteLocalProject() then
+		return "local"
 	end
 
 	return "remote"

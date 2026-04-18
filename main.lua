@@ -10,6 +10,32 @@ local function getCompiler()
 	return nil
 end
 
+local function canReadLocalFile(LocalPath)
+	if type(readfile) ~= "function" then
+		return false
+	end
+
+	local Success, Result = pcall(readfile, LocalPath)
+
+	return Success and type(Result) == "string" and Result ~= ""
+end
+
+local function tryReadLocalEntry()
+	local LocalPath = "Fatality/main.lua"
+
+	if not canReadLocalFile(LocalPath) then
+		return false, string.format("Local %s unavailable", LocalPath)
+	end
+
+	local Success, Result = pcall(readfile, LocalPath)
+
+	if Success and type(Result) == "string" and Result ~= "" then
+		return true, Result
+	end
+
+	return false, string.format("Local %s unreadable", LocalPath)
+end
+
 local function getRemoteSeed()
 	local Environment = type(getgenv) == "function" and getgenv() or nil
 
@@ -76,11 +102,51 @@ if type(Compiler) ~= "function" then
 	error("No script compiler available for Fatality bootstrap", 0)
 end
 
-local EntrySource = fetchLatestEntry()
-local Chunk, CompileError = Compiler(EntrySource)
+local function executeEntrySource(SourceCode, SourceLabel)
+	local Chunk, CompileError = Compiler(SourceCode)
 
-if type(Chunk) ~= "function" then
-	error(string.format("Failed to compile Fatality entry: %s", tostring(CompileError)), 0)
+	if type(Chunk) ~= "function" then
+		error(string.format("Failed to compile %s: %s", tostring(SourceLabel), tostring(CompileError)), 0)
+	end
+
+	local Success, Result = pcall(Chunk)
+
+	if not Success then
+		error(string.format("Failed to run %s: %s", tostring(SourceLabel), tostring(Result)), 0)
+	end
+
+	return Result
 end
 
-return Chunk()
+do
+	local Errors = {}
+	local LocalSuccess, LocalResult = tryReadLocalEntry()
+
+	if LocalSuccess then
+		local ExecuteSuccess, ExecuteResult = pcall(executeEntrySource, LocalResult, "Fatality/main.lua")
+
+		if ExecuteSuccess then
+			return ExecuteResult
+		end
+
+		table.insert(Errors, tostring(ExecuteResult))
+	else
+		table.insert(Errors, LocalResult)
+	end
+
+	local RemoteSuccess, RemoteResult = pcall(fetchLatestEntry)
+
+	if RemoteSuccess and type(RemoteResult) == "string" and RemoteResult ~= "" then
+		local ExecuteSuccess, ExecuteResult = pcall(executeEntrySource, RemoteResult, "remote Fatality/main.lua")
+
+		if ExecuteSuccess then
+			return ExecuteResult
+		end
+
+		table.insert(Errors, tostring(ExecuteResult))
+	else
+		table.insert(Errors, tostring(RemoteResult))
+	end
+
+	error(table.concat(Errors, " | "), 0)
+end
