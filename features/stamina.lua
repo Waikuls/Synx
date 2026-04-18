@@ -7,12 +7,12 @@ return function(Config)
 
 	local StaminaFeature = {
 		Enabled = false,
-		StepConnections = {},
+		HeartbeatConnection = nil,
 		CharacterAddedConnection = nil,
 		HandleSignals = {},
-		StepInterval = 0.05,
-		ResolveInterval = 1,
-		GcResolveInterval = 8,
+		StepInterval = 0.1,
+		ResolveInterval = 3,
+		GcResolveInterval = 15,
 		LastResolveAt = 0,
 		LastGcResolveAt = 0,
 		LastStepAt = 0,
@@ -78,22 +78,22 @@ return function(Config)
 		Flags = {
 			"NoStaminaCost",
 			"NoCooldown",
-			"CanUseStamina",
-			"HasStamina",
-			"EnoughStamina",
-			"CanDash",
-			"CanSprint",
-			"CanRun",
-			"CanAttack",
 			"NoEeveeDeplete",
 			"NoEnergyDeplete",
 			"NoEnergyCost",
+			"CanUseStamina",
+			"HasStamina",
+			"EnoughStamina",
 			"CanUseEnergy",
 			"HasEnergy",
 			"EnoughEnergy",
 			"CanUseEevee",
 			"HasEevee",
-			"EnoughEevee"
+			"EnoughEevee",
+			"CanDash",
+			"CanSprint",
+			"CanRun",
+			"CanAttack"
 		},
 		Guard = {
 			"Exhaustion",
@@ -109,13 +109,21 @@ return function(Config)
 			"IsTired",
 			"StaminaLocked",
 			"EnergyLocked",
+			"EeveeDeplete",
 			"StaminaCost",
 			"EnergyCost",
+			"DashCost",
+			"SprintCost",
+			"RunCost",
+			"AttackCost",
 			"StaminaDrain",
 			"EnergyDrain",
 			"StaminaDeplete",
 			"EnergyDeplete",
-			"EeveeDeplete",
+			"DashCooldown",
+			"SprintCooldown",
+			"RunCooldown",
+			"AttackCooldown",
 			"StaminaCooldown",
 			"EnergyCooldown"
 		}
@@ -275,12 +283,11 @@ return function(Config)
 		return Result
 	end
 
-	local function buildSearchRoots()
+	local function buildSearchRoots(IncludeBroadRoots)
 		local Character = LocalPlayer.Character
 		local Entity = findEntity()
 		local MainScript = findMainScript()
 		local Stats = MainScript and MainScript:FindFirstChild("Stats")
-		local PlayerGui = LocalPlayer:FindFirstChild("PlayerGui")
 		local PlayerScripts = LocalPlayer:FindFirstChild("PlayerScripts")
 		local Roots = {}
 		local Seen = {}
@@ -301,10 +308,6 @@ return function(Config)
 		addRoot(Character and Character:FindFirstChild("Stats"))
 		addRoot(LocalPlayer:FindFirstChild("Data"))
 		addRoot(Character and Character:FindFirstChild("Data"))
-		addRoot(PlayerGui)
-		addRoot(PlayerScripts)
-		addRoot(Character)
-		addRoot(LocalPlayer)
 
 		for _, RootName in ipairs({"PlayerData", "Data", "Stats"}) do
 			local Root = ReplicatedStorage:FindFirstChild(RootName)
@@ -320,6 +323,12 @@ return function(Config)
 					addRoot(PlayersFolder:FindFirstChild(tostring(LocalPlayer.UserId)))
 				end
 			end
+		end
+
+		if IncludeBroadRoots then
+			addRoot(PlayerScripts)
+			addRoot(Character)
+			addRoot(LocalPlayer)
 		end
 
 		return Roots
@@ -353,46 +362,41 @@ return function(Config)
 		return "base"
 	end
 
-	local function containsMax(NameLower)
-		return string.find(NameLower, "max", 1, true) ~= nil
-			or string.find(NameLower, "maximum", 1, true) ~= nil
+	local function containsAction(NameLower)
+		return string.find(NameLower, "dash", 1, true) ~= nil
+			or string.find(NameLower, "sprint", 1, true) ~= nil
+			or string.find(NameLower, "run", 1, true) ~= nil
+			or string.find(NameLower, "attack", 1, true) ~= nil
+			or string.find(NameLower, "combat", 1, true) ~= nil
+	end
+
+	local function containsResource(NameLower)
+		return string.find(NameLower, "stamina", 1, true) ~= nil
+			or string.find(NameLower, "energy", 1, true) ~= nil
+			or string.find(NameLower, "eevee", 1, true) ~= nil
 	end
 
 	local function containsFlag(NameLower)
-		return string.sub(NameLower, 1, 9) == "nostamina"
-			or string.sub(NameLower, 1, 8) == "noeevee"
-			or string.sub(NameLower, 1, 8) == "noenergy"
-			or NameLower == "canusestamina"
-			or NameLower == "hasstamina"
-			or NameLower == "enoughstamina"
-			or NameLower == "canuseenergy"
-			or NameLower == "hasenergy"
-			or NameLower == "enoughenergy"
-			or NameLower == "canuseeevee"
-			or NameLower == "haseevee"
-			or NameLower == "enougheevee"
+		return string.sub(NameLower, 1, 2) == "no"
+			or string.sub(NameLower, 1, 3) == "can"
+			or string.sub(NameLower, 1, 3) == "has"
+			or string.sub(NameLower, 1, 6) == "enough"
 	end
 
 	local function containsGuard(NameLower)
-		local HasResourceName = string.find(NameLower, "stamina", 1, true) ~= nil
-			or string.find(NameLower, "energy", 1, true) ~= nil
-			or string.find(NameLower, "eevee", 1, true) ~= nil
-
 		return string.find(NameLower, "fatigue", 1, true) ~= nil
 			or string.find(NameLower, "fatique", 1, true) ~= nil
 			or string.find(NameLower, "exhaust", 1, true) ~= nil
 			or string.find(NameLower, "tired", 1, true) ~= nil
-			or (HasResourceName and string.find(NameLower, "locked", 1, true) ~= nil)
-			or string.find(NameLower, "lowstamina", 1, true) ~= nil
-			or string.find(NameLower, "outofstamina", 1, true) ~= nil
-			or string.find(NameLower, "out_of_stamina", 1, true) ~= nil
-			or string.find(NameLower, "lowenergy", 1, true) ~= nil
-			or string.find(NameLower, "outofenergy", 1, true) ~= nil
-			or string.find(NameLower, "out_of_energy", 1, true) ~= nil
-			or (HasResourceName and string.find(NameLower, "cost", 1, true) ~= nil)
-			or (HasResourceName and string.find(NameLower, "drain", 1, true) ~= nil)
-			or (HasResourceName and string.find(NameLower, "deplete", 1, true) ~= nil)
-			or (HasResourceName and string.find(NameLower, "cooldown", 1, true) ~= nil)
+			or string.find(NameLower, "locked", 1, true) ~= nil
+			or string.find(NameLower, "disabled", 1, true) ~= nil
+			or string.find(NameLower, "outof", 1, true) ~= nil
+			or string.find(NameLower, "out_of", 1, true) ~= nil
+			or string.find(NameLower, "low", 1, true) ~= nil
+			or string.find(NameLower, "cost", 1, true) ~= nil
+			or string.find(NameLower, "drain", 1, true) ~= nil
+			or string.find(NameLower, "deplete", 1, true) ~= nil
+			or string.find(NameLower, "cooldown", 1, true) ~= nil
 	end
 
 	local function classifyName(Name)
@@ -401,9 +405,6 @@ return function(Config)
 		end
 
 		local NameLower = string.lower(Name)
-		local HasResourceName = string.find(NameLower, "stamina", 1, true) ~= nil
-			or string.find(NameLower, "energy", 1, true) ~= nil
-			or string.find(NameLower, "eevee", 1, true) ~= nil
 
 		for GroupName, Lookup in pairs(Lookups) do
 			if Lookup[NameLower] then
@@ -411,32 +412,40 @@ return function(Config)
 			end
 		end
 
-		if not HasResourceName then
+		local HasResource = containsResource(NameLower)
+		local HasAction = containsAction(NameLower)
+		local HasMeaning = HasResource or HasAction
+
+		if not HasMeaning then
 			return nil, NameLower
 		end
 
-		if containsFlag(NameLower) then
+		if containsFlag(NameLower) and HasMeaning then
 			return "Flags", NameLower
 		end
 
-		if containsMax(NameLower) then
-			return "Max", NameLower
-		end
-
-		if containsGuard(NameLower) then
+		if containsGuard(NameLower) and HasMeaning then
 			return "Guard", NameLower
 		end
 
-		if string.find(NameLower, "regen", 1, true)
-			or string.find(NameLower, "recover", 1, true)
-			or string.find(NameLower, "rate", 1, true)
-			or string.find(NameLower, "delay", 1, true)
-			or string.find(NameLower, "percent", 1, true)
-			or string.find(NameLower, "ratio", 1, true) then
-			return nil, NameLower
+		if HasResource and (
+			string.find(NameLower, "max", 1, true) ~= nil
+			or string.find(NameLower, "maximum", 1, true) ~= nil
+		) then
+			return "Max", NameLower
 		end
 
-		return "Current", NameLower
+		if HasResource
+			and string.find(NameLower, "regen", 1, true) == nil
+			and string.find(NameLower, "recover", 1, true) == nil
+			and string.find(NameLower, "rate", 1, true) == nil
+			and string.find(NameLower, "delay", 1, true) == nil
+			and string.find(NameLower, "percent", 1, true) == nil
+			and string.find(NameLower, "ratio", 1, true) == nil then
+			return "Current", NameLower
+		end
+
+		return nil, NameLower
 	end
 
 	local function createValueHandle(Instance)
@@ -528,11 +537,7 @@ return function(Config)
 				return Handle.Table[Handle.Field]
 			end)
 
-			if Success then
-				return Value
-			end
-
-			return nil
+			return Success and Value or nil
 		end
 
 		if Handle.Kind == "attribute" then
@@ -540,22 +545,14 @@ return function(Config)
 				return Handle.Instance:GetAttribute(Handle.Attribute)
 			end)
 
-			if Success then
-				return Value
-			end
-
-			return nil
+			return Success and Value or nil
 		end
 
 		local Success, Value = pcall(function()
 			return Handle.Instance.Value
 		end)
 
-		if Success then
-			return Value
-		end
-
-		return nil
+		return Success and Value or nil
 	end
 
 	local function coerceLike(Template, Value)
@@ -714,14 +711,6 @@ return function(Config)
 		table.clear(StaminaFeature.Handles.Guard)
 	end
 
-	local function disconnectStepConnections()
-		for _, Connection in ipairs(StaminaFeature.StepConnections) do
-			Connection:Disconnect()
-		end
-
-		table.clear(StaminaFeature.StepConnections)
-	end
-
 	local function getTruthyValue(Value)
 		local ValueType = typeof(Value)
 
@@ -778,7 +767,7 @@ return function(Config)
 		})
 	end
 
-	local function hasCurrentLikeHandles()
+	local function hasPrimaryHandles()
 		return #StaminaFeature.Handles.Current > 0 or #StaminaFeature.Handles.Max > 0
 	end
 
@@ -797,7 +786,7 @@ return function(Config)
 
 		StaminaFeature.GcResolveQueued = true
 
-		task.delay(0.2, function()
+		task.delay(0.6, function()
 			StaminaFeature.GcResolveQueued = false
 
 			if StaminaFeature.Enabled then
@@ -820,29 +809,6 @@ return function(Config)
 				StaminaFeature:Step(false, false)
 			end
 		end)
-	end
-
-	local function connectStepConnections()
-		if #StaminaFeature.StepConnections > 0 then
-			return
-		end
-
-		local function queueStep()
-			if StaminaFeature.Enabled then
-				scheduleStep()
-			end
-		end
-
-		local SuccessRender, RenderConnection = pcall(function()
-			return RunService.RenderStepped:Connect(queueStep)
-		end)
-
-		if SuccessRender and RenderConnection then
-			table.insert(StaminaFeature.StepConnections, RenderConnection)
-		end
-
-		table.insert(StaminaFeature.StepConnections, RunService.Stepped:Connect(queueStep))
-		table.insert(StaminaFeature.StepConnections, RunService.Heartbeat:Connect(queueStep))
 	end
 
 	local function connectHandleSignals()
@@ -903,6 +869,10 @@ return function(Config)
 			Guard = {}
 		}
 
+		local function hasRecordedPrimary()
+			return next(EntryMaps.Current) ~= nil or next(EntryMaps.Max) ~= nil
+		end
+
 		local function recordHandle(GroupName, NameLower, Handle, Value)
 			if not GroupName or not isUsefulValue(GroupName, Value) then
 				return
@@ -960,12 +930,20 @@ return function(Config)
 			end
 		end
 
-		for _, Root in ipairs(buildSearchRoots()) do
-			visitInstance(Root)
+		local function visitRoots(Roots)
+			for _, Root in ipairs(Roots) do
+				visitInstance(Root)
 
-			for _, Descendant in ipairs(Root:GetDescendants()) do
-				visitInstance(Descendant)
+				for _, Descendant in ipairs(Root:GetDescendants()) do
+					visitInstance(Descendant)
+				end
 			end
+		end
+
+		visitRoots(buildSearchRoots(false))
+
+		if ForceRefresh and not hasRecordedPrimary() then
+			visitRoots(buildSearchRoots(true))
 		end
 
 		if IncludeGc
@@ -1043,8 +1021,12 @@ return function(Config)
 		for _, Entry in ipairs(StaminaFeature.Handles.Current) do
 			local Value = toNumber(readHandle(Entry.Handle))
 
-			if Value ~= nil and (Targets[Entry.Family] == nil or Value > Targets[Entry.Family]) then
-				Targets[Entry.Family] = Value
+			if Value ~= nil then
+				local Current = Targets[Entry.Family]
+
+				if Current == nil or Value > Current then
+					Targets[Entry.Family] = Value
+				end
 			end
 		end
 
@@ -1160,68 +1142,16 @@ return function(Config)
 		return Applied
 	end
 
-	local function isFlagLocked(Value)
-		local BooleanValue = toBoolean(Value)
-
-		if BooleanValue ~= nil then
-			return BooleanValue == true
+	local function shouldQueueGcResolve()
+		if not hasPrimaryHandles() then
+			return true
 		end
 
-		local NumberValue = toNumber(Value)
-
-		if NumberValue ~= nil then
-			return NumberValue > 0
-		end
-
-		if typeof(Value) == "string" then
-			local Lower = string.lower(Value)
-
-			return Lower == "true" or Lower == "1" or Lower == "yes"
-		end
-
-		return Value ~= nil
-	end
-
-	local function isGuardCleared(Value)
-		local BooleanValue = toBoolean(Value)
-
-		if BooleanValue ~= nil then
-			return BooleanValue == false
-		end
-
-		local NumberValue = toNumber(Value)
-
-		if NumberValue ~= nil then
-			return math.abs(NumberValue) <= 0.001
-		end
-
-		if typeof(Value) == "string" then
-			local Lower = string.lower(Value)
-
-			return Lower == "false" or Lower == "0" or Lower == "no"
-		end
-
-		return Value == nil
-	end
-
-	local function shouldRescanGc()
 		for _, Entry in ipairs(StaminaFeature.Handles.Current) do
 			local Target = getTargetForEntry(Entry)
 			local CurrentValue = toNumber(readHandle(Entry.Handle))
 
-			if Target ~= nil and CurrentValue ~= nil and CurrentValue < (Target - 0.5) then
-				return true
-			end
-		end
-
-		for _, Entry in ipairs(StaminaFeature.Handles.Flags) do
-			if not isFlagLocked(readHandle(Entry.Handle)) then
-				return true
-			end
-		end
-
-		for _, Entry in ipairs(StaminaFeature.Handles.Guard) do
-			if not isGuardCleared(readHandle(Entry.Handle)) then
+			if Target ~= nil and CurrentValue ~= nil and CurrentValue < (Target - 1) then
 				return true
 			end
 		end
@@ -1329,12 +1259,13 @@ return function(Config)
 		end
 
 		local Family = getFamily(NameLower)
-		local Target = Controller.LastKnownTargets[Family]
+		local Targets = Controller.LastKnownTargets
+		local Target = Targets[Family]
 
 		if Target == nil and Family == "energy" then
-			Target = Controller.LastKnownTargets.base
+			Target = Targets.base
 		elseif Target == nil then
-			Target = Controller.LastKnownTargets.base or Controller.LastKnownTargets.energy
+			Target = Targets.base or Targets.energy
 		end
 
 		if Target == nil then
@@ -1456,17 +1387,13 @@ return function(Config)
 				return false
 			end
 
-			if not hasCurrentLikeHandles() then
-				scheduleGcResolve()
-			end
-
 			computeTargets()
 			applyFlags()
 			applyGuards()
 			applyMaxHandles()
 			local Applied = applyCurrentHandles()
 
-			if shouldRescanGc() then
+			if shouldQueueGcResolve() then
 				scheduleGcResolve()
 			end
 
@@ -1496,12 +1423,26 @@ return function(Config)
 			ensureHookController()
 			clearScopeCache()
 			self:Step(true, false)
-			connectStepConnections()
-			scheduleGcResolve()
+
+			if not self.HeartbeatConnection then
+				self.HeartbeatConnection = RunService.Heartbeat:Connect(function()
+					if self.Enabled and (os.clock() - self.LastStepAt) >= self.StepInterval then
+						self:Step(false, false)
+					end
+				end)
+			end
+
+			if not hasPrimaryHandles() then
+				scheduleGcResolve()
+			end
 		else
 			restoreOriginalFlags()
 			restoreOriginalGuards()
-			disconnectStepConnections()
+
+			if self.HeartbeatConnection then
+				self.HeartbeatConnection:Disconnect()
+				self.HeartbeatConnection = nil
+			end
 
 			disconnectHandleSignals()
 		end
@@ -1516,7 +1457,11 @@ return function(Config)
 		self.GcResolveQueued = false
 		restoreOriginalFlags()
 		restoreOriginalGuards()
-		disconnectStepConnections()
+
+		if self.HeartbeatConnection then
+			self.HeartbeatConnection:Disconnect()
+			self.HeartbeatConnection = nil
+		end
 
 		if self.CharacterAddedConnection then
 			self.CharacterAddedConnection:Disconnect()

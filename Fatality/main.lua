@@ -34,49 +34,73 @@ local function executeSource(SourceCode, SourceLabel)
 	return Result
 end
 
+local function canReadLocalFile(LocalPath)
+	if type(readfile) ~= "function" then
+		return false
+	end
+
+	local Success, Result = pcall(readfile, LocalPath)
+
+	return Success and type(Result) == "string" and Result ~= ""
+end
+
+local function getSourceMode()
+	local Environment = type(getgenv) == "function" and getgenv() or nil
+	local ForcedMode = Environment and Environment.__FatalitySourceMode
+
+	if ForcedMode == "local" or ForcedMode == "remote" then
+		return ForcedMode
+	end
+
+	-- Default to remote so a stale local checkout does not silently override
+	-- the freshly fetched GitHub entry script and leave menus half-loaded.
+	return "remote"
+end
+
+local SourceMode = getSourceMode()
+
 local function loadScript(LocalPath, RemoteUrl)
-	local LocalErrorMessage
+	local Attempts = (SourceMode == "local" and {"local", "remote"}) or {"remote", "local"}
+	local Errors = {}
 
-	if type(readfile) == "function" then
-		local Success, Result = pcall(readfile, LocalPath)
+	for _, Attempt in ipairs(Attempts) do
+		if Attempt == "local" and canReadLocalFile(LocalPath) then
+			local Success, Result = pcall(readfile, LocalPath)
 
-		if Success and type(Result) == "string" and Result ~= "" then
-			local ExecuteSuccess, ExecuteResult = pcall(executeSource, Result, LocalPath)
+			if Success and type(Result) == "string" and Result ~= "" then
+				local ExecuteSuccess, ExecuteResult = pcall(executeSource, Result, LocalPath)
 
-			if ExecuteSuccess then
-				return ExecuteResult
+				if ExecuteSuccess then
+					return ExecuteResult
+				end
+
+				table.insert(Errors, string.format("Local %s failed: %s", LocalPath, tostring(ExecuteResult)))
 			end
+		elseif Attempt == "remote" and type(RemoteUrl) == "string" and RemoteUrl ~= "" then
+			local Success, Result = pcall(function()
+				return game:HttpGet(RemoteUrl)
+			end)
 
-			LocalErrorMessage = tostring(ExecuteResult)
+			if Success and type(Result) == "string" and Result ~= "" then
+				local ExecuteSuccess, ExecuteResult = pcall(executeSource, Result, RemoteUrl)
+
+				if ExecuteSuccess then
+					return ExecuteResult
+				end
+
+				table.insert(Errors, string.format("Remote %s failed: %s", LocalPath, tostring(ExecuteResult)))
+			end
 		end
 	end
 
-	if type(RemoteUrl) == "string" and RemoteUrl ~= "" then
-		local Success, Result = pcall(function()
-			return game:HttpGet(RemoteUrl)
-		end)
-
-		if Success and type(Result) == "string" and Result ~= "" then
-			local ExecuteSuccess, ExecuteResult = pcall(executeSource, Result, RemoteUrl)
-
-			if ExecuteSuccess then
-				return ExecuteResult
-			end
-
-			if not LocalErrorMessage then
-				LocalErrorMessage = string.format("Remote %s failed: %s", LocalPath, tostring(ExecuteResult))
-			end
-		end
-	end
-
-	if LocalErrorMessage then
-		error(LocalErrorMessage, 0)
+	if #Errors > 0 then
+		error(table.concat(Errors, " | "), 0)
 	end
 
 	error(string.format("No source available for %s", LocalPath), 0)
 end
 
-local RemoteVersion = "20260418-3"
+local RemoteVersion = "20260418-4"
 
 local function buildRemoteUrl(Path)
 	return string.format("https://raw.githubusercontent.com/Waikuls/Synx/main/%s?v=%s", Path, RemoteVersion)
