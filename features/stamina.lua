@@ -145,7 +145,9 @@ return function(Config)
 		OriginalSpendValues = {},
 		HookControllerId = nil,
 		RemoteBlockingEnabled = false,
-		NamecallHookEnabled = false,
+		NamecallHookEnabled = true,
+		AttributeNamecallHookEnabled = false,
+		RemoteNamecallHookEnabled = true,
 		CandidateRegistry = {},
 		CandidateOrder = {},
 		RemoteCandidates = {},
@@ -2513,12 +2515,26 @@ return function(Config)
 		end
 
 		table.insert(Lines, string.format("SpendCandidate: %s", getCandidateSummaryLabel(SpendCandidate)))
+		table.insert(Lines, string.format("RemoteCalls: %d", Session.RemoteCallCount or 0))
+
+		if #RemoteSuspects > 0 then
+			local Observation = RemoteSuspects[1].Observation
+			local Candidate = RemoteSuspects[1].Candidate
+
+			table.insert(Lines, string.format(
+				"RemoteCandidate1: %s [%s] count=%d args=%s",
+				Candidate.Name,
+				Candidate.Method,
+				Observation.Count or 0,
+				Observation.LastArgsSummary or ""
+			))
+		end
+
 		table.insert(Lines, string.format("LastProfile: %s", Session.Profile))
 		table.insert(Lines, string.format("ActionValid: %s", tostring(Session.ActionValid)))
 		table.insert(Lines, string.format("MaxSpeed: %s", formatNumber(Session.MaxSpeed or 0)))
 		table.insert(Lines, string.format("PromotedPrimary: %d", PrimaryLogicCount))
 		table.insert(Lines, string.format("PromotedSupport: %d", SupportLogicCount))
-		table.insert(Lines, string.format("RemoteCalls: %d", Session.RemoteCallCount or 0))
 
 		if #PromotedLogic > 0 then
 			table.insert(Lines, "TopPromoted:")
@@ -4153,7 +4169,8 @@ return function(Config)
 				OriginalNamecall = hookmetamethod(game, "__namecall", Wrap(function(Self, ...)
 					local Method = type(getnamecallmethod) == "function" and getnamecallmethod() or nil
 
-					if Method == "SetAttribute"
+					if StaminaFeature.AttributeNamecallHookEnabled == true
+						and Method == "SetAttribute"
 						and typeof(Self) == "Instance"
 						and shouldHookInstance(Self) then
 						local Arguments = table.pack(...)
@@ -4179,7 +4196,8 @@ return function(Config)
 								end
 							end
 						end
-					elseif (Method == "FireServer" or Method == "InvokeServer")
+					elseif StaminaFeature.RemoteNamecallHookEnabled == true
+						and (Method == "FireServer" or Method == "InvokeServer")
 						and typeof(Self) == "Instance"
 						and (Self:IsA("RemoteEvent") or Self:IsA("RemoteFunction")) then
 						local Controller = getActiveController()
