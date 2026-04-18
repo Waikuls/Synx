@@ -26,6 +26,7 @@ return function(Config)
 			Guard = {}
 		},
 		OriginalFlagValues = {},
+		OriginalGuardValues = {},
 		HookControllerId = nil
 	}
 
@@ -880,7 +881,15 @@ return function(Config)
 
 		for Family, Value in pairs(NewTargets) do
 			if Value ~= nil then
-				Merged[Family] = Value
+				local PreviousValue = Merged[Family]
+
+				if typeof(Value) == "number" and typeof(PreviousValue) == "number" then
+					if Value > PreviousValue then
+						Merged[Family] = Value
+					end
+				else
+					Merged[Family] = Value
+				end
 			end
 		end
 
@@ -905,7 +914,7 @@ return function(Config)
 		for _, Entry in ipairs(StaminaFeature.Handles.Current) do
 			local Value = toNumber(readHandle(Entry.Handle))
 
-			if Value ~= nil and Targets[Entry.Family] == nil then
+			if Value ~= nil and (Targets[Entry.Family] == nil or Value > Targets[Entry.Family]) then
 				Targets[Entry.Family] = Value
 			end
 		end
@@ -945,6 +954,14 @@ return function(Config)
 		end
 	end
 
+	local function rememberOriginalGuards()
+		for _, Entry in ipairs(StaminaFeature.Handles.Guard) do
+			if StaminaFeature.OriginalGuardValues[Entry.Key] == nil then
+				StaminaFeature.OriginalGuardValues[Entry.Key] = readHandle(Entry.Handle)
+			end
+		end
+	end
+
 	local function applyFlags()
 		rememberOriginalFlags()
 
@@ -959,6 +976,8 @@ return function(Config)
 	end
 
 	local function applyGuards()
+		rememberOriginalGuards()
+
 		for _, Entry in ipairs(StaminaFeature.Handles.Guard) do
 			local CurrentValue = readHandle(Entry.Handle)
 			local DesiredValue = getZeroLikeValue(CurrentValue)
@@ -1009,6 +1028,18 @@ return function(Config)
 		end
 
 		table.clear(StaminaFeature.OriginalFlagValues)
+	end
+
+	local function restoreOriginalGuards()
+		for _, Entry in ipairs(StaminaFeature.Handles.Guard) do
+			local OriginalValue = StaminaFeature.OriginalGuardValues[Entry.Key]
+
+			if OriginalValue ~= nil then
+				writeHandle(Entry.Handle, OriginalValue)
+			end
+		end
+
+		table.clear(StaminaFeature.OriginalGuardValues)
 	end
 
 	local function hasHandles()
@@ -1226,6 +1257,7 @@ return function(Config)
 	function StaminaFeature:SetEnabled(Value)
 		self.Enabled = Value and true or false
 		self.LastResolveAt = 0
+		self.LastKnownTargets = {}
 		self.StepBusy = false
 		self.StepQueued = false
 
@@ -1244,6 +1276,7 @@ return function(Config)
 			end
 		else
 			restoreOriginalFlags()
+			restoreOriginalGuards()
 
 			if self.HeartbeatConnection then
 				self.HeartbeatConnection:Disconnect()
@@ -1261,6 +1294,7 @@ return function(Config)
 		self.StepBusy = false
 		self.StepQueued = false
 		restoreOriginalFlags()
+		restoreOriginalGuards()
 
 		if self.HeartbeatConnection then
 			self.HeartbeatConnection:Disconnect()
@@ -1289,6 +1323,8 @@ return function(Config)
 		StaminaFeature.LastKnownTargets = {}
 		StaminaFeature.StepBusy = false
 		StaminaFeature.StepQueued = false
+		table.clear(StaminaFeature.OriginalFlagValues)
+		table.clear(StaminaFeature.OriginalGuardValues)
 		clearScopeCache()
 		clearHandles()
 
