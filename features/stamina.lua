@@ -1175,6 +1175,22 @@ return function(Config)
 		HookState.Installed = SuccessNewIndex or SuccessNamecall
 	end
 
+	local function ensureHookController()
+		HookState = getHookState()
+
+		if not HookState then
+			return
+		end
+
+		if not StaminaFeature.HookControllerId then
+			HookState.NextId = (HookState.NextId or 0) + 1
+			StaminaFeature.HookControllerId = HookState.NextId
+		end
+
+		HookState.Controllers[StaminaFeature.HookControllerId] = StaminaFeature
+		installHooks()
+	end
+
 	function StaminaFeature:Step(ForceRefresh)
 		if self.StepBusy then
 			return false
@@ -1214,6 +1230,7 @@ return function(Config)
 		self.StepQueued = false
 
 		if self.Enabled then
+			ensureHookController()
 			clearScopeCache()
 			resolveHandles(true)
 			self:Step(true)
@@ -1279,16 +1296,6 @@ return function(Config)
 			scheduleStep()
 		end
 	end)
-
-	HookState = getHookState()
-
-	if HookState then
-		HookState.NextId = (HookState.NextId or 0) + 1
-		StaminaFeature.HookControllerId = HookState.NextId
-		HookState.Controllers[StaminaFeature.HookControllerId] = StaminaFeature
-	end
-
-	installHooks()
 
 	return StaminaFeature
 end

@@ -126,6 +126,30 @@ Notification:Notify({
 	Icon = "clipboard"
 })
 
+local function notifyModuleFailure(ModulePath, ErrorMessage)
+	warn(string.format("[FATALITY] Failed to load %s: %s", ModulePath, tostring(ErrorMessage)))
+
+	task.defer(function()
+		Notification:Notify({
+			Title = "FATALITY",
+			Content = string.format("%s failed to load. Other menus will stay available.", ModulePath),
+			Icon = "alert-circle"
+		})
+	end)
+end
+
+local function createFallbackStaminaFeature(ErrorMessage)
+	notifyModuleFailure("features/stamina.lua", ErrorMessage)
+
+	return {
+		SetEnabled = function()
+			return false
+		end,
+		Destroy = function()
+		end
+	}
+end
+
 local Window = Fatality.new({
 	Name = "FATALITY",
 	Expire = "never",
@@ -133,21 +157,47 @@ local Window = Fatality.new({
 local MainWindowGui = Fatality.Windows[#Fatality.Windows]
 local CreateESP = loadScript("features/esp.lua", buildRemoteUrl("features/esp.lua"))
 local CreateFoodFeature = loadScript("features/food.lua", buildRemoteUrl("features/food.lua"))
-local CreateStaminaFeature = loadScript("features/stamina.lua", buildRemoteUrl("features/stamina.lua"))
 local CreateStatsFeature = loadScript("features/stats.lua", buildRemoteUrl("features/stats.lua"))
 local CreateMainUI = loadScript("ui/main.lua", buildRemoteUrl("ui/main.lua"))
 local CreateVisualUI = loadScript("ui/visual.lua", buildRemoteUrl("ui/visual.lua"))
 local CreateStatsUI = loadScript("ui/stats.lua", buildRemoteUrl("ui/stats.lua"))
+local CreateStaminaFeature
+local StaminaLoadError
+
+do
+	local Success, Result = pcall(loadScript, "features/stamina.lua", buildRemoteUrl("features/stamina.lua"))
+
+	if Success then
+		CreateStaminaFeature = Result
+	else
+		StaminaLoadError = Result
+	end
+end
+
 local ESP = CreateESP({
 	Notification = Notification
 })
 local FoodFeature = CreateFoodFeature({
 	Notification = Notification
 })
-local StaminaFeature = CreateStaminaFeature({
-	Notification = Notification
-})
 local StatsFeature = CreateStatsFeature()
+local StaminaFeature
+
+if type(CreateStaminaFeature) == "function" then
+	local Success, Result = pcall(CreateStaminaFeature, {
+		Notification = Notification
+	})
+
+	if Success then
+		StaminaFeature = Result
+	else
+		StaminaLoadError = Result
+	end
+end
+
+if not StaminaFeature then
+	StaminaFeature = createFallbackStaminaFeature(StaminaLoadError or "Unknown stamina module error")
+end
 
 local Main = Window:AddMenu({
 	Name = "MAIN",
