@@ -3172,10 +3172,6 @@ return function(Config)
 		end
 
 		local function visitSupportContexts()
-			if hasRecordedLogicPrimary() then
-				return
-			end
-
 			local QueuedScopes = {}
 			local ScopeQueue = {}
 
@@ -3281,6 +3277,29 @@ return function(Config)
 			end
 		end
 
+		local function shouldRefreshSupportSearch()
+			if not StaminaFeature.Enabled then
+				return false
+			end
+
+			for _, Candidate in ipairs(StaminaFeature.CandidateOrder) do
+				if Candidate.Promoted
+					and (
+						Candidate.Category == "flags"
+						or Candidate.Category == "spend"
+					) then
+					return true
+				end
+
+				if Candidate.RuntimePinned == true
+					and isStrongMainScriptStatsPrimaryAlias(Candidate) then
+					return true
+				end
+			end
+
+			return false
+		end
+
 		local function finalizeGroup(GroupName)
 			local Entries = {}
 
@@ -3343,11 +3362,16 @@ return function(Config)
 			visitRoots(buildSearchRoots(true))
 		end
 
-		if ForceRefresh or not hasRecordedPrimary() or StaminaFeature.DebugEnabled then
+		local RefreshSupportSearch = shouldRefreshSupportSearch()
+
+		if ForceRefresh
+			or not hasRecordedPrimary()
+			or StaminaFeature.DebugEnabled
+			or RefreshSupportSearch then
 			visitScriptEnvironments()
 		end
 
-		if not hasRecordedLogicPrimary() then
+		if not hasRecordedLogicPrimary() or RefreshSupportSearch then
 			visitSupportContexts()
 		end
 
