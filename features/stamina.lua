@@ -145,7 +145,7 @@ return function(Config)
 		OriginalSpendValues = {},
 		HookControllerId = nil,
 		RemoteBlockingEnabled = false,
-		NamecallHookEnabled = false,
+		NamecallHookEnabled = true,
 		CandidateRegistry = {},
 		CandidateOrder = {},
 		RemoteCandidates = {},
@@ -2888,34 +2888,14 @@ return function(Config)
 		mergeTargets(CurrentTargets, MaxTargets)
 	end
 
+	local getStoredTarget
+
 	local function getCurrentTargetForEntry(Entry)
-		local Targets = StaminaFeature.LastKnownTargets
-		local Target = Targets[Entry.Family]
-
-		if Target == nil and Entry.Family ~= "base" then
-			Target = Targets.base
-		end
-
-		if Target == nil then
-			Target = toNumber(readEntryValue(Entry))
-		end
-
-		return Target
+		return getStoredTarget("Current", Entry.Family, readEntryValue(Entry))
 	end
 
 	local function getMaxTargetForEntry(Entry)
-		local Targets = StaminaFeature.LastKnownMaxTargets
-		local Target = Targets[Entry.Family]
-
-		if Target == nil and Entry.Family ~= "base" then
-			Target = Targets.base
-		end
-
-		if Target == nil then
-			Target = toNumber(readEntryValue(Entry))
-		end
-
-		return Target
+		return getStoredTarget("Max", Entry.Family, readEntryValue(Entry))
 	end
 
 	local function rememberOriginalFlags()
@@ -3254,6 +3234,40 @@ return function(Config)
 		end
 	end
 
+	getStoredTarget = function(GroupName, Family, FallbackValue)
+		local ResolvedFamily = Family or "base"
+		local CurrentTargets = StaminaFeature.LastKnownTargets
+		local MaxTargets = StaminaFeature.LastKnownMaxTargets
+
+		local function readFamilyTarget(Targets)
+			if type(Targets) ~= "table" then
+				return nil
+			end
+
+			local Value = Targets[ResolvedFamily]
+
+			if Value == nil and ResolvedFamily ~= "base" then
+				Value = Targets.base
+			end
+
+			return Value
+		end
+
+		if GroupName == "Current" then
+			-- Keep stamina refilling to the best known max instead of
+			-- freezing at whatever value it had when the feature was enabled.
+			return readFamilyTarget(MaxTargets)
+				or readFamilyTarget(CurrentTargets)
+				or toNumber(FallbackValue)
+		end
+
+		if GroupName == "Max" then
+			return readFamilyTarget(MaxTargets) or toNumber(FallbackValue)
+		end
+
+		return readFamilyTarget(CurrentTargets) or toNumber(FallbackValue)
+	end
+
 	local function getInterceptTarget(Candidate, IncomingValue)
 		if not Candidate then
 			return nil, false
@@ -3275,18 +3289,7 @@ return function(Config)
 			return nil, false
 		end
 
-		local Targets = Candidate.Group == "Max"
-			and StaminaFeature.LastKnownMaxTargets
-			or StaminaFeature.LastKnownTargets
-		local Target = Targets[Candidate.Family]
-
-		if Target == nil and Candidate.Family ~= "base" then
-			Target = Targets.base
-		end
-
-		if Target == nil then
-			Target = toNumber(IncomingValue)
-		end
+		local Target = getStoredTarget(Candidate.Group, Candidate.Family, IncomingValue)
 
 		if Target == nil then
 			return nil, false
