@@ -131,6 +131,7 @@ return function(Config)
 		OriginalSpendValues = {},
 		HookControllerId = nil,
 		RemoteBlockingEnabled = false,
+		NamecallHookEnabled = false,
 		CandidateRegistry = {},
 		CandidateOrder = {},
 		RemoteCandidates = {},
@@ -2291,58 +2292,62 @@ return function(Config)
 			end))
 		end)
 
-		local OriginalNamecall
-		local SuccessNamecall = pcall(function()
-			OriginalNamecall = hookmetamethod(game, "__namecall", Wrap(function(Self, ...)
-				local Method = type(getnamecallmethod) == "function" and getnamecallmethod() or nil
+		local SuccessNamecall = false
 
-				if Method == "SetAttribute"
-					and typeof(Self) == "Instance"
-					and isLocalRelatedInstance(Self) then
-					local Arguments = table.pack(...)
-					local AttributeName = Arguments[1]
+		if StaminaFeature.NamecallHookEnabled == true then
+			local OriginalNamecall
+			SuccessNamecall = pcall(function()
+				OriginalNamecall = hookmetamethod(game, "__namecall", Wrap(function(Self, ...)
+					local Method = type(getnamecallmethod) == "function" and getnamecallmethod() or nil
 
-					if type(AttributeName) == "string" then
-						local GroupName, NameLower = classifyName(AttributeName)
+					if Method == "SetAttribute"
+						and typeof(Self) == "Instance"
+						and isLocalRelatedInstance(Self) then
+						local Arguments = table.pack(...)
+						local AttributeName = Arguments[1]
 
-						if GroupName then
-							local Replacement, ShouldReplace = inspectIncomingLocalChange(
-								GroupName,
-								AttributeName,
-								NameLower,
-								createAttributeHandle(Self, AttributeName),
-								Arguments[2],
-								getInstanceConfidence(Self),
-								"instance"
-							)
+						if type(AttributeName) == "string" then
+							local GroupName, NameLower = classifyName(AttributeName)
 
-							if ShouldReplace then
-								Arguments[2] = Replacement
-								return OriginalNamecall(Self, table.unpack(Arguments, 1, Arguments.n))
+							if GroupName then
+								local Replacement, ShouldReplace = inspectIncomingLocalChange(
+									GroupName,
+									AttributeName,
+									NameLower,
+									createAttributeHandle(Self, AttributeName),
+									Arguments[2],
+									getInstanceConfidence(Self),
+									"instance"
+								)
+
+								if ShouldReplace then
+									Arguments[2] = Replacement
+									return OriginalNamecall(Self, table.unpack(Arguments, 1, Arguments.n))
+								end
+							end
+						end
+					elseif (Method == "FireServer" or Method == "InvokeServer")
+						and typeof(Self) == "Instance"
+						and (Self:IsA("RemoteEvent") or Self:IsA("RemoteFunction")) then
+						local Controller = getActiveController()
+
+						if Controller then
+							local Arguments = table.pack(...)
+							local RemoteCandidate = upsertRemoteCandidate(Self, Method, Arguments)
+
+							recordCaptureRemoteValue(RemoteCandidate)
+
+							if shouldBlockRemote(RemoteCandidate) then
+								RemoteCandidate.BlockedCount = RemoteCandidate.BlockedCount + 1
+								return nil
 							end
 						end
 					end
-				elseif (Method == "FireServer" or Method == "InvokeServer")
-					and typeof(Self) == "Instance"
-					and (Self:IsA("RemoteEvent") or Self:IsA("RemoteFunction")) then
-					local Controller = getActiveController()
 
-					if Controller then
-						local Arguments = table.pack(...)
-						local RemoteCandidate = upsertRemoteCandidate(Self, Method, Arguments)
-
-						recordCaptureRemoteValue(RemoteCandidate)
-
-						if shouldBlockRemote(RemoteCandidate) then
-							RemoteCandidate.BlockedCount = RemoteCandidate.BlockedCount + 1
-							return nil
-						end
-					end
-				end
-
-				return OriginalNamecall(Self, ...)
-			end))
-		end)
+					return OriginalNamecall(Self, ...)
+				end))
+			end)
+		end
 
 		HookState.Installed = SuccessNewIndex or SuccessNamecall
 	end

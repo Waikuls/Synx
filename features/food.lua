@@ -122,6 +122,18 @@ return function(Config)
 		"Number",
 		"Keybind"
 	}
+	local SlotKeyCodes = {
+		One = Enum.KeyCode.One,
+		Two = Enum.KeyCode.Two,
+		Three = Enum.KeyCode.Three,
+		Four = Enum.KeyCode.Four,
+		Five = Enum.KeyCode.Five,
+		Six = Enum.KeyCode.Six,
+		Seven = Enum.KeyCode.Seven,
+		Eight = Enum.KeyCode.Eight,
+		Nine = Enum.KeyCode.Nine,
+		Zero = Enum.KeyCode.Zero
+	}
 
 	local function createAliasRanking(Aliases)
 		local Ranking = {}
@@ -971,6 +983,55 @@ return function(Config)
 		end)
 	end
 
+	local function getVirtualInputManager()
+		local Success, VirtualInputManager = pcall(game.GetService, game, "VirtualInputManager")
+
+		if Success and VirtualInputManager then
+			return VirtualInputManager
+		end
+
+		return nil
+	end
+
+	local function sendKeyTap(KeyCode)
+		if KeyCode == nil then
+			return false
+		end
+
+		local VirtualInputManager = getVirtualInputManager()
+
+		if not VirtualInputManager then
+			return false
+		end
+
+		local Success = pcall(function()
+			VirtualInputManager:SendKeyEvent(true, KeyCode, false, game)
+			task.wait(0.03)
+			VirtualInputManager:SendKeyEvent(false, KeyCode, false, game)
+		end)
+
+		return Success
+	end
+
+	local function sendMouseButton(ButtonIndex, IsDown)
+		local VirtualInputManager = getVirtualInputManager()
+
+		if not VirtualInputManager then
+			return false
+		end
+
+		local Camera = workspace.CurrentCamera
+		local ViewportSize = Camera and Camera.ViewportSize or Vector2.new(1280, 720)
+		local CenterX = math.floor(ViewportSize.X * 0.5)
+		local CenterY = math.floor(ViewportSize.Y * 0.5)
+
+		local Success = pcall(function()
+			VirtualInputManager:SendMouseButtonEvent(CenterX, CenterY, ButtonIndex, IsDown and true or false, game, 0)
+		end)
+
+		return Success
+	end
+
 	local function collectInventoryTools()
 		local Character = LocalPlayer.Character
 		local Backpack = LocalPlayer:FindFirstChildOfClass("Backpack")
@@ -1095,27 +1156,23 @@ return function(Config)
 	end
 
 	local function sendServerInput(KeyName, IsDown)
-		local InputRemote = findRemote("Input")
-
-		if not InputRemote or type(KeyName) ~= "string" then
+		if type(KeyName) ~= "string" then
 			return false
 		end
 
-		local Airborne = isAirborne()
-		local Success = select(1, invokeRemote(InputRemote, KeyName, IsDown and true or false, Airborne))
-
-		if Success then
-			return true
+		if KeyName == "LMB" then
+			return sendMouseButton(0, IsDown)
 		end
 
-		return select(1, invokeRemote(InputRemote, {
-			KeyInfo = {
-				Direction = "None",
-				Name = KeyName,
-				Airborne = Airborne
-			},
-			IsDown = IsDown and true or false
-		}))
+		if KeyName == "RMB" then
+			return sendMouseButton(1, IsDown)
+		end
+
+		if IsDown then
+			return false
+		end
+
+		return sendKeyTap(SlotKeyCodes[KeyName])
 	end
 
 	local function selectToolFromHotbar(Tool)
@@ -1123,50 +1180,27 @@ return function(Config)
 			return false
 		end
 
-		local UsedRemote = false
-		local CustomHotbarRemote = findRemote("CustomHotbar")
-		local EquipToolRemote = findRemote("EquipTool")
 		local SlotKeyName = getToolSlotKeyName(Tool)
 
 		sendServerInput("RMB", false)
 
-		if CustomHotbarRemote then
-			UsedRemote = select(1, invokeRemote(CustomHotbarRemote, Tool)) or UsedRemote
-		elseif EquipToolRemote then
-			UsedRemote = select(1, invokeRemote(EquipToolRemote, Tool)) or UsedRemote
-		end
-
 		if SlotKeyName then
 			task.wait(0.05)
 
-			if sendServerInput(SlotKeyName, false) then
-				UsedRemote = true
-			end
+			return sendServerInput(SlotKeyName, false)
 		end
 
-		return UsedRemote
+		return false
 	end
 
 	local function syncHotbarState(Tool)
-		local UsedRemote = false
-		local CustomHotbarRemote = findRemote("CustomHotbar")
-		local RequestRemote = findRemote("Request")
-		local Snapshot = buildHotbarSnapshot()
 		local SlotKeyName = getToolSlotKeyName(Tool)
 
-		if CustomHotbarRemote then
-			UsedRemote = select(1, invokeRemote(CustomHotbarRemote)) or UsedRemote
-		end
-
-		if RequestRemote and next(Snapshot) ~= nil then
-			UsedRemote = select(1, invokeRemote(RequestRemote, "UpdateHotbars", Snapshot)) or UsedRemote
-		end
-
 		if SlotKeyName then
-			sendServerInput(SlotKeyName, false)
+			return sendServerInput(SlotKeyName, false)
 		end
 
-		return UsedRemote
+		return false
 	end
 
 	local function triggerMouseClick()
