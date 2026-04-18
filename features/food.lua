@@ -23,9 +23,9 @@ return function(Config)
 		InputPressDelay = 0.08,
 		MaxEquipAttempts = 3,
 		MaxActivationAttempts = 3,
-		DirectHungerThreshold = 17,
-		HungerThreshold = 0.35,
-		FallbackThreshold = 25,
+		DirectHungerThreshold = 15,
+		HungerThreshold = 0.15,
+		FallbackThreshold = 15,
 		AutoManagedTool = nil,
 		HungerSnapshot = nil,
 		LastHungerScanAt = 0,
@@ -805,6 +805,29 @@ return function(Config)
 
 	local function shouldEat()
 		return getHungerState().ShouldEat
+	end
+
+	function FoodFeature:SetEatThreshold(Value)
+		local NumberValue = tonumber(Value)
+
+		if NumberValue == nil then
+			return false
+		end
+
+		NumberValue = math.clamp(math.floor(NumberValue + 0.5), 0, 80)
+
+		self.DirectHungerThreshold = NumberValue
+		self.FallbackThreshold = NumberValue
+		self.HungerThreshold = NumberValue / 100
+		self.HungerSnapshot = nil
+		self.LastHungerScanAt = 0
+		self.Elapsed = self.ScanInterval
+
+		return true
+	end
+
+	function FoodFeature:GetEatThreshold()
+		return self.DirectHungerThreshold
 	end
 
 	local function getToolScore(Tool)

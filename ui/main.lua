@@ -14,4 +14,15 @@ return function(Config)
 		end,
 		Flag = "AutoEat"
 	})
+
+	Food:AddSlider({
+		Name = "Eat at",
+		Default = FoodFeature:GetEatThreshold(),
+		Min = 0,
+		Max = 80,
+		Callback = function(Value)
+			FoodFeature:SetEatThreshold(Value)
+		end,
+		Flag = "AutoEatThreshold"
+	})
 end
