@@ -4,7 +4,8 @@ return function(Config)
 
 	local Food = Main:AddSection({
 		Name = "FOOD",
-		Position = "left"
+		Position = "left",
+		Height = 10
 	})
 
 	Food:AddToggle({
@@ -34,5 +35,11 @@ return function(Config)
 			FoodFeature:SetNoFoodAction(Value)
 		end,
 		Flag = "AutoEatNoFoodAction"
+	})
+
+	Main:AddSection({
+		Name = "CHARACTER",
+		Position = "left",
+		Height = 115
 	})
 end
