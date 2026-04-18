@@ -145,7 +145,7 @@ return function(Config)
 		OriginalSpendValues = {},
 		HookControllerId = nil,
 		RemoteBlockingEnabled = false,
-		NamecallHookEnabled = true,
+		NamecallHookEnabled = false,
 		CandidateRegistry = {},
 		CandidateOrder = {},
 		RemoteCandidates = {},
@@ -1853,6 +1853,22 @@ return function(Config)
 		return false
 	end
 
+	local function hasSupportHandles()
+		for _, Entry in ipairs(StaminaFeature.Handles.Flags) do
+			if isFlagCandidate(Entry.Candidate) then
+				return true
+			end
+		end
+
+		for _, Entry in ipairs(StaminaFeature.Handles.Spend) do
+			if isSpendCandidate(Entry.Candidate) then
+				return true
+			end
+		end
+
+		return false
+	end
+
 	local function hasHandles()
 		return #StaminaFeature.Handles.Current > 0
 			or #StaminaFeature.Handles.Max > 0
@@ -3071,6 +3087,7 @@ return function(Config)
 		local ActionPressure = Profile ~= "Free" or RecentExternalPressure
 		local DropDetected = false
 		local FailureReason = nil
+		local SupportHandles = hasSupportHandles()
 
 		if Profile == "Free" and Metrics.ToolEquipped and RecentExternalPressure then
 			Profile = "Attack"
@@ -3088,6 +3105,46 @@ return function(Config)
 		end
 
 		if not hasLogicPrimaryHandles() then
+			if SupportHandles then
+				if ActionPressure then
+					for _, Entry in ipairs(StaminaFeature.Handles.Flags) do
+						if isFlagCandidate(Entry.Candidate) then
+							local CurrentValue = readEntryValue(Entry)
+							local DesiredValue = getTruthyValue(CurrentValue)
+
+							if not valuesEquivalent(CurrentValue, DesiredValue) then
+								FailureReason = string.lower(Profile) .. "_flag_blocked"
+								break
+							end
+						end
+					end
+
+					if not FailureReason then
+						for _, Entry in ipairs(StaminaFeature.Handles.Spend) do
+							if isSpendCandidate(Entry.Candidate) then
+								local CurrentValue = readEntryValue(Entry)
+								local DesiredValue = getZeroLikeValue(CurrentValue)
+
+								if not valuesEquivalent(CurrentValue, DesiredValue) then
+									FailureReason = string.lower(Profile) .. "_spend_locked"
+									break
+								end
+							end
+						end
+					end
+				end
+
+				if FailureReason then
+					return "logic_ineffective", FailureReason, Profile, true
+				end
+
+				if ActionPressure then
+					return "verified", string.lower(Profile) .. "_support_only", Profile, false
+				end
+
+				return "logic_unverified", "support_handles_waiting", Profile, false
+			end
+
 			if AppliedDisplay or getDiagnosticSnapshot().DisplayCurrentCount > 0 or getDiagnosticSnapshot().DisplayMaxCount > 0 then
 				return "display_only", "display_handles_only", Profile, true
 			end
