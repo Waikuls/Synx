@@ -1110,6 +1110,18 @@ return function(Config)
 		return string.format("%s%s", getCandidateDisplayName(Candidate), getCandidateLocationSuffix(Candidate))
 	end
 
+	local function isStaminaDisplayName(NameLower)
+		if type(NameLower) ~= "string" or NameLower == "" then
+			return false
+		end
+
+		return string.find(NameLower, "stamina", 1, true) ~= nil
+			or string.find(NameLower, "exhaust", 1, true) ~= nil
+			or string.find(NameLower, "endurance", 1, true) ~= nil
+			or string.find(NameLower, "fatigue", 1, true) ~= nil
+			or string.find(NameLower, "breath", 1, true) ~= nil
+	end
+
 	local function getHandleScopeInstance(Handle)
 		if not Handle or not Handle.Instance then
 			return nil
@@ -1679,8 +1691,8 @@ return function(Config)
 			return "none"
 		end
 		local PrimaryLabel = getHandleCandidateLabel("Current", isLogicLocalCandidate)
-		local FlagLabel = getHandleCandidateLabel("Flags", isFlagCandidate)
-		local SpendLabel = getHandleCandidateLabel("Spend", isSpendCandidate)
+		local FlagLabel = getHandleCandidateLabel("Flags", isRuntimeFlagCandidate)
+		local SpendLabel = getHandleCandidateLabel("Spend", isRuntimeSpendCandidate)
 
 		return string.format(
 			"State=%s Reason=%s Profile=%s Logic C=%d M=%d Display C=%d M=%d Handles C=%d M=%d F=%d S=%d Primary=%s Flag=%s Spend=%s",
@@ -1941,6 +1953,60 @@ return function(Config)
 			)
 	end
 
+	local function isRuntimeFlagCandidate(Candidate)
+		if not isFlagCandidate(Candidate) then
+			return false
+		end
+
+		local NameLower = Candidate.NameLower or ""
+
+		if NameLower == "nocooldown" then
+			return false
+		end
+
+		return NameLower == "nostaminacost"
+			or NameLower == "canusestamina"
+			or NameLower == "hasstamina"
+			or NameLower == "enoughstamina"
+			or NameLower == "candash"
+			or NameLower == "cansprint"
+			or NameLower == "canrun"
+			or NameLower == "canattack"
+			or string.find(NameLower, "stamina", 1, true) ~= nil
+	end
+
+	local function isRuntimeSpendCandidate(Candidate)
+		if not isSpendCandidate(Candidate) then
+			return false
+		end
+
+		local NameLower = Candidate.NameLower or ""
+
+		if string.find(NameLower, "eevee", 1, true) ~= nil then
+			return false
+		end
+
+		return Candidate.ExactAlias == true
+			or string.find(NameLower, "stamina", 1, true) ~= nil
+			or string.find(NameLower, "sprint", 1, true) ~= nil
+			or string.find(NameLower, "run", 1, true) ~= nil
+			or string.find(NameLower, "dash", 1, true) ~= nil
+			or string.find(NameLower, "attack", 1, true) ~= nil
+			or string.find(NameLower, "combat", 1, true) ~= nil
+			or string.find(NameLower, "exhaust", 1, true) ~= nil
+	end
+
+	local function shouldMirrorDisplayCandidate(Candidate)
+		if not isDisplayCandidate(Candidate) then
+			return false
+		end
+
+		local NameLower = Candidate.NameLower or ""
+
+		return (Candidate.ExactAlias == true and (Candidate.Group == "Current" or Candidate.Group == "Max"))
+			or isStaminaDisplayName(NameLower)
+	end
+
 	local function hasPrimaryHandles()
 		return #StaminaFeature.Handles.Current > 0 or #StaminaFeature.Handles.Max > 0
 	end
@@ -1963,13 +2029,13 @@ return function(Config)
 
 	local function hasSupportHandles()
 		for _, Entry in ipairs(StaminaFeature.Handles.Flags) do
-			if isFlagCandidate(Entry.Candidate) then
+			if isRuntimeFlagCandidate(Entry.Candidate) then
 				return true
 			end
 		end
 
 		for _, Entry in ipairs(StaminaFeature.Handles.Spend) do
-			if isSpendCandidate(Entry.Candidate) then
+			if isRuntimeSpendCandidate(Entry.Candidate) then
 				return true
 			end
 		end
@@ -3005,6 +3071,12 @@ return function(Config)
 			NameLower = string.lower(Name)
 
 			if string.find(NameLower, "health", 1, true) ~= nil
+				or string.find(NameLower, "adrenaline", 1, true) ~= nil
+				or string.find(NameLower, "mana", 1, true) ~= nil
+				or string.find(NameLower, "energy", 1, true) ~= nil
+				or string.find(NameLower, "shield", 1, true) ~= nil
+				or string.find(NameLower, "hunger", 1, true) ~= nil
+				or string.find(NameLower, "thirst", 1, true) ~= nil
 				or string.find(NameLower, "walk", 1, true) ~= nil
 				or string.find(NameLower, "speed", 1, true) ~= nil
 				or string.find(NameLower, "jump", 1, true) ~= nil
@@ -3049,7 +3121,7 @@ return function(Config)
 				return "Spend", NameLower
 			end
 
-			if NumericValue ~= nil then
+			if NumericValue ~= nil and isStaminaDisplayName(NameLower) then
 				return "Current", NameLower
 			end
 
@@ -3382,7 +3454,7 @@ return function(Config)
 
 	local function rememberOriginalFlags()
 		for _, Entry in ipairs(StaminaFeature.Handles.Flags) do
-			if isFlagCandidate(Entry.Candidate)
+			if isRuntimeFlagCandidate(Entry.Candidate)
 				and StaminaFeature.OriginalFlagValues[Entry.Key] == nil then
 				StaminaFeature.OriginalFlagValues[Entry.Key] = readEntryValue(Entry)
 			end
@@ -3391,7 +3463,7 @@ return function(Config)
 
 	local function rememberOriginalSpends()
 		for _, Entry in ipairs(StaminaFeature.Handles.Spend) do
-			if isSpendCandidate(Entry.Candidate)
+			if isRuntimeSpendCandidate(Entry.Candidate)
 				and StaminaFeature.OriginalSpendValues[Entry.Key] == nil then
 				StaminaFeature.OriginalSpendValues[Entry.Key] = readEntryValue(Entry)
 			end
@@ -3402,7 +3474,7 @@ return function(Config)
 		rememberOriginalFlags()
 
 		for _, Entry in ipairs(StaminaFeature.Handles.Flags) do
-			if isFlagCandidate(Entry.Candidate) then
+			if isRuntimeFlagCandidate(Entry.Candidate) then
 				local CurrentValue = readEntryValue(Entry)
 				local CanRewrite = supportsSafeRuntimeRewrite("Flags", CurrentValue)
 				local DesiredValue = getTruthyValue(CurrentValue)
@@ -3418,7 +3490,7 @@ return function(Config)
 		rememberOriginalSpends()
 
 		for _, Entry in ipairs(StaminaFeature.Handles.Spend) do
-			if isSpendCandidate(Entry.Candidate) then
+			if isRuntimeSpendCandidate(Entry.Candidate) then
 				local CurrentValue = readEntryValue(Entry)
 				local CanRewrite = supportsSafeRuntimeRewrite("Spend", CurrentValue)
 				local DesiredValue = getZeroLikeValue(CurrentValue)
@@ -3459,7 +3531,7 @@ return function(Config)
 
 			if Target ~= nil
 				and CanRewrite
-				and isDisplayCandidate(Entry.Candidate)
+				and shouldMirrorDisplayCandidate(Entry.Candidate)
 				and (CurrentValue == nil or math.abs(CurrentValue - Target) > 0.001) then
 				writeEntryValue(Entry, Target)
 			end
@@ -3500,12 +3572,12 @@ return function(Config)
 
 			if Target ~= nil
 				and CanRewrite
-				and isDisplayCandidate(Entry.Candidate)
+				and shouldMirrorDisplayCandidate(Entry.Candidate)
 				and (CurrentValue == nil or math.abs(CurrentValue - Target) > 0.001) then
 				writeEntryValue(Entry, Target)
 			end
 
-			if Target ~= nil and isDisplayCandidate(Entry.Candidate) then
+			if Target ~= nil and shouldMirrorDisplayCandidate(Entry.Candidate) then
 				AppliedDisplay = true
 			end
 		end
@@ -3541,7 +3613,7 @@ return function(Config)
 			if SupportHandles then
 				if ActionPressure then
 					for _, Entry in ipairs(StaminaFeature.Handles.Flags) do
-						if isFlagCandidate(Entry.Candidate) then
+						if isRuntimeFlagCandidate(Entry.Candidate) then
 							local CurrentValue = readEntryValue(Entry)
 							local DesiredValue = getTruthyValue(CurrentValue)
 
@@ -3554,7 +3626,7 @@ return function(Config)
 
 					if not FailureReason then
 						for _, Entry in ipairs(StaminaFeature.Handles.Spend) do
-							if isSpendCandidate(Entry.Candidate) then
+							if isRuntimeSpendCandidate(Entry.Candidate) then
 								local CurrentValue = readEntryValue(Entry)
 								local DesiredValue = getZeroLikeValue(CurrentValue)
 
@@ -3605,7 +3677,7 @@ return function(Config)
 
 		if ActionPressure then
 			for _, Entry in ipairs(StaminaFeature.Handles.Flags) do
-				if isFlagCandidate(Entry.Candidate) then
+				if isRuntimeFlagCandidate(Entry.Candidate) then
 					local CurrentValue = readEntryValue(Entry)
 					local DesiredValue = getTruthyValue(CurrentValue)
 
@@ -3618,7 +3690,7 @@ return function(Config)
 
 			if not FailureReason then
 				for _, Entry in ipairs(StaminaFeature.Handles.Spend) do
-					if isSpendCandidate(Entry.Candidate) then
+					if isRuntimeSpendCandidate(Entry.Candidate) then
 						local CurrentValue = readEntryValue(Entry)
 						local DesiredValue = getZeroLikeValue(CurrentValue)
 
