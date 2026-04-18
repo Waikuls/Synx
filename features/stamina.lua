@@ -456,6 +456,87 @@ return function(Config)
 		}
 	end
 
+	local function createUpvalueHandle(FunctionValue, UpvalueIndex, UpvalueName)
+		return {
+			Kind = "upvalue",
+			Function = FunctionValue,
+			UpvalueIndex = UpvalueIndex,
+			UpvalueName = UpvalueName
+		}
+	end
+
+	local function readFunctionUpvalue(FunctionValue, UpvalueIndex)
+		if type(FunctionValue) ~= "function" or type(UpvalueIndex) ~= "number" then
+			return nil
+		end
+
+		if type(debug) == "table" and type(debug.getupvalue) == "function" then
+			local Success, Name, Value = pcall(debug.getupvalue, FunctionValue, UpvalueIndex)
+
+			if Success and Name ~= nil then
+				return Value, Name
+			end
+		end
+
+		if type(getupvalue) == "function" then
+			local Success, Name, Value = pcall(getupvalue, FunctionValue, UpvalueIndex)
+
+			if Success and Name ~= nil then
+				return Value, Name
+			end
+		end
+
+		return nil
+	end
+
+	local function writeFunctionUpvalue(FunctionValue, UpvalueIndex, Value)
+		if type(FunctionValue) ~= "function" or type(UpvalueIndex) ~= "number" then
+			return false
+		end
+
+		if type(debug) == "table" and type(debug.setupvalue) == "function" then
+			local Success, Result = pcall(debug.setupvalue, FunctionValue, UpvalueIndex, Value)
+
+			if Success and Result ~= nil then
+				return true
+			end
+		end
+
+		if type(setupvalue) == "function" then
+			local Success, Result = pcall(setupvalue, FunctionValue, UpvalueIndex, Value)
+
+			if Success and Result ~= nil then
+				return true
+			end
+		end
+
+		return false
+	end
+
+	local function getFunctionInfo(FunctionValue)
+		if type(FunctionValue) ~= "function" then
+			return nil
+		end
+
+		if type(debug) == "table" and type(debug.getinfo) == "function" then
+			local Success, Info = pcall(debug.getinfo, FunctionValue, "sln")
+
+			if Success and type(Info) == "table" then
+				return Info
+			end
+		end
+
+		if type(getinfo) == "function" then
+			local Success, Info = pcall(getinfo, FunctionValue, "sln")
+
+			if Success and type(Info) == "table" then
+				return Info
+			end
+		end
+
+		return nil
+	end
+
 	local function getInstanceKey(Instance)
 		if not Instance then
 			return "nil"
@@ -493,6 +574,10 @@ return function(Config)
 			return tostring(Handle.Table) .. "@" .. tostring(Handle.Field)
 		end
 
+		if Handle.Kind == "upvalue" then
+			return tostring(Handle.Function) .. "@uv:" .. tostring(Handle.UpvalueIndex) .. ":" .. tostring(Handle.UpvalueName)
+		end
+
 		if not Handle.Instance then
 			return "nil"
 		end
@@ -511,6 +596,10 @@ return function(Config)
 
 		if Handle.Kind == "table" then
 			return type(Handle.Table) == "table" and Handle.Field ~= nil
+		end
+
+		if Handle.Kind == "upvalue" then
+			return type(Handle.Function) == "function" and type(Handle.UpvalueIndex) == "number"
 		end
 
 		if not Handle.Instance then
@@ -535,6 +624,10 @@ return function(Config)
 			end)
 
 			return Success and Value or nil
+		end
+
+		if Handle.Kind == "upvalue" then
+			return select(1, readFunctionUpvalue(Handle.Function, Handle.UpvalueIndex))
 		end
 
 		if Handle.Kind == "attribute" then
@@ -585,6 +678,12 @@ return function(Config)
 			return pcall(function()
 				Handle.Table[Handle.Field] = Value
 			end)
+		end
+
+		if Handle.Kind == "upvalue" then
+			local CurrentValue = readHandle(Handle)
+
+			return writeFunctionUpvalue(Handle.Function, Handle.UpvalueIndex, coerceLike(CurrentValue, Value))
 		end
 
 		if Handle.Kind == "attribute" then
@@ -779,12 +878,61 @@ return function(Config)
 			or string.find(NameLower, "input", 1, true) ~= nil
 	end
 
+	local function isInterestingFunctionSourceText(TextLower)
+		if type(TextLower) ~= "string" or TextLower == "" then
+			return false
+		end
+
+		return string.find(TextLower, "mainscript", 1, true) ~= nil
+			or string.find(TextLower, "crninput", 1, true) ~= nil
+			or isInterestingLogicName(TextLower)
+	end
+
+	local function getFunctionScanConfidence(FunctionValue)
+		local Info = getFunctionInfo(FunctionValue)
+		local NameLower = ""
+		local SourceLower = ""
+		local ShortSourceLower = ""
+
+		if Info then
+			NameLower = string.lower(tostring(Info.name or ""))
+			SourceLower = string.lower(tostring(Info.source or ""))
+			ShortSourceLower = string.lower(tostring(Info.short_src or ""))
+		end
+
+		local Combined = table.concat({
+			NameLower,
+			SourceLower,
+			ShortSourceLower
+		}, " ")
+		local PlayerNameLower = string.lower(LocalPlayer.Name)
+
+		if string.find(Combined, "crninput", 1, true) ~= nil then
+			return 165
+		end
+
+		if string.find(Combined, "mainscript", 1, true) ~= nil
+			and string.find(Combined, PlayerNameLower, 1, true) ~= nil then
+			return 155
+		end
+
+		if string.find(Combined, "mainscript", 1, true) ~= nil then
+			return 145
+		end
+
+		if isInterestingFunctionSourceText(Combined) then
+			return 125
+		end
+
+		return 0
+	end
+
 	local function shouldBootstrapLogicHandle(GroupName, Handle, Confidence, SourceKind)
 		if GroupName ~= "Current" and GroupName ~= "Max" then
 			return false
 		end
 
-		if SourceKind == "env" or SourceKind == "script-env" then
+		if SourceKind == "env" or SourceKind == "script-env" or SourceKind == "upvalue" then
 			return true
 		end
 
@@ -1976,6 +2124,115 @@ return function(Config)
 			end
 		end
 
+		local function enumerateFunctionUpvalues(FunctionValue)
+			local Entries = {}
+
+			if type(FunctionValue) ~= "function" then
+				return Entries
+			end
+
+			if type(debug) == "table" and type(debug.getupvalue) == "function" then
+				for Index = 1, 64 do
+					local Success, Name, Value = pcall(debug.getupvalue, FunctionValue, Index)
+
+					if not Success or Name == nil then
+						break
+					end
+
+					table.insert(Entries, {
+						Index = Index,
+						Name = type(Name) == "string" and Name or tostring(Name),
+						Value = Value
+					})
+				end
+
+				if #Entries > 0 then
+					return Entries
+				end
+			end
+
+			if type(getupvalues) == "function" then
+				local Success, Upvalues = pcall(getupvalues, FunctionValue)
+
+				if Success and type(Upvalues) == "table" then
+					for Index, Value in pairs(Upvalues) do
+						table.insert(Entries, {
+							Index = type(Index) == "number" and Index or (#Entries + 1),
+							Name = tostring(Index),
+							Value = Value
+						})
+					end
+				end
+			end
+
+			return Entries
+		end
+
+		local function visitFunctionUpvalues(FunctionValue, Confidence, VisitedTables)
+			local Upvalues = enumerateFunctionUpvalues(FunctionValue)
+
+			for _, Upvalue in ipairs(Upvalues) do
+				local UpvalueName = Upvalue.Name
+				local UpvalueValue = Upvalue.Value
+				local GroupName, NameLower = classifyName(UpvalueName)
+
+				if GroupName then
+					recordHandle(
+						GroupName,
+						UpvalueName,
+						NameLower,
+						createUpvalueHandle(FunctionValue, Upvalue.Index, UpvalueName),
+						UpvalueValue,
+						Confidence,
+						"upvalue"
+					)
+				end
+
+				if type(UpvalueValue) == "table"
+					and (
+						tableBelongsToLocalPlayer(UpvalueValue)
+						or isInterestingLogicName(string.lower(tostring(UpvalueName)))
+					) then
+					visitEnvTable(UpvalueValue, math.max((Confidence or 0) - 6, 90), 0, VisitedTables)
+				end
+			end
+		end
+
+		local function visitGcFunctions()
+			if type(getgc) ~= "function" then
+				return
+			end
+
+			local Success, Objects = pcall(function()
+				return getgc(true)
+			end)
+
+			if not Success or type(Objects) ~= "table" then
+				Success, Objects = pcall(getgc)
+			end
+
+			if not Success or type(Objects) ~= "table" then
+				return
+			end
+
+			local VisitedFunctions = {}
+			local VisitedTables = {}
+
+			for _, Object in ipairs(Objects) do
+				if type(Object) == "function" and not VisitedFunctions[Object] then
+					VisitedFunctions[Object] = true
+
+					if type(isexecutorclosure) ~= "function" or not isexecutorclosure(Object) then
+						local Confidence = getFunctionScanConfidence(Object)
+
+						if Confidence > 0 then
+							visitFunctionUpvalues(Object, Confidence, VisitedTables)
+						end
+					end
+				end
+			end
+		end
+
 		local function visitRoots(Roots)
 			for _, Root in ipairs(Roots) do
 				visitInstance(Root)
@@ -2014,6 +2271,10 @@ return function(Config)
 
 		if ForceRefresh or not hasRecordedPrimary() or StaminaFeature.DebugEnabled then
 			visitScriptEnvironments()
+		end
+
+		if IncludeGc or ((ForceRefresh or StaminaFeature.DebugEnabled) and not hasRecordedPrimary()) then
+			visitGcFunctions()
 		end
 
 		if IncludeGc
