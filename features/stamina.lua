@@ -2208,6 +2208,68 @@ return function(Config)
 			return {}
 		end
 
+		if GroupName == "Spend" then
+			local ScopedEntries = {}
+
+			for _, Entry in ipairs(Group) do
+				local Candidate = Entry.Candidate
+
+				if Predicate(Candidate) and hasStrongPrimarySiblingHandle(Candidate) then
+					local Score = getRuntimeSupportPriority(Candidate, GroupName)
+
+					if Score ~= nil then
+						table.insert(ScopedEntries, {
+							Entry = Entry,
+							Score = Score
+						})
+					end
+				end
+			end
+
+			if #ScopedEntries > 0 then
+				table.sort(ScopedEntries, function(Left, Right)
+					if Left.Score ~= Right.Score then
+						return Left.Score > Right.Score
+					end
+
+					local LeftName = Left.Entry
+						and Left.Entry.Candidate
+						and (Left.Entry.Candidate.NameLower or "")
+						or ""
+					local RightName = Right.Entry
+						and Right.Entry.Candidate
+						and (Right.Entry.Candidate.NameLower or "")
+						or ""
+
+					return LeftName < RightName
+				end)
+
+				local Entries = {}
+				local BestScore = ScopedEntries[1].Score
+				local ScoreFloor = math.max(1, BestScore - 8)
+
+				for _, Item in ipairs(ScopedEntries) do
+					local Candidate = Item.Entry.Candidate
+					local NameLower = Candidate and Candidate.NameLower or ""
+					local IsKeySpendName = string.find(NameLower, "exhaust", 1, true) ~= nil
+						or string.find(NameLower, "fatigue", 1, true) ~= nil
+						or string.find(NameLower, "breath", 1, true) ~= nil
+						or string.find(NameLower, "eevee", 1, true) ~= nil
+						or string.find(NameLower, "deplete", 1, true) ~= nil
+
+					if Item.Score >= ScoreFloor
+						or (Candidate and Candidate.ExactAlias == true)
+						or IsKeySpendName then
+						table.insert(Entries, Item.Entry)
+					end
+				end
+
+				if #Entries > 0 then
+					return Entries
+				end
+			end
+		end
+
 		local Entries = {}
 		local BestScore = nil
 
