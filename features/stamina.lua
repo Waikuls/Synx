@@ -315,6 +315,21 @@ return function(Config)
 		return Result
 	end
 
+	local function isPlayerGuiRelatedInstance(Instance)
+		if not Instance then
+			return false
+		end
+
+		local PlayerGui = LocalPlayer:FindFirstChild("PlayerGui")
+
+		return isInstanceInHierarchy(Instance, PlayerGui)
+	end
+
+	local function shouldHookInstance(Instance)
+		return isLocalRelatedInstance(Instance)
+			and not isPlayerGuiRelatedInstance(Instance)
+	end
+
 	local function buildSearchRoots(IncludeBroadRoots)
 		local Character = LocalPlayer.Character
 		local Entity = findEntity()
@@ -1200,6 +1215,20 @@ return function(Config)
 		return 0
 	end
 
+	local function supportsSafeRuntimeRewrite(GroupName, Value)
+		local ValueType = typeof(Value)
+
+		if GroupName == "Flags" then
+			return ValueType == "boolean" or ValueType == "number"
+		end
+
+		if GroupName == "Spend" or GroupName == "Current" or GroupName == "Max" then
+			return ValueType == "number"
+		end
+
+		return false
+	end
+
 	local function getCharacterMetrics()
 		local Character = LocalPlayer.Character
 		local Humanoid = Character and Character:FindFirstChildOfClass("Humanoid")
@@ -1974,7 +2003,8 @@ return function(Config)
 		local PromotedLogic = {}
 		local DisplaySuspects = {}
 		local RemoteSuspects = {}
-		local LogicLocalCount = 0
+		local PrimaryLogicCount = 0
+		local SupportLogicCount = 0
 
 		for _, Candidate in ipairs(StaminaFeature.CandidateOrder) do
 			local Observation = Session.Observations[Candidate.RegistryKey]
@@ -2023,7 +2053,7 @@ return function(Config)
 							Candidate = Candidate,
 							Observation = Observation
 						})
-						LogicLocalCount = LogicLocalCount + 1
+						SupportLogicCount = SupportLogicCount + 1
 					end
 				elseif Candidate.Group == "Spend" then
 					if Score >= 4 then
@@ -2032,7 +2062,7 @@ return function(Config)
 							Candidate = Candidate,
 							Observation = Observation
 						})
-						LogicLocalCount = LogicLocalCount + 1
+						SupportLogicCount = SupportLogicCount + 1
 					end
 				elseif Score >= 6 or (Observation.ExternalWrites or 0) >= 2 then
 					promoteCandidate(Candidate, "logic-local", Score, "capture_logic")
@@ -2040,7 +2070,7 @@ return function(Config)
 						Candidate = Candidate,
 						Observation = Observation
 					})
-					LogicLocalCount = LogicLocalCount + 1
+					PrimaryLogicCount = PrimaryLogicCount + 1
 				else
 					normalizeCandidate(Candidate)
 
@@ -2068,7 +2098,7 @@ return function(Config)
 			if Observation then
 				Candidate.Score = math.max(Candidate.Score or 0, Observation.Count * 2)
 
-				if LogicLocalCount == 0 and Session.ActionValid and Observation.Count >= 2 then
+				if PrimaryLogicCount == 0 and Session.ActionValid and Observation.Count >= 2 then
 					Candidate.CaptureHits = (Candidate.CaptureHits or 0) + 1
 
 					if Candidate.CaptureHits >= 2 then
@@ -2091,7 +2121,8 @@ return function(Config)
 			string.format("LastProfile: %s", Session.Profile),
 			string.format("ActionValid: %s", tostring(Session.ActionValid)),
 			string.format("MaxSpeed: %s", formatNumber(Session.MaxSpeed or 0)),
-			string.format("PromotedLogic: %d", LogicLocalCount),
+			string.format("PromotedPrimary: %d", PrimaryLogicCount),
+			string.format("PromotedSupport: %d", SupportLogicCount),
 			string.format("RemoteCalls: %d", Session.RemoteCallCount or 0)
 		}
 
@@ -2133,8 +2164,10 @@ return function(Config)
 		refreshStatusSummary()
 
 		if StaminaFeature.Enabled then
-			if LogicLocalCount > 0 then
+			if PrimaryLogicCount > 0 then
 				notifyDiagnosticSummary("Stamina capture found logic candidates.", 4, "search")
+			elseif SupportLogicCount > 0 then
+				notifyDiagnosticSummary("Stamina capture found control candidates only.", 4, "search")
 			else
 				notifyDiagnosticSummary("Stamina capture still found no logic handles.", 4, "alert-circle")
 			end
@@ -2922,9 +2955,10 @@ return function(Config)
 		for _, Entry in ipairs(StaminaFeature.Handles.Flags) do
 			if isFlagCandidate(Entry.Candidate) then
 				local CurrentValue = readEntryValue(Entry)
+				local CanRewrite = supportsSafeRuntimeRewrite("Flags", CurrentValue)
 				local DesiredValue = getTruthyValue(CurrentValue)
 
-				if CurrentValue ~= DesiredValue then
+				if CanRewrite and CurrentValue ~= DesiredValue then
 					writeEntryValue(Entry, DesiredValue)
 				end
 			end
@@ -2937,9 +2971,10 @@ return function(Config)
 		for _, Entry in ipairs(StaminaFeature.Handles.Spend) do
 			if isSpendCandidate(Entry.Candidate) then
 				local CurrentValue = readEntryValue(Entry)
+				local CanRewrite = supportsSafeRuntimeRewrite("Spend", CurrentValue)
 				local DesiredValue = getZeroLikeValue(CurrentValue)
 
-				if CurrentValue ~= DesiredValue then
+				if CanRewrite and CurrentValue ~= DesiredValue then
 					writeEntryValue(Entry, DesiredValue)
 				end
 			end
@@ -2947,22 +2982,34 @@ return function(Config)
 	end
 
 	local function applyMaxHandles()
+		local AllowDisplayMirror = hasLogicPrimaryHandles()
+
 		for _, Entry in ipairs(StaminaFeature.Handles.Max) do
 			local Target = getMaxTargetForEntry(Entry)
-			local CurrentValue = toNumber(readEntryValue(Entry))
+			local RawValue = readEntryValue(Entry)
+			local CurrentValue = toNumber(RawValue)
+			local CanRewrite = supportsSafeRuntimeRewrite("Max", RawValue)
 
 			if Target ~= nil
+				and CanRewrite
 				and isLogicLocalCandidate(Entry.Candidate)
 				and (CurrentValue == nil or math.abs(CurrentValue - Target) > 0.001) then
 				writeEntryValue(Entry, Target)
 			end
 		end
 
+		if not AllowDisplayMirror then
+			return
+		end
+
 		for _, Entry in ipairs(StaminaFeature.Handles.Max) do
 			local Target = getMaxTargetForEntry(Entry)
-			local CurrentValue = toNumber(readEntryValue(Entry))
+			local RawValue = readEntryValue(Entry)
+			local CurrentValue = toNumber(RawValue)
+			local CanRewrite = supportsSafeRuntimeRewrite("Max", RawValue)
 
 			if Target ~= nil
+				and CanRewrite
 				and isDisplayCandidate(Entry.Candidate)
 				and (CurrentValue == nil or math.abs(CurrentValue - Target) > 0.001) then
 				writeEntryValue(Entry, Target)
@@ -2976,9 +3023,12 @@ return function(Config)
 
 		for _, Entry in ipairs(StaminaFeature.Handles.Current) do
 			local Target = getCurrentTargetForEntry(Entry)
-			local CurrentValue = toNumber(readEntryValue(Entry))
+			local RawValue = readEntryValue(Entry)
+			local CurrentValue = toNumber(RawValue)
+			local CanRewrite = supportsSafeRuntimeRewrite("Current", RawValue)
 
 			if Target ~= nil
+				and CanRewrite
 				and isLogicLocalCandidate(Entry.Candidate)
 				and (CurrentValue == nil or math.abs(CurrentValue - Target) > 0.001) then
 				writeEntryValue(Entry, Target)
@@ -2989,11 +3039,18 @@ return function(Config)
 			end
 		end
 
+		if not hasLogicPrimaryHandles() then
+			return AppliedLogic, false
+		end
+
 		for _, Entry in ipairs(StaminaFeature.Handles.Current) do
 			local Target = getCurrentTargetForEntry(Entry)
-			local CurrentValue = toNumber(readEntryValue(Entry))
+			local RawValue = readEntryValue(Entry)
+			local CurrentValue = toNumber(RawValue)
+			local CanRewrite = supportsSafeRuntimeRewrite("Current", RawValue)
 
 			if Target ~= nil
+				and CanRewrite
 				and isDisplayCandidate(Entry.Candidate)
 				and (CurrentValue == nil or math.abs(CurrentValue - Target) > 0.001) then
 				writeEntryValue(Entry, Target)
@@ -3313,6 +3370,10 @@ return function(Config)
 			return nil, false
 		end
 
+		if not supportsSafeRuntimeRewrite(GroupName, IncomingValue) then
+			return nil, false
+		end
+
 		return getInterceptTarget(Candidate, IncomingValue)
 	end
 
@@ -3340,7 +3401,7 @@ return function(Config)
 				if Key == "Value"
 					and typeof(Self) == "Instance"
 					and Self:IsA("ValueBase")
-					and isLocalRelatedInstance(Self) then
+					and shouldHookInstance(Self) then
 					local GroupName, NameLower = classifyName(Self.Name)
 
 					if GroupName then
@@ -3378,7 +3439,7 @@ return function(Config)
 
 					if Method == "SetAttribute"
 						and typeof(Self) == "Instance"
-						and isLocalRelatedInstance(Self) then
+						and shouldHookInstance(Self) then
 						local Arguments = table.pack(...)
 						local AttributeName = Arguments[1]
 
