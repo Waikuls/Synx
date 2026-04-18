@@ -1101,11 +1101,18 @@ return function(Config)
 			return false
 		end
 
+		local Airborne = isAirborne()
+		local Success = select(1, invokeRemote(InputRemote, KeyName, IsDown and true or false, Airborne))
+
+		if Success then
+			return true
+		end
+
 		return select(1, invokeRemote(InputRemote, {
 			KeyInfo = {
 				Direction = "None",
 				Name = KeyName,
-				Airborne = isAirborne()
+				Airborne = Airborne
 			},
 			IsDown = IsDown and true or false
 		}))

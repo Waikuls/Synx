@@ -130,6 +130,7 @@ return function(Config)
 		OriginalFlagValues = {},
 		OriginalSpendValues = {},
 		HookControllerId = nil,
+		RemoteBlockingEnabled = false,
 		CandidateRegistry = {},
 		CandidateOrder = {},
 		RemoteCandidates = {},
@@ -2240,6 +2241,7 @@ return function(Config)
 
 	local function shouldBlockRemote(RemoteCandidate)
 		return StaminaFeature.Enabled
+			and StaminaFeature.RemoteBlockingEnabled == true
 			and RemoteCandidate
 			and RemoteCandidate.Promoted
 	end
