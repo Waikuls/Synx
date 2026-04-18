@@ -11,7 +11,7 @@ return function(Config)
 		CharacterAddedConnection = nil,
 		HandleSignals = {},
 		StepInterval = 0.1,
-		ResolveInterval = 3,
+		ResolveInterval = 2.5,
 		GcResolveInterval = 15,
 		LastResolveAt = 0,
 		LastGcResolveAt = 0,
@@ -22,14 +22,17 @@ return function(Config)
 		StepBusy = false,
 		StepQueued = false,
 		GcResolveQueued = false,
+		DropEventCount = 0,
+		DropThreshold = 1,
+		DropEventLimit = 3,
 		Handles = {
 			Current = {},
 			Max = {},
 			Flags = {},
-			Guard = {}
+			Spend = {}
 		},
 		OriginalFlagValues = {},
-		OriginalGuardValues = {},
+		OriginalSpendValues = {},
 		HookControllerId = nil
 	}
 
@@ -39,93 +42,39 @@ return function(Config)
 			"StaminaInStat",
 			"CurrentStamina",
 			"StaminaValue",
-			"Energy",
-			"CurrentEnergy",
-			"EnergyValue",
-			"Eevee",
 			"DashStamina",
-			"DashEnergy",
 			"SprintStamina",
-			"SprintEnergy",
 			"RunStamina",
-			"RunEnergy",
-			"CombatStamina",
-			"CombatEnergy",
-			"AttackStamina",
-			"AttackEnergy"
+			"AttackStamina"
 		},
 		Max = {
 			"MaxStamina",
 			"MaximumStamina",
 			"StaminaMax",
-			"MaxEnergy",
-			"MaximumEnergy",
-			"EnergyMax",
-			"MaxEevee",
-			"MaximumEevee",
-			"EeveeMax",
 			"MaxDashStamina",
-			"MaxDashEnergy",
 			"MaxSprintStamina",
-			"MaxSprintEnergy",
 			"MaxRunStamina",
-			"MaxRunEnergy",
-			"MaxCombatStamina",
-			"MaxCombatEnergy",
-			"MaxAttackStamina",
-			"MaxAttackEnergy"
+			"MaxAttackStamina"
 		},
 		Flags = {
 			"NoStaminaCost",
-			"NoCooldown",
-			"NoEeveeDeplete",
-			"NoEnergyDeplete",
-			"NoEnergyCost",
 			"CanUseStamina",
 			"HasStamina",
-			"EnoughStamina",
-			"CanUseEnergy",
-			"HasEnergy",
-			"EnoughEnergy",
-			"CanUseEevee",
-			"HasEevee",
-			"EnoughEevee",
-			"CanDash",
-			"CanSprint",
-			"CanRun",
-			"CanAttack"
+			"EnoughStamina"
 		},
-		Guard = {
-			"Exhaustion",
-			"BodyFatigue",
-			"BodyFatique",
-			"LowStamina",
-			"OutOfStamina",
-			"LowEnergy",
-			"OutOfEnergy",
-			"Exhausted",
-			"IsExhausted",
-			"Tired",
-			"IsTired",
-			"StaminaLocked",
-			"EnergyLocked",
-			"EeveeDeplete",
+		Spend = {
 			"StaminaCost",
-			"EnergyCost",
+			"StaminaDrain",
+			"StaminaDeplete",
+			"StaminaCooldown",
 			"DashCost",
 			"SprintCost",
 			"RunCost",
 			"AttackCost",
-			"StaminaDrain",
-			"EnergyDrain",
-			"StaminaDeplete",
-			"EnergyDeplete",
 			"DashCooldown",
 			"SprintCooldown",
 			"RunCooldown",
-			"AttackCooldown",
-			"StaminaCooldown",
-			"EnergyCooldown"
+			"AttackCooldown"
 		}
 	}
 
@@ -143,7 +92,7 @@ return function(Config)
 		Current = createLookup(ExactAliases.Current),
 		Max = createLookup(ExactAliases.Max),
 		Flags = createLookup(ExactAliases.Flags),
-		Guard = createLookup(ExactAliases.Guard)
+		Spend = createLookup(ExactAliases.Spend)
 	}
 
 	local ScopeCache = setmetatable({}, {__mode = "k"})
@@ -161,30 +110,6 @@ return function(Config)
 
 		if typeof(Value) == "string" then
 			return tonumber(Value)
-		end
-
-		return nil
-	end
-
-	local function toBoolean(Value)
-		if typeof(Value) == "boolean" then
-			return Value
-		end
-
-		if typeof(Value) == "number" then
-			return Value ~= 0
-		end
-
-		if typeof(Value) == "string" then
-			local Lower = string.lower(Value)
-
-			if Lower == "true" or Lower == "yes" or Lower == "1" then
-				return true
-			end
-
-			if Lower == "false" or Lower == "no" or Lower == "0" then
-				return false
-			end
 		end
 
 		return nil
@@ -266,13 +191,11 @@ return function(Config)
 		end
 
 		local Character = LocalPlayer.Character
-		local PlayerGui = LocalPlayer:FindFirstChild("PlayerGui")
 		local PlayerScripts = LocalPlayer:FindFirstChild("PlayerScripts")
 		local Entity = findEntity()
 		local MainScript = findMainScript()
 		local Result = Instance == LocalPlayer
 			or isInstanceInHierarchy(Instance, Character)
-			or isInstanceInHierarchy(Instance, PlayerGui)
 			or isInstanceInHierarchy(Instance, PlayerScripts)
 			or isInstanceInHierarchy(Instance, Entity)
 			or isInstanceInHierarchy(Instance, MainScript)
@@ -287,7 +210,7 @@ return function(Config)
 		local Character = LocalPlayer.Character
 		local Entity = findEntity()
 		local MainScript = findMainScript()
-		local Stats = MainScript and MainScript:FindFirstChild("Stats")
+		local MainScriptStats = MainScript and MainScript:FindFirstChild("Stats")
 		local PlayerScripts = LocalPlayer:FindFirstChild("PlayerScripts")
 		local Roots = {}
 		local Seen = {}
@@ -301,7 +224,7 @@ return function(Config)
 			table.insert(Roots, Root)
 		end
 
-		addRoot(Stats)
+		addRoot(MainScriptStats)
 		addRoot(MainScript)
 		addRoot(Entity)
 		addRoot(LocalPlayer:FindFirstChild("Stats"))
@@ -347,33 +270,11 @@ return function(Config)
 			return "run"
 		end
 
-		if string.find(NameLower, "combat", 1, true) then
-			return "combat"
-		end
-
 		if string.find(NameLower, "attack", 1, true) then
 			return "attack"
 		end
 
-		if string.find(NameLower, "energy", 1, true) or string.find(NameLower, "eevee", 1, true) then
-			return "energy"
-		end
-
 		return "base"
-	end
-
-	local function containsAction(NameLower)
-		return string.find(NameLower, "dash", 1, true) ~= nil
-			or string.find(NameLower, "sprint", 1, true) ~= nil
-			or string.find(NameLower, "run", 1, true) ~= nil
-			or string.find(NameLower, "attack", 1, true) ~= nil
-			or string.find(NameLower, "combat", 1, true) ~= nil
-	end
-
-	local function containsResource(NameLower)
-		return string.find(NameLower, "stamina", 1, true) ~= nil
-			or string.find(NameLower, "energy", 1, true) ~= nil
-			or string.find(NameLower, "eevee", 1, true) ~= nil
 	end
 
 	local function containsFlag(NameLower)
@@ -383,17 +284,8 @@ return function(Config)
 			or string.sub(NameLower, 1, 6) == "enough"
 	end
 
-	local function containsGuard(NameLower)
-		return string.find(NameLower, "fatigue", 1, true) ~= nil
-			or string.find(NameLower, "fatique", 1, true) ~= nil
-			or string.find(NameLower, "exhaust", 1, true) ~= nil
-			or string.find(NameLower, "tired", 1, true) ~= nil
-			or string.find(NameLower, "locked", 1, true) ~= nil
-			or string.find(NameLower, "disabled", 1, true) ~= nil
-			or string.find(NameLower, "outof", 1, true) ~= nil
-			or string.find(NameLower, "out_of", 1, true) ~= nil
-			or string.find(NameLower, "low", 1, true) ~= nil
-			or string.find(NameLower, "cost", 1, true) ~= nil
+	local function containsSpend(NameLower)
+		return string.find(NameLower, "cost", 1, true) ~= nil
 			or string.find(NameLower, "drain", 1, true) ~= nil
 			or string.find(NameLower, "deplete", 1, true) ~= nil
 			or string.find(NameLower, "cooldown", 1, true) ~= nil
@@ -412,31 +304,24 @@ return function(Config)
 			end
 		end
 
-		local HasResource = containsResource(NameLower)
-		local HasAction = containsAction(NameLower)
-		local HasMeaning = HasResource or HasAction
-
-		if not HasMeaning then
+		if string.find(NameLower, "stamina", 1, true) == nil then
 			return nil, NameLower
 		end
 
-		if containsFlag(NameLower) and HasMeaning then
+		if containsFlag(NameLower) then
 			return "Flags", NameLower
 		end
 
-		if containsGuard(NameLower) and HasMeaning then
-			return "Guard", NameLower
+		if containsSpend(NameLower) then
+			return "Spend", NameLower
 		end
 
-		if HasResource and (
-			string.find(NameLower, "max", 1, true) ~= nil
-			or string.find(NameLower, "maximum", 1, true) ~= nil
-		) then
+		if string.find(NameLower, "max", 1, true) ~= nil
+			or string.find(NameLower, "maximum", 1, true) ~= nil then
 			return "Max", NameLower
 		end
 
-		if HasResource
-			and string.find(NameLower, "regen", 1, true) == nil
+		if string.find(NameLower, "regen", 1, true) == nil
 			and string.find(NameLower, "recover", 1, true) == nil
 			and string.find(NameLower, "rate", 1, true) == nil
 			and string.find(NameLower, "delay", 1, true) == nil
@@ -592,6 +477,7 @@ return function(Config)
 
 		if Handle.Kind == "attribute" then
 			local CurrentValue = readHandle(Handle)
+
 			return pcall(function()
 				Handle.Instance:SetAttribute(Handle.Attribute, coerceLike(CurrentValue, Value))
 			end)
@@ -613,6 +499,7 @@ return function(Config)
 	local function isUsefulValue(GroupName, Value)
 		if GroupName == "Flags" then
 			local ValueType = typeof(Value)
+
 			return ValueType == "boolean" or ValueType == "number" or ValueType == "string"
 		end
 
@@ -695,6 +582,49 @@ return function(Config)
 		return false
 	end
 
+	local function getInstanceConfidence(Instance)
+		local Character = LocalPlayer.Character
+		local Entity = findEntity()
+		local MainScript = findMainScript()
+		local MainScriptStats = MainScript and MainScript:FindFirstChild("Stats")
+		local PlayerStats = LocalPlayer:FindFirstChild("Stats")
+		local CharacterStats = Character and Character:FindFirstChild("Stats")
+		local PlayerData = LocalPlayer:FindFirstChild("Data")
+		local CharacterData = Character and Character:FindFirstChild("Data")
+
+		if isInstanceInHierarchy(Instance, MainScriptStats) then
+			return 120
+		end
+
+		if isInstanceInHierarchy(Instance, MainScript) then
+			return 110
+		end
+
+		if isInstanceInHierarchy(Instance, PlayerStats)
+			or isInstanceInHierarchy(Instance, CharacterStats) then
+			return 100
+		end
+
+		if isInstanceInHierarchy(Instance, PlayerData)
+			or isInstanceInHierarchy(Instance, CharacterData) then
+			return 95
+		end
+
+		if isInstanceInHierarchy(Instance, Entity) then
+			return 85
+		end
+
+		if isInstanceInHierarchy(Instance, Character) then
+			return 70
+		end
+
+		if isInstanceInHierarchy(Instance, LocalPlayer) then
+			return 60
+		end
+
+		return 40
+	end
+
 	local function disconnectHandleSignals()
 		for _, Connection in ipairs(StaminaFeature.HandleSignals) do
 			Connection:Disconnect()
@@ -708,7 +638,7 @@ return function(Config)
 		table.clear(StaminaFeature.Handles.Current)
 		table.clear(StaminaFeature.Handles.Max)
 		table.clear(StaminaFeature.Handles.Flags)
-		table.clear(StaminaFeature.Handles.Guard)
+		table.clear(StaminaFeature.Handles.Spend)
 	end
 
 	local function getTruthyValue(Value)
@@ -769,6 +699,13 @@ return function(Config)
 
 	local function hasPrimaryHandles()
 		return #StaminaFeature.Handles.Current > 0 or #StaminaFeature.Handles.Max > 0
+	end
+
+	local function hasHandles()
+		return #StaminaFeature.Handles.Current > 0
+			or #StaminaFeature.Handles.Max > 0
+			or #StaminaFeature.Handles.Flags > 0
+			or #StaminaFeature.Handles.Spend > 0
 	end
 
 	local function scheduleGcResolve()
@@ -866,21 +803,32 @@ return function(Config)
 			Current = {},
 			Max = {},
 			Flags = {},
-			Guard = {}
+			Spend = {}
 		}
 
 		local function hasRecordedPrimary()
 			return next(EntryMaps.Current) ~= nil or next(EntryMaps.Max) ~= nil
 		end
 
-		local function recordHandle(GroupName, NameLower, Handle, Value)
+		local function recordHandle(GroupName, NameLower, Handle, Value, Confidence, SourceKind)
 			if not GroupName or not isUsefulValue(GroupName, Value) then
 				return
 			end
 
-			local Key = getHandleKey(Handle)
+			if SourceKind == "table" and string.find(NameLower, "stamina", 1, true) == nil then
+				return
+			end
 
-			if EntryMaps[GroupName][Key] then
+			if GroupName == "Spend"
+				and string.find(NameLower, "stamina", 1, true) == nil
+				and (Confidence or 0) < 60 then
+				return
+			end
+
+			local Key = getHandleKey(Handle)
+			local Existing = EntryMaps[GroupName][Key]
+
+			if Existing and Existing.Confidence >= (Confidence or 0) then
 				return
 			end
 
@@ -888,7 +836,9 @@ return function(Config)
 				Key = Key,
 				NameLower = NameLower,
 				Family = getFamily(NameLower),
-				Handle = Handle
+				Handle = Handle,
+				Confidence = Confidence or 0,
+				SourceKind = SourceKind or "instance"
 			}
 		end
 
@@ -897,11 +847,13 @@ return function(Config)
 				return
 			end
 
+			local Confidence = getInstanceConfidence(Instance)
+
 			if Instance:IsA("ValueBase") then
 				local GroupName, NameLower = classifyName(Instance.Name)
 
 				if GroupName then
-					recordHandle(GroupName, NameLower, createValueHandle(Instance), Instance.Value)
+					recordHandle(GroupName, NameLower, createValueHandle(Instance), Instance.Value, Confidence, "instance")
 				end
 			end
 
@@ -909,7 +861,7 @@ return function(Config)
 				local GroupName, NameLower = classifyName(AttributeName)
 
 				if GroupName then
-					recordHandle(GroupName, NameLower, createAttributeHandle(Instance, AttributeName), Value)
+					recordHandle(GroupName, NameLower, createAttributeHandle(Instance, AttributeName), Value, Confidence, "instance")
 				end
 			end
 		end
@@ -919,14 +871,20 @@ return function(Config)
 				return
 			end
 
-			for Key, Value in pairs(TableValue) do
-				if type(Key) == "string" then
-					local GroupName, NameLower = classifyName(Key)
+			local Success = pcall(function()
+				for Key, Value in pairs(TableValue) do
+					if type(Key) == "string" then
+						local GroupName, NameLower = classifyName(Key)
 
-					if GroupName then
-						recordHandle(GroupName, NameLower, createTableHandle(TableValue, Key), Value)
+						if GroupName then
+							recordHandle(GroupName, NameLower, createTableHandle(TableValue, Key), Value, 15, "table")
+						end
 					end
 				end
+			end)
+
+			if not Success then
+				return
 			end
 		end
 
@@ -936,6 +894,33 @@ return function(Config)
 
 				for _, Descendant in ipairs(Root:GetDescendants()) do
 					visitInstance(Descendant)
+				end
+			end
+		end
+
+		local function finalizeGroup(GroupName)
+			local Entries = {}
+			local HasStrongInstance = false
+
+			for _, Entry in pairs(EntryMaps[GroupName]) do
+				table.insert(Entries, Entry)
+
+				if Entry.SourceKind ~= "table" and Entry.Confidence >= 60 then
+					HasStrongInstance = true
+				end
+			end
+
+			table.sort(Entries, function(Left, Right)
+				if Left.Confidence ~= Right.Confidence then
+					return Left.Confidence > Right.Confidence
+				end
+
+				return Left.NameLower < Right.NameLower
+			end)
+
+			for _, Entry in ipairs(Entries) do
+				if not HasStrongInstance or Entry.SourceKind ~= "table" then
+					table.insert(StaminaFeature.Handles[GroupName], Entry)
 				end
 			end
 		end
@@ -968,12 +953,10 @@ return function(Config)
 			StaminaFeature.LastGcResolveAt = Now
 		end
 
-		for GroupName, Map in pairs(EntryMaps) do
-			for _, Entry in pairs(Map) do
-				table.insert(StaminaFeature.Handles[GroupName], Entry)
-			end
-		end
-
+		finalizeGroup("Current")
+		finalizeGroup("Max")
+		finalizeGroup("Flags")
+		finalizeGroup("Spend")
 		connectHandleSignals()
 
 		StaminaFeature.LastResolveAt = Now
@@ -1031,7 +1014,7 @@ return function(Config)
 		end
 
 		if Targets.base == nil then
-			for _, Family in ipairs({"dash", "sprint", "run", "combat", "attack", "energy"}) do
+			for _, Family in ipairs({"dash", "sprint", "run", "attack"}) do
 				local Value = Targets[Family]
 
 				if Value ~= nil and (Targets.base == nil or Value > Targets.base) then
@@ -1040,12 +1023,12 @@ return function(Config)
 			end
 		end
 
-		if Targets.energy == nil and Targets.base ~= nil then
-			Targets.energy = Targets.base
-		end
-
-		if Targets.base == nil and Targets.energy ~= nil then
-			Targets.base = Targets.energy
+		if Targets.base ~= nil then
+			for _, Family in ipairs({"dash", "sprint", "run", "attack"}) do
+				if Targets[Family] == nil then
+					Targets[Family] = Targets.base
+				end
+			end
 		end
 
 		mergeTargets(Targets)
@@ -1055,12 +1038,8 @@ return function(Config)
 		local Targets = StaminaFeature.LastKnownTargets
 		local Target = Targets[Entry.Family]
 
-		if Target == nil and Entry.Family == "base" then
-			Target = Targets.energy
-		elseif Target == nil and Entry.Family == "energy" then
+		if Target == nil and Entry.Family ~= "base" then
 			Target = Targets.base
-		elseif Target == nil then
-			Target = Targets.base or Targets.energy
 		end
 
 		if Target == nil then
@@ -1078,10 +1057,10 @@ return function(Config)
 		end
 	end
 
-	local function rememberOriginalGuards()
-		for _, Entry in ipairs(StaminaFeature.Handles.Guard) do
-			if StaminaFeature.OriginalGuardValues[Entry.Key] == nil then
-				StaminaFeature.OriginalGuardValues[Entry.Key] = readHandle(Entry.Handle)
+	local function rememberOriginalSpends()
+		for _, Entry in ipairs(StaminaFeature.Handles.Spend) do
+			if StaminaFeature.OriginalSpendValues[Entry.Key] == nil then
+				StaminaFeature.OriginalSpendValues[Entry.Key] = readHandle(Entry.Handle)
 			end
 		end
 	end
@@ -1099,10 +1078,10 @@ return function(Config)
 		end
 	end
 
-	local function applyGuards()
-		rememberOriginalGuards()
+	local function applySpend()
+		rememberOriginalSpends()
 
-		for _, Entry in ipairs(StaminaFeature.Handles.Guard) do
+		for _, Entry in ipairs(StaminaFeature.Handles.Spend) do
 			local CurrentValue = readHandle(Entry.Handle)
 			local DesiredValue = getZeroLikeValue(CurrentValue)
 
@@ -1143,20 +1122,30 @@ return function(Config)
 	end
 
 	local function shouldQueueGcResolve()
-		if not hasPrimaryHandles() then
-			return true
+		if not hasPrimaryHandles() or #StaminaFeature.Handles.Current == 0 then
+			StaminaFeature.DropEventCount = StaminaFeature.DropEventCount + 1
+			return StaminaFeature.DropEventCount >= StaminaFeature.DropEventLimit
 		end
+
+		local HasDrop = false
 
 		for _, Entry in ipairs(StaminaFeature.Handles.Current) do
 			local Target = getTargetForEntry(Entry)
 			local CurrentValue = toNumber(readHandle(Entry.Handle))
 
-			if Target ~= nil and CurrentValue ~= nil and CurrentValue < (Target - 1) then
-				return true
+			if Target ~= nil and CurrentValue ~= nil and CurrentValue < (Target - StaminaFeature.DropThreshold) then
+				HasDrop = true
+				break
 			end
 		end
 
-		return false
+		if HasDrop then
+			StaminaFeature.DropEventCount = StaminaFeature.DropEventCount + 1
+		else
+			StaminaFeature.DropEventCount = 0
+		end
+
+		return StaminaFeature.DropEventCount >= StaminaFeature.DropEventLimit
 	end
 
 	local function restoreOriginalFlags()
@@ -1171,23 +1160,16 @@ return function(Config)
 		table.clear(StaminaFeature.OriginalFlagValues)
 	end
 
-	local function restoreOriginalGuards()
-		for _, Entry in ipairs(StaminaFeature.Handles.Guard) do
-			local OriginalValue = StaminaFeature.OriginalGuardValues[Entry.Key]
+	local function restoreOriginalSpends()
+		for _, Entry in ipairs(StaminaFeature.Handles.Spend) do
+			local OriginalValue = StaminaFeature.OriginalSpendValues[Entry.Key]
 
 			if OriginalValue ~= nil then
 				writeHandle(Entry.Handle, OriginalValue)
 			end
 		end
 
-		table.clear(StaminaFeature.OriginalGuardValues)
-	end
-
-	local function hasHandles()
-		return #StaminaFeature.Handles.Current > 0
-			or #StaminaFeature.Handles.Max > 0
-			or #StaminaFeature.Handles.Flags > 0
-			or #StaminaFeature.Handles.Guard > 0
+		table.clear(StaminaFeature.OriginalSpendValues)
 	end
 
 	local HookState
@@ -1243,14 +1225,14 @@ return function(Config)
 		end
 
 		if not GroupName then
-			GroupName = classifyName(NameLower)
+			GroupName = select(1, classifyName(NameLower))
 		end
 
 		if GroupName == "Flags" then
 			return getTruthyValue(IncomingValue), true
 		end
 
-		if GroupName == "Guard" then
+		if GroupName == "Spend" then
 			return getZeroLikeValue(IncomingValue), true
 		end
 
@@ -1262,10 +1244,8 @@ return function(Config)
 		local Targets = Controller.LastKnownTargets
 		local Target = Targets[Family]
 
-		if Target == nil and Family == "energy" then
+		if Target == nil and Family ~= "base" then
 			Target = Targets.base
-		elseif Target == nil then
-			Target = Targets.base or Targets.energy
 		end
 
 		if Target == nil then
@@ -1389,15 +1369,20 @@ return function(Config)
 
 			computeTargets()
 			applyFlags()
-			applyGuards()
+			applySpend()
 			applyMaxHandles()
 			local Applied = applyCurrentHandles()
 
 			if shouldQueueGcResolve() then
+				self.DropEventCount = 0
 				scheduleGcResolve()
 			end
 
-			return Applied
+			if not Applied and #self.Handles.Current == 0 then
+				warnMissingHandles()
+			end
+
+			return Applied or #self.Handles.Flags > 0 or #self.Handles.Spend > 0
 		end)
 
 		self.StepBusy = false
@@ -1418,10 +1403,12 @@ return function(Config)
 		self.StepBusy = false
 		self.StepQueued = false
 		self.GcResolveQueued = false
+		self.DropEventCount = 0
 
 		if self.Enabled then
 			ensureHookController()
 			clearScopeCache()
+			clearHandles()
 			self:Step(true, false)
 
 			if not self.HeartbeatConnection then
@@ -1432,12 +1419,12 @@ return function(Config)
 				end)
 			end
 
-			if not hasPrimaryHandles() then
+			if not hasPrimaryHandles() or #self.Handles.Current == 0 then
 				scheduleGcResolve()
 			end
 		else
 			restoreOriginalFlags()
-			restoreOriginalGuards()
+			restoreOriginalSpends()
 
 			if self.HeartbeatConnection then
 				self.HeartbeatConnection:Disconnect()
@@ -1455,8 +1442,9 @@ return function(Config)
 		self.StepBusy = false
 		self.StepQueued = false
 		self.GcResolveQueued = false
+		self.DropEventCount = 0
 		restoreOriginalFlags()
-		restoreOriginalGuards()
+		restoreOriginalSpends()
 
 		if self.HeartbeatConnection then
 			self.HeartbeatConnection:Disconnect()
@@ -1487,8 +1475,9 @@ return function(Config)
 		StaminaFeature.StepBusy = false
 		StaminaFeature.StepQueued = false
 		StaminaFeature.GcResolveQueued = false
+		StaminaFeature.DropEventCount = 0
 		table.clear(StaminaFeature.OriginalFlagValues)
-		table.clear(StaminaFeature.OriginalGuardValues)
+		table.clear(StaminaFeature.OriginalSpendValues)
 		clearScopeCache()
 		clearHandles()
 
