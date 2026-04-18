@@ -30,6 +30,9 @@ return function(Config)
 			"StaminaInStat",
 			"CurrentStamina",
 			"StaminaValue",
+			"Eevee",
+			"BodyFatigue",
+			"BodyFatique",
 			"DashStamina",
 			"SprintStamina",
 			"RunStamina",
@@ -76,8 +79,6 @@ return function(Config)
 			"BreathLocked",
 			"ExhaustionLevel",
 			"FatigueLevel",
-			"BodyFatigue",
-			"BodyFatique",
 			"EeveeDeplete",
 			"DashCost",
 			"SprintCost",
@@ -1171,6 +1172,7 @@ return function(Config)
 		end
 
 		return string.find(NameLower, "stamina", 1, true) ~= nil
+			or string.find(NameLower, "eevee", 1, true) ~= nil
 			or string.find(NameLower, "exhaust", 1, true) ~= nil
 			or string.find(NameLower, "endurance", 1, true) ~= nil
 			or string.find(NameLower, "fatigue", 1, true) ~= nil
@@ -1190,6 +1192,9 @@ return function(Config)
 
 		return NameLower == "stamina"
 			or NameLower == "staminainstat"
+			or NameLower == "eevee"
+			or NameLower == "bodyfatigue"
+			or NameLower == "bodyfatique"
 			or NameLower == "currentstamina"
 			or NameLower == "staminavalue"
 			or NameLower == "maxstamina"
@@ -1486,8 +1491,6 @@ return function(Config)
 		"Exhausted",
 		"Fatigue",
 		"Fatigued",
-		"BodyFatigue",
-		"BodyFatique",
 		"Breath",
 		"OutOfBreath",
 		"BreathLocked",
@@ -1503,6 +1506,8 @@ return function(Config)
 
 	local DirectStatsHighWaterLookup = createLookup({
 		"Eevee",
+		"BodyFatigue",
+		"BodyFatique",
 		"DownedHealth",
 		"RecoveryHealth"
 	})
