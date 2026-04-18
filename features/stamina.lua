@@ -49,13 +49,15 @@ return function(Config)
 		Flags = {
 			"NoStaminaCost",
 			"NoCooldown",
+			"NoEeveeDeplete",
 			"CanUseStamina",
 			"HasStamina",
 			"EnoughStamina",
 			"CanDash",
 			"CanSprint",
 			"CanRun",
-			"CanAttack"
+			"CanAttack",
+			"Sleeping"
 		},
 		Spend = {
 			"StaminaCost",
@@ -74,6 +76,9 @@ return function(Config)
 			"BreathLocked",
 			"ExhaustionLevel",
 			"FatigueLevel",
+			"BodyFatigue",
+			"BodyFatique",
+			"EeveeDeplete",
 			"DashCost",
 			"SprintCost",
 			"RunCost",
@@ -1457,6 +1462,38 @@ return function(Config)
 
 		return false
 	end
+
+	local DirectStatsFlagTruthLookup = createLookup({
+		"NoStaminaCost",
+		"NoCooldown",
+		"NoEeveeDeplete",
+		"CanUseStamina",
+		"HasStamina",
+		"EnoughStamina",
+		"CanDash",
+		"CanSprint",
+		"CanRun",
+		"CanAttack"
+	})
+
+	local DirectStatsFlagFalseLookup = createLookup({
+		"Sleeping"
+	})
+
+	local DirectStatsSpendZeroLookup = createLookup({
+		"Exhaustion",
+		"Exhausted",
+		"Fatigue",
+		"Fatigued",
+		"BodyFatigue",
+		"BodyFatique",
+		"Breath",
+		"OutOfBreath",
+		"BreathLocked",
+		"ExhaustionLevel",
+		"FatigueLevel",
+		"EeveeDeplete"
+	})
 
 	local function getCharacterMetrics()
 		local Character = LocalPlayer.Character
@@ -4310,6 +4347,66 @@ return function(Config)
 		end
 	end
 
+	local function applyDirectStatsOverrides()
+		local MainScript = findMainScript()
+		local Stats = MainScript and MainScript:FindFirstChild("Stats")
+
+		if not Stats then
+			return
+		end
+
+		local function applyOverride(Name, Handle, Value)
+			if type(Name) ~= "string" or not Handle then
+				return
+			end
+
+			local NameLower = string.lower(Name)
+			local DesiredValue = nil
+
+			if DirectStatsFlagTruthLookup[NameLower] then
+				DesiredValue = getTruthyValue(Value)
+			elseif DirectStatsFlagFalseLookup[NameLower] then
+				DesiredValue = getZeroLikeValue(Value)
+			elseif DirectStatsSpendZeroLookup[NameLower] then
+				DesiredValue = getZeroLikeValue(Value)
+			end
+
+			if DesiredValue == nil or valuesEquivalent(Value, DesiredValue) then
+				return
+			end
+
+			writeHandle(Handle, DesiredValue)
+		end
+
+		local function visitInstance(Instance)
+			if not Instance then
+				return
+			end
+
+			if Instance:IsA("ValueBase") then
+				applyOverride(Instance.Name, createValueHandle(Instance), Instance.Value)
+			end
+
+			for AttributeName, Value in pairs(Instance:GetAttributes()) do
+				applyOverride(AttributeName, createAttributeHandle(Instance, AttributeName), Value)
+			end
+		end
+
+		visitInstance(Stats)
+
+		local VisitedChildren = 0
+
+		for _, Descendant in ipairs(Stats:GetDescendants()) do
+			VisitedChildren = VisitedChildren + 1
+
+			if VisitedChildren > 48 then
+				break
+			end
+
+			visitInstance(Descendant)
+		end
+	end
+
 	local function applyMaxHandles()
 		local AllowDisplayMirror = hasLogicPrimaryHandles()
 
@@ -5004,6 +5101,7 @@ return function(Config)
 			clearSupportIssue()
 			applyFlags()
 			applySpend()
+			applyDirectStatsOverrides()
 			applyMaxHandles()
 			local AppliedLogic, AppliedDisplay = applyCurrentHandles()
 			local VerificationState, FailureReason, ActionProfile, ShouldRecover = evaluateRuntimeVerification(AppliedLogic, AppliedDisplay)
