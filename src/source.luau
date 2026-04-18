@@ -6684,12 +6684,19 @@ function Fatality:CreateNotifier(): Notifier
 
 			local updateScale = function()
 				local TitleScale = Fatality:GetTextSize(HeaderText,Enum.Font.GothamBold);
-				local ContentScale = Fatality:GetTextSize(BodyText,Enum.Font.GothamMedium);
+				local MaxContentWidth = 320;
+				local MinContentWidth = 170;
+				local XScale = math.clamp(math.max(TitleScale.X + 5, MinContentWidth), MinContentWidth, MaxContentWidth);
+				local ContentScale = TextService:GetTextSize(
+					BodyText.Text,
+					BodyText.TextSize,
+					(BodyText.Font ~= Enum.Font.Unknown and BodyText.Font) or Enum.Font.GothamMedium,
+					Vector2.new(XScale, math.huge)
+				);
+				local WidthScale = math.max(TitleScale.X + 5, ContentScale.X);
+				local HeightScale = TitleScale.Y + ContentScale.Y;
 
-				local XScale = (TitleScale.X > ContentScale.X and TitleScale.X) or ContentScale.X;
-				local YScale = (TitleScale.Y > ContentScale.Y and TitleScale.Y) or ContentScale.Y;
-
-				notify.Size = UDim2.new(0, XScale + 25, 0, YScale + 50);
+				notify.Size = UDim2.new(0, math.clamp(WidthScale + 25, 195, MaxContentWidth + 25), 0, HeightScale + 42);
 
 				Fatality:CreateAnimation(notify_block,0.35,{
 					Position = UDim2.new(0.5, 0, 0, 0)

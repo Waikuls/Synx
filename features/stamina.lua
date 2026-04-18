@@ -1463,17 +1463,45 @@ return function(Config)
 		return CurrentCount, MaxCount
 	end
 
-	local function buildDiagnosticLines(MaxSummaryLines)
+	local function getDiagnosticSnapshot()
 		local LogicCurrentCount, LogicMaxCount = countLogicPrimaryEntries()
+
+		return {
+			HandleCurrentCount = #StaminaFeature.Handles.Current,
+			HandleMaxCount = #StaminaFeature.Handles.Max,
+			HandleFlagCount = #StaminaFeature.Handles.Flags,
+			HandleSpendCount = #StaminaFeature.Handles.Spend,
+			LogicCurrentCount = LogicCurrentCount,
+			LogicMaxCount = LogicMaxCount
+		}
+	end
+
+	local function buildDiagnosticHeadline(HeaderText)
+		local Snapshot = getDiagnosticSnapshot()
+
+		return string.format(
+			"%s Logic C=%d M=%d | Handles C=%d M=%d F=%d S=%d",
+			tostring(HeaderText or "Stamina diagnostics."),
+			Snapshot.LogicCurrentCount,
+			Snapshot.LogicMaxCount,
+			Snapshot.HandleCurrentCount,
+			Snapshot.HandleMaxCount,
+			Snapshot.HandleFlagCount,
+			Snapshot.HandleSpendCount
+		)
+	end
+
+	local function buildDiagnosticLines(MaxSummaryLines)
+		local Snapshot = getDiagnosticSnapshot()
 		local Lines = {
 			string.format(
 				"Handles C=%d M=%d F=%d S=%d",
-				#StaminaFeature.Handles.Current,
-				#StaminaFeature.Handles.Max,
-				#StaminaFeature.Handles.Flags,
-				#StaminaFeature.Handles.Spend
+				Snapshot.HandleCurrentCount,
+				Snapshot.HandleMaxCount,
+				Snapshot.HandleFlagCount,
+				Snapshot.HandleSpendCount
 			),
-			string.format("Logic C=%d M=%d", LogicCurrentCount, LogicMaxCount)
+			string.format("Logic C=%d M=%d", Snapshot.LogicCurrentCount, Snapshot.LogicMaxCount)
 		}
 		local Session = StaminaFeature.CaptureSession
 
@@ -1502,11 +1530,19 @@ return function(Config)
 		return Lines
 	end
 
-	local function notifyDiagnosticSummary(HeaderText, MaxSummaryLines, IconName)
-		if not Notification then
+	local function emitDiagnosticConsole(Lines)
+		if type(Lines) ~= "table" or #Lines == 0 then
 			return
 		end
 
+		local ConsoleLine = table.concat(Lines, " | ")
+
+		if ConsoleLine ~= "" then
+			warn("[Fatality][Stamina] " .. ConsoleLine)
+		end
+	end
+
+	local function notifyDiagnosticSummary(HeaderText, MaxSummaryLines, IconName)
 		local Now = os.clock()
 
 		if (Now - StaminaFeature.LastDebugNotifyAt) < StaminaFeature.DebugNotifyCooldown then
@@ -1514,21 +1550,23 @@ return function(Config)
 		end
 
 		StaminaFeature.LastDebugNotifyAt = Now
-		local ContentLines = {}
-
-		if type(HeaderText) == "string" and HeaderText ~= "" then
-			table.insert(ContentLines, HeaderText)
-		end
+		local ContentLines = {
+			buildDiagnosticHeadline(HeaderText or "Stamina diagnostics.")
+		}
 
 		for _, Line in ipairs(buildDiagnosticLines(MaxSummaryLines)) do
 			table.insert(ContentLines, Line)
 		end
 
-		Notification:Notify({
-			Title = "FATALITY",
-			Content = table.concat(ContentLines, "\n"),
-			Icon = IconName or "info"
-		})
+		emitDiagnosticConsole(ContentLines)
+
+		if Notification then
+			Notification:Notify({
+				Title = "FATALITY",
+				Content = table.concat(ContentLines, "\n"),
+				Icon = IconName or "info"
+			})
+		end
 	end
 
 	local function requestFailureCapture()
@@ -1559,10 +1597,6 @@ return function(Config)
 	end
 
 	local function warnMissingHandles()
-		if not Notification then
-			return
-		end
-
 		local Now = os.clock()
 
 		if (Now - StaminaFeature.LastWarnAt) < StaminaFeature.WarnCooldown then
@@ -1572,7 +1606,7 @@ return function(Config)
 		StaminaFeature.LastWarnAt = Now
 		local CaptureStarted = requestFailureCapture()
 		local ContentLines = {
-			"Inf stamina could not find logic stamina handles yet."
+			buildDiagnosticHeadline("Inf stamina could not find logic stamina handles yet.")
 		}
 
 		if CaptureStarted then
@@ -1583,11 +1617,15 @@ return function(Config)
 			table.insert(ContentLines, Line)
 		end
 
-		Notification:Notify({
-			Title = "FATALITY",
-			Content = table.concat(ContentLines, "\n"),
-			Icon = "alert-circle"
-		})
+		emitDiagnosticConsole(ContentLines)
+
+		if Notification then
+			Notification:Notify({
+				Title = "FATALITY",
+				Content = table.concat(ContentLines, "\n"),
+				Icon = "alert-circle"
+			})
+		end
 	end
 
 	local function shouldRunRuntime()
