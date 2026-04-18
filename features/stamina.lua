@@ -7,13 +7,14 @@ return function(Config)
 
 	local StaminaFeature = {
 		Enabled = false,
-		Connection = nil,
+		Connections = {},
 		CharacterAddedConnection = nil,
 		ResolveInterval = 1,
 		LastResolveAt = 0,
 		LastKnownMax = nil,
 		LastWarnAt = 0,
 		WarnCooldown = 5,
+		StepBusy = false,
 		Handles = {
 			Current = {},
 			Max = {},
@@ -27,20 +28,45 @@ return function(Config)
 		"Stamina",
 		"StaminaInStat",
 		"CurrentStamina",
-		"StaminaValue"
+		"StaminaValue",
+		"DashStamina",
+		"SprintStamina",
+		"RunStamina",
+		"AttackStamina",
+		"CombatStamina"
 	}
 	local MaxAliases = {
 		"MaxStamina",
 		"MaximumStamina",
-		"StaminaMax"
+		"StaminaMax",
+		"MaxDashStamina",
+		"MaxSprintStamina",
+		"MaxRunStamina",
+		"MaxCombatStamina"
 	}
 	local FlagAliases = {
-		"NoStaminaCost"
+		"NoStaminaCost",
+		"NoEeveeDeplete",
+		"NoCooldown",
+		"NoDashCooldown",
+		"NoSprintCooldown",
+		"NoDashCost",
+		"NoSprintCost",
+		"NoAttackCost"
 	}
 	local GuardAliases = {
 		"Exhaustion",
 		"BodyFatigue",
-		"BodyFatique"
+		"BodyFatique",
+		"EeveeDeplete",
+		"StaminaDrain",
+		"StaminaCost",
+		"DashCost",
+		"SprintCost",
+		"AttackCost",
+		"DashCooldown",
+		"SprintCooldown",
+		"AttackCooldown"
 	}
 
 	local function createAliasLookup(Aliases)
@@ -98,10 +124,23 @@ return function(Config)
 		return nil
 	end
 
+	local function findEntity()
+		local Entities = workspace:FindFirstChild("Entities")
+
+		if not Entities then
+			return nil
+		end
+
+		return Entities:FindFirstChild(LocalPlayer.Name)
+	end
+
 	local function buildSearchRoots()
 		local Character = LocalPlayer.Character
+		local Entity = findEntity()
 		local MainScript = findMainScript()
 		local Stats = MainScript and MainScript:FindFirstChild("Stats")
+		local PlayerGui = LocalPlayer:FindFirstChild("PlayerGui")
+		local PlayerScripts = LocalPlayer:FindFirstChild("PlayerScripts")
 		local Roots = {}
 		local Seen = {}
 
@@ -116,10 +155,13 @@ return function(Config)
 
 		addRoot(Stats)
 		addRoot(MainScript)
+		addRoot(Entity)
 		addRoot(LocalPlayer:FindFirstChild("Stats"))
 		addRoot(Character and Character:FindFirstChild("Stats"))
 		addRoot(LocalPlayer:FindFirstChild("Data"))
 		addRoot(Character and Character:FindFirstChild("Data"))
+		addRoot(PlayerGui)
+		addRoot(PlayerScripts)
 		addRoot(Character)
 		addRoot(LocalPlayer)
 
@@ -247,16 +289,34 @@ return function(Config)
 
 	local function classifyName(Name)
 		local Lower = string.lower(Name)
+		local HasStaminaName = string.find(Lower, "stamina", 1, true) ~= nil
+		local HasDashName = string.find(Lower, "dash", 1, true) ~= nil
+		local HasSprintName = string.find(Lower, "sprint", 1, true) ~= nil
+		local HasRunName = string.find(Lower, "run", 1, true) ~= nil
+		local HasAttackName = string.find(Lower, "attack", 1, true) ~= nil
+		local HasActionName = HasStaminaName or HasDashName or HasSprintName or HasRunName or HasAttackName
+		local HasMaxName = string.find(Lower, "max", 1, true) ~= nil or string.find(Lower, "maximum", 1, true) ~= nil
+		local HasCostName = string.find(Lower, "cost", 1, true) ~= nil
+		local HasDrainName = string.find(Lower, "drain", 1, true) ~= nil
+		local HasDepleteName = string.find(Lower, "deplete", 1, true) ~= nil
+		local HasCooldownName = string.find(Lower, "cooldown", 1, true) ~= nil
+		local HasDelayName = string.find(Lower, "delay", 1, true) ~= nil
+		local HasPercentName = string.find(Lower, "percent", 1, true) ~= nil or string.find(Lower, "ratio", 1, true) ~= nil
 
-		if FlagLookup[Lower] then
+		if FlagLookup[Lower]
+			or (string.sub(Lower, 1, 2) == "no" and (HasActionName or HasCooldownName or HasCostName or HasDepleteName or HasDrainName)) then
 			return "Flags"
 		end
 
-		if GuardLookup[Lower] then
+		if GuardLookup[Lower]
+			or string.find(Lower, "fatigue", 1, true)
+			or string.find(Lower, "fatique", 1, true)
+			or string.find(Lower, "exhaust", 1, true)
+			or ((HasActionName or string.find(Lower, "eevee", 1, true)) and (HasCostName or HasDrainName or HasDepleteName or HasCooldownName)) then
 			return "Guard"
 		end
 
-		if MaxLookup[Lower] or (string.find(Lower, "stamina", 1, true) and string.find(Lower, "max", 1, true)) then
+		if MaxLookup[Lower] or (HasStaminaName and HasMaxName) then
 			return "Max"
 		end
 
@@ -264,12 +324,16 @@ return function(Config)
 			return "Current"
 		end
 
-		if string.find(Lower, "stamina", 1, true)
-			and not string.find(Lower, "max", 1, true)
-			and not string.find(Lower, "cost", 1, true)
+		if HasStaminaName
+			and not HasMaxName
+			and not HasCostName
+			and not HasDrainName
+			and not HasDepleteName
+			and not HasCooldownName
+			and not HasDelayName
+			and not HasPercentName
 			and not string.find(Lower, "regen", 1, true)
-			and not string.find(Lower, "recover", 1, true)
-			and not string.find(Lower, "delay", 1, true) then
+			and not string.find(Lower, "recover", 1, true) then
 			return "Current"
 		end
 
@@ -295,6 +359,14 @@ return function(Config)
 		table.clear(StaminaFeature.Handles.Max)
 		table.clear(StaminaFeature.Handles.Flags)
 		table.clear(StaminaFeature.Handles.Guard)
+	end
+
+	local function disconnectConnections()
+		for _, Connection in ipairs(StaminaFeature.Connections) do
+			Connection:Disconnect()
+		end
+
+		table.clear(StaminaFeature.Connections)
 	end
 
 	local function resolveHandles(ForceRefresh)
@@ -536,26 +608,41 @@ return function(Config)
 	end
 
 	local function step()
-		resolveHandles(false)
-
-		local TargetMax = computeTargetMax()
-		local HasCurrentHandles = #StaminaFeature.Handles.Current > 0
-		local HasSupportHandles = #StaminaFeature.Handles.Flags > 0 or #StaminaFeature.Handles.Guard > 0
-
-		if not HasCurrentHandles and not HasSupportHandles then
-			warnMissingHandles()
+		if StaminaFeature.StepBusy then
 			return false
 		end
 
-		applyFlagHandles()
-		applyGuardHandles()
-		applyMaxHandles(TargetMax)
+		StaminaFeature.StepBusy = true
+		local Success, Result = pcall(function()
+			resolveHandles(false)
 
-		if HasCurrentHandles then
-			return applyCurrentHandles(TargetMax)
+			local TargetMax = computeTargetMax()
+			local HasCurrentHandles = #StaminaFeature.Handles.Current > 0
+			local HasSupportHandles = #StaminaFeature.Handles.Flags > 0 or #StaminaFeature.Handles.Guard > 0
+
+			if not HasCurrentHandles and not HasSupportHandles then
+				warnMissingHandles()
+				return false
+			end
+
+			applyFlagHandles()
+			applyGuardHandles()
+			applyMaxHandles(TargetMax)
+
+			if HasCurrentHandles then
+				return applyCurrentHandles(TargetMax)
+			end
+
+			return HasSupportHandles
+		end)
+
+		StaminaFeature.StepBusy = false
+
+		if Success then
+			return Result
 		end
 
-		return HasSupportHandles
+		return false
 	end
 
 	function StaminaFeature:SetEnabled(Value)
@@ -565,22 +652,27 @@ return function(Config)
 		if self.Enabled then
 			step()
 
-			if not self.Connection then
-				self.Connection = RunService.Heartbeat:Connect(function()
-					if not self.Enabled then
-						return
+			if #self.Connections == 0 then
+				table.insert(self.Connections, RunService.RenderStepped:Connect(function()
+					if self.Enabled then
+						step()
 					end
-
-					step()
-				end)
+				end))
+				table.insert(self.Connections, RunService.Stepped:Connect(function()
+					if self.Enabled then
+						step()
+					end
+				end))
+				table.insert(self.Connections, RunService.Heartbeat:Connect(function()
+					if self.Enabled then
+						step()
+					end
+				end))
 			end
 		else
 			restoreOriginalFlags()
-
-			if self.Connection then
-				self.Connection:Disconnect()
-				self.Connection = nil
-			end
+			self.StepBusy = false
+			disconnectConnections()
 		end
 
 		return true
@@ -589,11 +681,8 @@ return function(Config)
 	function StaminaFeature:Destroy()
 		self.Enabled = false
 		restoreOriginalFlags()
-
-		if self.Connection then
-			self.Connection:Disconnect()
-			self.Connection = nil
-		end
+		self.StepBusy = false
+		disconnectConnections()
 
 		if self.CharacterAddedConnection then
 			self.CharacterAddedConnection:Disconnect()
