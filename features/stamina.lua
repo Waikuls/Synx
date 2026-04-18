@@ -124,6 +124,7 @@ return function(Config)
 		LastKnownTargets = {},
 		LastKnownMaxTargets = {},
 		LastFailureReason = "idle",
+		LastSupportIssue = "",
 		LastStatusSummary = {},
 		LastActionProfile = "Free",
 		LastEffectiveLogicAt = 0,
@@ -1816,7 +1817,7 @@ return function(Config)
 		local FlagLabel = getHandleCandidateLabel("Flags", isRuntimeFlagCandidate)
 		local SpendLabel = getHandleCandidateLabel("Spend", isRuntimeSpendCandidate)
 
-		return string.format(
+		local BaseLine = string.format(
 			"State=%s Reason=%s Profile=%s Logic C=%d M=%d Display C=%d M=%d Handles C=%d M=%d F=%d S=%d Primary=%s Flag=%s Spend=%s",
 			tostring(StaminaFeature.VerificationState or "idle"),
 			tostring(StaminaFeature.LastFailureReason or "none"),
@@ -1833,6 +1834,13 @@ return function(Config)
 			FlagLabel,
 			SpendLabel
 		)
+
+		if type(StaminaFeature.LastSupportIssue) == "string"
+			and StaminaFeature.LastSupportIssue ~= "" then
+			return BaseLine .. " SupportIssue=" .. StaminaFeature.LastSupportIssue
+		end
+
+		return BaseLine
 	end
 
 	local function refreshStatusSummary()
@@ -1927,7 +1935,7 @@ return function(Config)
 		StaminaFeature.LastActionProfile = NormalizedProfile
 		refreshStatusSummary()
 
-		if StateChanged then
+		if StateChanged or StaminaFeature.LastSupportIssue ~= "" then
 			emitStatusConsole()
 		end
 	end
@@ -2119,6 +2127,122 @@ return function(Config)
 		return false
 	end
 
+	local function getRuntimeSupportPriority(Candidate, GroupName)
+		if not Candidate then
+			return nil
+		end
+
+		local NameLower = Candidate.NameLower or ""
+		local Score = 0
+
+		if NameLower == "issprinting" or NameLower == "offensive" then
+			return nil
+		end
+
+		if Candidate.ExactAlias == true then
+			Score = Score + 4
+		end
+
+		if Candidate.SourceKind == "instance"
+			and isMainScriptStatsHandle(Candidate.Handle) then
+			Score = Score + 3
+		end
+
+		if hasStrongPrimarySiblingHandle(Candidate) then
+			Score = Score + 6
+		end
+
+		if GroupName == "Flags" then
+			if NameLower == "nostaminacost" then
+				Score = Score + 8
+			elseif NameLower == "cansprint"
+				or NameLower == "canrun"
+				or NameLower == "candash"
+				or NameLower == "canattack" then
+				Score = Score + 2
+			elseif string.find(NameLower, "stamina", 1, true) ~= nil then
+				Score = Score + 3
+			end
+		elseif GroupName == "Spend" then
+			if string.find(NameLower, "eevee", 1, true) ~= nil then
+				Score = Score + 5
+			end
+
+			if string.find(NameLower, "deplete", 1, true) ~= nil
+				or string.find(NameLower, "cost", 1, true) ~= nil
+				or string.find(NameLower, "exhaust", 1, true) ~= nil then
+				Score = Score + 3
+			elseif string.find(NameLower, "stamina", 1, true) ~= nil then
+				Score = Score + 2
+			end
+		end
+
+		return Score > 0 and Score or nil
+	end
+
+	local function collectPreferredSupportEntries(GroupName, Predicate)
+		local Group = StaminaFeature.Handles[GroupName]
+
+		if type(Group) ~= "table" or type(Predicate) ~= "function" then
+			return {}
+		end
+
+		local Entries = {}
+		local BestScore = nil
+
+		for _, Entry in ipairs(Group) do
+			if Predicate(Entry.Candidate) then
+				local Score = getRuntimeSupportPriority(Entry.Candidate, GroupName)
+
+				if Score ~= nil then
+					if BestScore == nil or Score > BestScore then
+						BestScore = Score
+						Entries = {Entry}
+					elseif Score == BestScore then
+						table.insert(Entries, Entry)
+					end
+				end
+			end
+		end
+
+		if #Entries > 0 then
+			return Entries
+		end
+
+		for _, Entry in ipairs(Group) do
+			if Predicate(Entry.Candidate) then
+				table.insert(Entries, Entry)
+			end
+		end
+
+		return Entries
+	end
+
+	local function getPreferredRuntimeFlagEntries()
+		return collectPreferredSupportEntries("Flags", isRuntimeFlagCandidate)
+	end
+
+	local function getPreferredRuntimeSpendEntries()
+		return collectPreferredSupportEntries("Spend", isRuntimeSpendCandidate)
+	end
+
+	local function setSupportIssue(GroupName, Entry, ObservedValue, DesiredValue, Context)
+		local Label = Entry and Entry.Candidate and getCandidateConsoleLabel(Entry.Candidate) or "none"
+
+		StaminaFeature.LastSupportIssue = string.format(
+			"%s:%s obs=%s want=%s ctx=%s",
+			tostring(GroupName or "?"),
+			Label,
+			summarizeValue(ObservedValue),
+			summarizeValue(DesiredValue),
+			tostring(Context or "none")
+		)
+	end
+
+	local function clearSupportIssue()
+		StaminaFeature.LastSupportIssue = ""
+	end
+
 	isRuntimeSpendCandidate = function(Candidate)
 		if not isSpendCandidate(Candidate) then
 			return false
@@ -2172,19 +2296,8 @@ return function(Config)
 	end
 
 	local function hasSupportHandles()
-		for _, Entry in ipairs(StaminaFeature.Handles.Flags) do
-			if isRuntimeFlagCandidate(Entry.Candidate) then
-				return true
-			end
-		end
-
-		for _, Entry in ipairs(StaminaFeature.Handles.Spend) do
-			if isRuntimeSpendCandidate(Entry.Candidate) then
-				return true
-			end
-		end
-
-		return false
+		return #getPreferredRuntimeFlagEntries() > 0
+			or #getPreferredRuntimeSpendEntries() > 0
 	end
 
 	local function hasHandles()
@@ -3788,18 +3901,16 @@ return function(Config)
 	end
 
 	local function rememberOriginalFlags()
-		for _, Entry in ipairs(StaminaFeature.Handles.Flags) do
-			if isRuntimeFlagCandidate(Entry.Candidate)
-				and StaminaFeature.OriginalFlagValues[Entry.Key] == nil then
+		for _, Entry in ipairs(getPreferredRuntimeFlagEntries()) do
+			if StaminaFeature.OriginalFlagValues[Entry.Key] == nil then
 				StaminaFeature.OriginalFlagValues[Entry.Key] = readEntryValue(Entry)
 			end
 		end
 	end
 
 	local function rememberOriginalSpends()
-		for _, Entry in ipairs(StaminaFeature.Handles.Spend) do
-			if isRuntimeSpendCandidate(Entry.Candidate)
-				and StaminaFeature.OriginalSpendValues[Entry.Key] == nil then
+		for _, Entry in ipairs(getPreferredRuntimeSpendEntries()) do
+			if StaminaFeature.OriginalSpendValues[Entry.Key] == nil then
 				StaminaFeature.OriginalSpendValues[Entry.Key] = readEntryValue(Entry)
 			end
 		end
@@ -3808,14 +3919,19 @@ return function(Config)
 	local function applyFlags()
 		rememberOriginalFlags()
 
-		for _, Entry in ipairs(StaminaFeature.Handles.Flags) do
-			if isRuntimeFlagCandidate(Entry.Candidate) then
-				local CurrentValue = readEntryValue(Entry)
-				local CanRewrite = supportsSafeRuntimeRewrite("Flags", CurrentValue, Entry.Candidate)
-				local DesiredValue = getTruthyValue(CurrentValue)
+		for _, Entry in ipairs(getPreferredRuntimeFlagEntries()) do
+			local CurrentValue = readEntryValue(Entry)
+			local CanRewrite = supportsSafeRuntimeRewrite("Flags", CurrentValue, Entry.Candidate)
+			local DesiredValue = getTruthyValue(CurrentValue)
 
-				if CanRewrite and CurrentValue ~= DesiredValue then
-					writeEntryValue(Entry, DesiredValue)
+			if CanRewrite and not valuesEquivalent(CurrentValue, DesiredValue) then
+				local WriteSuccess = writeEntryValue(Entry, DesiredValue)
+				local ReadBackValue = readEntryValue(Entry)
+
+				if not WriteSuccess then
+					setSupportIssue("flag", Entry, CurrentValue, DesiredValue, "write_failed")
+				elseif not valuesEquivalent(ReadBackValue, DesiredValue) then
+					setSupportIssue("flag", Entry, ReadBackValue, DesiredValue, "write_reverted")
 				end
 			end
 		end
@@ -3824,14 +3940,19 @@ return function(Config)
 	local function applySpend()
 		rememberOriginalSpends()
 
-		for _, Entry in ipairs(StaminaFeature.Handles.Spend) do
-			if isRuntimeSpendCandidate(Entry.Candidate) then
-				local CurrentValue = readEntryValue(Entry)
-				local CanRewrite = supportsSafeRuntimeRewrite("Spend", CurrentValue, Entry.Candidate)
-				local DesiredValue = getZeroLikeValue(CurrentValue)
+		for _, Entry in ipairs(getPreferredRuntimeSpendEntries()) do
+			local CurrentValue = readEntryValue(Entry)
+			local CanRewrite = supportsSafeRuntimeRewrite("Spend", CurrentValue, Entry.Candidate)
+			local DesiredValue = getZeroLikeValue(CurrentValue)
 
-				if CanRewrite and CurrentValue ~= DesiredValue then
-					writeEntryValue(Entry, DesiredValue)
+			if CanRewrite and not valuesEquivalent(CurrentValue, DesiredValue) then
+				local WriteSuccess = writeEntryValue(Entry, DesiredValue)
+				local ReadBackValue = readEntryValue(Entry)
+
+				if not WriteSuccess then
+					setSupportIssue("spend", Entry, CurrentValue, DesiredValue, "write_failed")
+				elseif not valuesEquivalent(ReadBackValue, DesiredValue) then
+					setSupportIssue("spend", Entry, ReadBackValue, DesiredValue, "write_reverted")
 				end
 			end
 		end
@@ -3928,6 +4049,8 @@ return function(Config)
 		local DropDetected = false
 		local FailureReason = nil
 		local SupportHandles = hasSupportHandles()
+		local PreferredFlagEntries = getPreferredRuntimeFlagEntries()
+		local PreferredSpendEntries = getPreferredRuntimeSpendEntries()
 
 		if Profile == "Free" and Metrics.ToolEquipped and RecentExternalPressure then
 			Profile = "Attack"
@@ -3947,28 +4070,26 @@ return function(Config)
 		if not hasLogicPrimaryHandles() then
 			if SupportHandles then
 				if ActionPressure then
-					for _, Entry in ipairs(StaminaFeature.Handles.Flags) do
-						if isRuntimeFlagCandidate(Entry.Candidate) then
-							local CurrentValue = readEntryValue(Entry)
-							local DesiredValue = getTruthyValue(CurrentValue)
+					for _, Entry in ipairs(PreferredFlagEntries) do
+						local CurrentValue = readEntryValue(Entry)
+						local DesiredValue = getTruthyValue(CurrentValue)
 
-							if not valuesEquivalent(CurrentValue, DesiredValue) then
-								FailureReason = string.lower(Profile) .. "_flag_blocked"
-								break
-							end
+						if not valuesEquivalent(CurrentValue, DesiredValue) then
+							setSupportIssue("flag", Entry, CurrentValue, DesiredValue, "verify")
+							FailureReason = string.lower(Profile) .. "_flag_blocked"
+							break
 						end
 					end
 
 					if not FailureReason then
-						for _, Entry in ipairs(StaminaFeature.Handles.Spend) do
-							if isRuntimeSpendCandidate(Entry.Candidate) then
-								local CurrentValue = readEntryValue(Entry)
-								local DesiredValue = getZeroLikeValue(CurrentValue)
+						for _, Entry in ipairs(PreferredSpendEntries) do
+							local CurrentValue = readEntryValue(Entry)
+							local DesiredValue = getZeroLikeValue(CurrentValue)
 
-								if not valuesEquivalent(CurrentValue, DesiredValue) then
-									FailureReason = string.lower(Profile) .. "_spend_locked"
-									break
-								end
+							if not valuesEquivalent(CurrentValue, DesiredValue) then
+								setSupportIssue("spend", Entry, CurrentValue, DesiredValue, "verify")
+								FailureReason = string.lower(Profile) .. "_spend_locked"
+								break
 							end
 						end
 					end
@@ -4011,28 +4132,26 @@ return function(Config)
 		end
 
 		if ActionPressure then
-			for _, Entry in ipairs(StaminaFeature.Handles.Flags) do
-				if isRuntimeFlagCandidate(Entry.Candidate) then
-					local CurrentValue = readEntryValue(Entry)
-					local DesiredValue = getTruthyValue(CurrentValue)
+			for _, Entry in ipairs(PreferredFlagEntries) do
+				local CurrentValue = readEntryValue(Entry)
+				local DesiredValue = getTruthyValue(CurrentValue)
 
-					if not valuesEquivalent(CurrentValue, DesiredValue) then
-						FailureReason = string.lower(Profile) .. "_flag_blocked"
-						break
-					end
+				if not valuesEquivalent(CurrentValue, DesiredValue) then
+					setSupportIssue("flag", Entry, CurrentValue, DesiredValue, "verify")
+					FailureReason = string.lower(Profile) .. "_flag_blocked"
+					break
 				end
 			end
 
 			if not FailureReason then
-				for _, Entry in ipairs(StaminaFeature.Handles.Spend) do
-					if isRuntimeSpendCandidate(Entry.Candidate) then
-						local CurrentValue = readEntryValue(Entry)
-						local DesiredValue = getZeroLikeValue(CurrentValue)
+				for _, Entry in ipairs(PreferredSpendEntries) do
+					local CurrentValue = readEntryValue(Entry)
+					local DesiredValue = getZeroLikeValue(CurrentValue)
 
-						if not valuesEquivalent(CurrentValue, DesiredValue) then
-							FailureReason = string.lower(Profile) .. "_spend_locked"
-							break
-						end
+					if not valuesEquivalent(CurrentValue, DesiredValue) then
+						setSupportIssue("spend", Entry, CurrentValue, DesiredValue, "verify")
+						FailureReason = string.lower(Profile) .. "_spend_locked"
+						break
 					end
 				end
 			end
@@ -4530,6 +4649,7 @@ return function(Config)
 				return true
 			end
 
+			clearSupportIssue()
 			applyFlags()
 			applySpend()
 			applyMaxHandles()
@@ -4592,6 +4712,7 @@ return function(Config)
 		self.StepQueued = false
 		self.GcResolveQueued = false
 		self.DropEventCount = 0
+		self.LastSupportIssue = ""
 		self.LastRecoveryAt = 0
 		self.LastEffectiveLogicAt = 0
 		self.LastStepErrorAt = 0
@@ -4629,6 +4750,7 @@ return function(Config)
 		self.StepQueued = false
 		self.GcResolveQueued = false
 		self.DropEventCount = 0
+		self.LastSupportIssue = ""
 		self.LastRecoveryAt = 0
 		self.LastEffectiveLogicAt = 0
 		self.LastStepErrorAt = 0
@@ -4673,6 +4795,7 @@ return function(Config)
 		StaminaFeature.StepQueued = false
 		StaminaFeature.GcResolveQueued = false
 		StaminaFeature.DropEventCount = 0
+		StaminaFeature.LastSupportIssue = ""
 		StaminaFeature.LastRecoveryAt = 0
 		StaminaFeature.LastEffectiveLogicAt = 0
 		StaminaFeature.LastStepErrorAt = 0
