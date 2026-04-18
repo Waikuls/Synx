@@ -122,6 +122,7 @@ return function(Config)
 		LastRecoveryAt = 0,
 		RecoveryCooldown = 4,
 		LastKnownTargets = {},
+		LastKnownMaxTargets = {},
 		LastFailureReason = "idle",
 		LastStatusSummary = {},
 		LastActionProfile = "Free",
@@ -2752,48 +2753,75 @@ return function(Config)
 		StaminaFeature.LastResolveAt = Now
 	end
 
-	local function mergeTargets(NewTargets)
-		local Merged = {}
+	local function mergeTargets(NewCurrentTargets, NewMaxTargets)
+		local MergedCurrent = {}
+		local MergedMax = {}
 
 		for Family, Value in pairs(StaminaFeature.LastKnownTargets) do
-			Merged[Family] = Value
+			MergedCurrent[Family] = Value
 		end
 
-		for Family, Value in pairs(NewTargets) do
+		for Family, Value in pairs(StaminaFeature.LastKnownMaxTargets) do
+			MergedMax[Family] = Value
+		end
+
+		for Family, Value in pairs(NewCurrentTargets) do
 			if Value ~= nil then
-				local PreviousValue = Merged[Family]
+				local PreviousValue = MergedCurrent[Family]
 
 				if typeof(Value) == "number" and typeof(PreviousValue) == "number" then
 					if Value > PreviousValue then
-						Merged[Family] = Value
+						MergedCurrent[Family] = Value
 					end
-				else
-					Merged[Family] = Value
+				elseif PreviousValue == nil then
+					MergedCurrent[Family] = Value
 				end
 			end
 		end
 
-		StaminaFeature.LastKnownTargets = Merged
+		for Family, Value in pairs(NewMaxTargets) do
+			if Value ~= nil then
+				local PreviousValue = MergedMax[Family]
+
+				if typeof(Value) == "number" and typeof(PreviousValue) == "number" then
+					if Value > PreviousValue then
+						MergedMax[Family] = Value
+					end
+				else
+					MergedMax[Family] = Value
+				end
+			end
+		end
+
+		StaminaFeature.LastKnownTargets = MergedCurrent
+		StaminaFeature.LastKnownMaxTargets = MergedMax
 	end
 
 	local function computeTargets()
-		local Targets = {}
+		local CurrentTargets = {}
+		local MaxTargets = {}
 
 		local function considerEntry(Entry)
 			local Value = toNumber(readEntryValue(Entry))
 
 			if Value ~= nil then
-				local Current = Targets[Entry.Family]
+				local Current = CurrentTargets[Entry.Family]
 
 				if Current == nil or Value > Current then
-					Targets[Entry.Family] = Value
+					CurrentTargets[Entry.Family] = Value
 				end
 			end
 		end
 
-		for _, Entry in ipairs(StaminaFeature.Handles.Max) do
-			if isLogicLocalCandidate(Entry.Candidate) then
-				considerEntry(Entry)
+		local function considerMaxEntry(Entry)
+			local Value = toNumber(readEntryValue(Entry))
+
+			if Value ~= nil then
+				local Current = MaxTargets[Entry.Family]
+
+				if Current == nil or Value > Current then
+					MaxTargets[Entry.Family] = Value
+				end
 			end
 		end
 
@@ -2804,40 +2832,79 @@ return function(Config)
 		end
 
 		for _, Entry in ipairs(StaminaFeature.Handles.Max) do
-			if Targets[Entry.Family] == nil then
-				considerEntry(Entry)
+			if isLogicLocalCandidate(Entry.Candidate) then
+				considerMaxEntry(Entry)
 			end
 		end
 
 		for _, Entry in ipairs(StaminaFeature.Handles.Current) do
-			if Targets[Entry.Family] == nil then
+			if CurrentTargets[Entry.Family] == nil then
 				considerEntry(Entry)
 			end
 		end
 
-		if Targets.base == nil then
-			for _, Family in ipairs({"dash", "sprint", "run", "combat", "attack"}) do
-				local Value = Targets[Family]
+		for _, Entry in ipairs(StaminaFeature.Handles.Max) do
+			if MaxTargets[Entry.Family] == nil then
+				considerMaxEntry(Entry)
+			end
+		end
 
-				if Value ~= nil and (Targets.base == nil or Value > Targets.base) then
-					Targets.base = Value
+		if CurrentTargets.base == nil then
+			for _, Family in ipairs({"dash", "sprint", "run", "combat", "attack"}) do
+				local Value = CurrentTargets[Family]
+
+				if Value ~= nil and (CurrentTargets.base == nil or Value > CurrentTargets.base) then
+					CurrentTargets.base = Value
 				end
 			end
 		end
 
-		if Targets.base ~= nil then
+		if CurrentTargets.base ~= nil then
 			for _, Family in ipairs({"dash", "sprint", "run", "combat", "attack"}) do
-				if Targets[Family] == nil then
-					Targets[Family] = Targets.base
+				if CurrentTargets[Family] == nil then
+					CurrentTargets[Family] = CurrentTargets.base
 				end
 			end
 		end
 
-		mergeTargets(Targets)
+		if MaxTargets.base == nil then
+			for _, Family in ipairs({"dash", "sprint", "run", "combat", "attack"}) do
+				local Value = MaxTargets[Family]
+
+				if Value ~= nil and (MaxTargets.base == nil or Value > MaxTargets.base) then
+					MaxTargets.base = Value
+				end
+			end
+		end
+
+		if MaxTargets.base ~= nil then
+			for _, Family in ipairs({"dash", "sprint", "run", "combat", "attack"}) do
+				if MaxTargets[Family] == nil then
+					MaxTargets[Family] = MaxTargets.base
+				end
+			end
+		end
+
+		mergeTargets(CurrentTargets, MaxTargets)
 	end
 
-	local function getTargetForEntry(Entry)
+	local function getCurrentTargetForEntry(Entry)
 		local Targets = StaminaFeature.LastKnownTargets
+		local Target = Targets[Entry.Family]
+
+		if Target == nil and Entry.Family ~= "base" then
+			Target = Targets.base
+		end
+
+		if Target == nil then
+			Target = toNumber(readEntryValue(Entry))
+		end
+
+		return Target
+	end
+
+	local function getMaxTargetForEntry(Entry)
+		local Targets = StaminaFeature.LastKnownMaxTargets
 		local Target = Targets[Entry.Family]
 
 		if Target == nil and Entry.Family ~= "base" then
@@ -2901,7 +2968,7 @@ return function(Config)
 
 	local function applyMaxHandles()
 		for _, Entry in ipairs(StaminaFeature.Handles.Max) do
-			local Target = getTargetForEntry(Entry)
+			local Target = getMaxTargetForEntry(Entry)
 			local CurrentValue = toNumber(readEntryValue(Entry))
 
 			if Target ~= nil
@@ -2912,7 +2979,7 @@ return function(Config)
 		end
 
 		for _, Entry in ipairs(StaminaFeature.Handles.Max) do
-			local Target = getTargetForEntry(Entry)
+			local Target = getMaxTargetForEntry(Entry)
 			local CurrentValue = toNumber(readEntryValue(Entry))
 
 			if Target ~= nil
@@ -2928,7 +2995,7 @@ return function(Config)
 		local AppliedDisplay = false
 
 		for _, Entry in ipairs(StaminaFeature.Handles.Current) do
-			local Target = getTargetForEntry(Entry)
+			local Target = getCurrentTargetForEntry(Entry)
 			local CurrentValue = toNumber(readEntryValue(Entry))
 
 			if Target ~= nil
@@ -2943,7 +3010,7 @@ return function(Config)
 		end
 
 		for _, Entry in ipairs(StaminaFeature.Handles.Current) do
-			local Target = getTargetForEntry(Entry)
+			local Target = getCurrentTargetForEntry(Entry)
 			local CurrentValue = toNumber(readEntryValue(Entry))
 
 			if Target ~= nil
@@ -2997,7 +3064,7 @@ return function(Config)
 
 		for _, Entry in ipairs(StaminaFeature.Handles.Current) do
 			if isLogicLocalCandidate(Entry.Candidate) then
-				local Target = getTargetForEntry(Entry)
+				local Target = getCurrentTargetForEntry(Entry)
 				local CurrentValue = toNumber(readEntryValue(Entry))
 
 				if Target ~= nil
@@ -3073,7 +3140,7 @@ return function(Config)
 		local HasDrop = false
 
 		for _, Entry in ipairs(StaminaFeature.Handles.Current) do
-			local Target = getTargetForEntry(Entry)
+			local Target = getCurrentTargetForEntry(Entry)
 			local CurrentValue = toNumber(readEntryValue(Entry))
 
 			if isLogicLocalCandidate(Entry.Candidate) then
@@ -3208,7 +3275,9 @@ return function(Config)
 			return nil, false
 		end
 
-		local Targets = StaminaFeature.LastKnownTargets
+		local Targets = Candidate.Group == "Max"
+			and StaminaFeature.LastKnownMaxTargets
+			or StaminaFeature.LastKnownTargets
 		local Target = Targets[Candidate.Family]
 
 		if Target == nil and Candidate.Family ~= "base" then
@@ -3546,6 +3615,7 @@ return function(Config)
 		self.LastGcResolveAt = 0
 		self.LastStepAt = 0
 		self.LastKnownTargets = {}
+		self.LastKnownMaxTargets = {}
 		self.StepBusy = false
 		self.StepQueued = false
 		self.GcResolveQueued = false
@@ -3612,6 +3682,7 @@ return function(Config)
 		self.LastResolveAt = 0
 		self.LastGcResolveAt = 0
 		self.LastKnownTargets = {}
+		self.LastKnownMaxTargets = {}
 		setVerificationState("idle", "destroyed", "Free")
 		clearScopeCache()
 		clearHandles()
@@ -3623,6 +3694,7 @@ return function(Config)
 		StaminaFeature.LastGcResolveAt = 0
 		StaminaFeature.LastStepAt = 0
 		StaminaFeature.LastKnownTargets = {}
+		StaminaFeature.LastKnownMaxTargets = {}
 		StaminaFeature.StepBusy = false
 		StaminaFeature.StepQueued = false
 		StaminaFeature.GcResolveQueued = false
