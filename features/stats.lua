@@ -436,6 +436,28 @@ return function(Config)
 		end
 	end
 
+	local function appendStaminaStatusLines(TargetPlayer, RightLines)
+		if TargetPlayer ~= LocalPlayer
+			or not StaminaFeature
+			or type(StaminaFeature.GetStatusLines) ~= "function" then
+			return
+		end
+
+		local Success, Lines = pcall(function()
+			return StaminaFeature:GetStatusLines()
+		end)
+
+		if not Success or type(Lines) ~= "table" or #Lines == 0 then
+			return
+		end
+
+		table.insert(RightLines, "INF STAMINA STATUS")
+
+		for _, Line in ipairs(Lines) do
+			table.insert(RightLines, Line)
+		end
+	end
+
 	local function findScale(Character, Name)
 		local Scale = Character and Character:FindFirstChild(Name)
 
@@ -631,6 +653,7 @@ return function(Config)
 		local PreferredLeft, PreferredRight, PreferredCount = buildPreferredPanels(TargetPlayer)
 
 		if PreferredCount >= 4 then
+			appendStaminaStatusLines(TargetPlayer, PreferredRight)
 			appendStaminaDebugLines(TargetPlayer, PreferredRight)
 			return PreferredLeft, PreferredRight
 		end
@@ -689,6 +712,7 @@ return function(Config)
 			table.insert(RightLines, Line)
 		end
 
+		appendStaminaStatusLines(TargetPlayer, RightLines)
 		appendStaminaDebugLines(TargetPlayer, RightLines)
 
 		return LeftLines, RightLines

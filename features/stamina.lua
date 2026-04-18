@@ -119,7 +119,15 @@ return function(Config)
 		LastFailureCaptureAt = 0,
 		FailureCaptureCooldown = 8,
 		AutoFailureCapture = true,
+		LastRecoveryAt = 0,
+		RecoveryCooldown = 4,
 		LastKnownTargets = {},
+		LastFailureReason = "idle",
+		LastStatusSummary = {},
+		LastActionProfile = "Free",
+		LastEffectiveLogicAt = 0,
+		VerificationState = "idle",
+		LastStatusConsoleLine = "",
 		StepBusy = false,
 		StepQueued = false,
 		GcResolveQueued = false,
@@ -937,8 +945,8 @@ return function(Config)
 			return false
 		end
 
-		if SourceKind == "env" or SourceKind == "script-env" or SourceKind == "upvalue" then
-			return true
+		if SourceKind ~= "instance" then
+			return false
 		end
 
 		return (Confidence or 0) >= 105 and isMainScriptLogicHandle(Handle)
@@ -1029,6 +1037,7 @@ return function(Config)
 		Candidate.Promoted = true
 		Candidate.Score = math.max(Candidate.Score or 0, Score or 0)
 		Candidate.PromotionReason = Reason or Candidate.PromotionReason
+		Candidate.LastFailureReason = nil
 	end
 
 	local function normalizeCandidate(Candidate)
@@ -1041,6 +1050,7 @@ return function(Config)
 		end
 
 		Candidate.Promoted = false
+		Candidate.PromotionReason = nil
 	end
 
 	local function upsertLocalCandidate(GroupName, Name, NameLower, Handle, InitialValue, Confidence, SourceKind)
@@ -1076,10 +1086,15 @@ return function(Config)
 				ObservationHits = 0,
 				CaptureHits = 0,
 				Active = true,
-				PromotionReason = nil
+				PromotionReason = nil,
+				FailedVerificationCount = 0,
+				BootstrapBlocked = false,
+				LastFailureReason = nil
 			}
 
-			if ExactAlias and shouldBootstrapLogicHandle(GroupName, Handle, Confidence, SourceKind) then
+			if ExactAlias
+				and not Candidate.BootstrapBlocked
+				and shouldBootstrapLogicHandle(GroupName, Handle, Confidence, SourceKind) then
 				promoteCandidate(Candidate, "logic-local", 7, "exact_logic_bootstrap")
 			elseif GroupName == "Flags" and ExactAlias and (Confidence or 0) >= 85 then
 				promoteCandidate(Candidate, "flags", 5, "exact_flag_bootstrap")
@@ -1104,7 +1119,9 @@ return function(Config)
 		Candidate.Active = true
 		Candidate.LastObservedAt = Now
 
-		if ExactAlias and shouldBootstrapLogicHandle(GroupName, Handle, Candidate.Confidence, Candidate.SourceKind) then
+		if ExactAlias
+			and not Candidate.BootstrapBlocked
+			and shouldBootstrapLogicHandle(GroupName, Handle, Candidate.Confidence, Candidate.SourceKind) then
 			promoteCandidate(Candidate, "logic-local", 7, "exact_logic_bootstrap")
 		end
 
@@ -1389,6 +1406,9 @@ return function(Config)
 			promoteCandidate(Candidate, initialCategoryForGroup(Candidate.Group), 6, "runtime_external_write")
 		elseif Source == "external_write"
 			and (Candidate.Group == "Current" or Candidate.Group == "Max")
+			and Candidate.SourceKind == "instance"
+			and not isMainScriptStatsHandle(Candidate.Handle)
+			and not Candidate.BootstrapBlocked
 			and Candidate.ExternalWriteCount >= 2 then
 			promoteCandidate(Candidate, "logic-local", 6 + Candidate.ExternalWriteCount, "runtime_external_write")
 		end
@@ -1444,6 +1464,11 @@ return function(Config)
 		return Count
 	end
 
+	local isLogicLocalCandidate
+	local isFlagCandidate
+	local isSpendCandidate
+	local isDisplayCandidate
+
 	local function countLogicPrimaryEntries()
 		local CurrentCount = 0
 		local MaxCount = 0
@@ -1465,6 +1490,20 @@ return function(Config)
 
 	local function getDiagnosticSnapshot()
 		local LogicCurrentCount, LogicMaxCount = countLogicPrimaryEntries()
+		local DisplayCurrentCount = 0
+		local DisplayMaxCount = 0
+
+		for _, Entry in ipairs(StaminaFeature.Handles.Current) do
+			if isDisplayCandidate(Entry.Candidate) then
+				DisplayCurrentCount = DisplayCurrentCount + 1
+			end
+		end
+
+		for _, Entry in ipairs(StaminaFeature.Handles.Max) do
+			if isDisplayCandidate(Entry.Candidate) then
+				DisplayMaxCount = DisplayMaxCount + 1
+			end
+		end
 
 		return {
 			HandleCurrentCount = #StaminaFeature.Handles.Current,
@@ -1472,8 +1511,60 @@ return function(Config)
 			HandleFlagCount = #StaminaFeature.Handles.Flags,
 			HandleSpendCount = #StaminaFeature.Handles.Spend,
 			LogicCurrentCount = LogicCurrentCount,
-			LogicMaxCount = LogicMaxCount
+			LogicMaxCount = LogicMaxCount,
+			DisplayCurrentCount = DisplayCurrentCount,
+			DisplayMaxCount = DisplayMaxCount
 		}
+	end
+
+	local function getLastCaptureLabel()
+		local Session = StaminaFeature.CaptureSession
+
+		if Session and Session.State ~= "completed" then
+			return string.format("%s (%s)", tostring(Session.State), tostring(Session.Profile))
+		end
+
+		if #StaminaFeature.LastCaptureSummary > 0 then
+			return tostring(StaminaFeature.LastCaptureSummary[1])
+		end
+
+		return "none"
+	end
+
+	local function buildStatusLines()
+		local Snapshot = getDiagnosticSnapshot()
+
+		return {
+			string.format("State: %s", tostring(StaminaFeature.VerificationState or "idle")),
+			string.format("FailureReason: %s", tostring(StaminaFeature.LastFailureReason or "none")),
+			string.format("Profile: %s", tostring(StaminaFeature.LastActionProfile or "Free")),
+			string.format("LogicHandles: C=%d M=%d", Snapshot.LogicCurrentCount, Snapshot.LogicMaxCount),
+			string.format("DisplayHandles: C=%d M=%d", Snapshot.DisplayCurrentCount, Snapshot.DisplayMaxCount),
+			string.format("LastCapture: %s", getLastCaptureLabel())
+		}
+	end
+
+	local function buildStatusConsoleLine()
+		local Snapshot = getDiagnosticSnapshot()
+
+		return string.format(
+			"State=%s Reason=%s Profile=%s Logic C=%d M=%d Display C=%d M=%d Handles C=%d M=%d F=%d S=%d",
+			tostring(StaminaFeature.VerificationState or "idle"),
+			tostring(StaminaFeature.LastFailureReason or "none"),
+			tostring(StaminaFeature.LastActionProfile or "Free"),
+			Snapshot.LogicCurrentCount,
+			Snapshot.LogicMaxCount,
+			Snapshot.DisplayCurrentCount,
+			Snapshot.DisplayMaxCount,
+			Snapshot.HandleCurrentCount,
+			Snapshot.HandleMaxCount,
+			Snapshot.HandleFlagCount,
+			Snapshot.HandleSpendCount
+		)
+	end
+
+	local function refreshStatusSummary()
+		StaminaFeature.LastStatusSummary = buildStatusLines()
 	end
 
 	local function buildDiagnosticHeadline(HeaderText)
@@ -1542,6 +1633,36 @@ return function(Config)
 		end
 	end
 
+	local function emitStatusConsole()
+		local ConsoleLine = buildStatusConsoleLine()
+
+		if ConsoleLine ~= "" and ConsoleLine ~= StaminaFeature.LastStatusConsoleLine then
+			StaminaFeature.LastStatusConsoleLine = ConsoleLine
+			warn("[Fatality][Stamina] " .. ConsoleLine)
+		end
+	end
+
+	local function setVerificationState(State, Reason, Profile)
+		local NormalizedState = State or "idle"
+		local NormalizedReason = Reason or "none"
+		local NormalizedProfile = Profile or StaminaFeature.LastActionProfile or "Free"
+		local StateChanged = StaminaFeature.VerificationState ~= NormalizedState
+			or StaminaFeature.LastFailureReason ~= NormalizedReason
+			or StaminaFeature.LastActionProfile ~= NormalizedProfile
+
+		StaminaFeature.VerificationState = NormalizedState
+		StaminaFeature.LastFailureReason = NormalizedReason
+		StaminaFeature.LastActionProfile = NormalizedProfile
+		refreshStatusSummary()
+
+		if StateChanged then
+			emitStatusConsole()
+		end
+	end
+
+	local scheduleGcResolve
+	local scheduleStep
+
 	local function notifyDiagnosticSummary(HeaderText, MaxSummaryLines, IconName)
 		local Now = os.clock()
 
@@ -1569,7 +1690,7 @@ return function(Config)
 		end
 	end
 
-	local function requestFailureCapture()
+	local function requestFailureCapture(Profile)
 		if not StaminaFeature.Enabled
 			or StaminaFeature.AutoFailureCapture ~= true then
 			return false
@@ -1590,7 +1711,7 @@ return function(Config)
 		StaminaFeature.LastFailureCaptureAt = Now
 
 		local Success = pcall(function()
-			StaminaFeature:StartDebugCapture(StaminaFeature.DebugProfile)
+			StaminaFeature:StartDebugCapture(Profile or StaminaFeature.DebugProfile)
 		end)
 
 		return Success
@@ -1604,7 +1725,9 @@ return function(Config)
 		end
 
 		StaminaFeature.LastWarnAt = Now
-		local CaptureStarted = requestFailureCapture()
+		local CaptureStarted = requestFailureCapture(
+			StaminaFeature.LastActionProfile ~= "Free" and StaminaFeature.LastActionProfile or StaminaFeature.DebugProfile
+		)
 		local ContentLines = {
 			buildDiagnosticHeadline("Inf stamina could not find logic stamina handles yet.")
 		}
@@ -1654,25 +1777,25 @@ return function(Config)
 		end
 	end
 
-	local function isLogicLocalCandidate(Candidate)
+	isLogicLocalCandidate = function(Candidate)
 		return Candidate
 			and Candidate.Promoted
 			and Candidate.Category == "logic-local"
 	end
 
-	local function isFlagCandidate(Candidate)
+	isFlagCandidate = function(Candidate)
 		return Candidate
 			and Candidate.Promoted
 			and Candidate.Category == "flags"
 	end
 
-	local function isSpendCandidate(Candidate)
+	isSpendCandidate = function(Candidate)
 		return Candidate
 			and Candidate.Promoted
 			and Candidate.Category == "spend"
 	end
 
-	local function isDisplayCandidate(Candidate)
+	isDisplayCandidate = function(Candidate)
 		return Candidate
 			and (
 				Candidate.Category == "display"
@@ -1705,6 +1828,112 @@ return function(Config)
 			or #StaminaFeature.Handles.Max > 0
 			or #StaminaFeature.Handles.Flags > 0
 			or #StaminaFeature.Handles.Spend > 0
+	end
+
+	local function inferRuntimeProfile(Metrics)
+		local Session = StaminaFeature.CaptureSession
+
+		if Session and Session.State ~= "completed" and Session.ActionValid and CaptureProfiles[Session.Profile] then
+			return Session.Profile
+		end
+
+		if Metrics and Metrics.VelocityMagnitude > math.max((Metrics.WalkSpeed or 0) * 1.6, 20) then
+			return "Dash"
+		end
+
+		if Metrics and (
+			Metrics.MoveMagnitude > 0.35
+			or Metrics.VelocityMagnitude > math.max((Metrics.WalkSpeed or 0) * 0.65, 7)
+		) then
+			return "Run"
+		end
+
+		return "Free"
+	end
+
+	local function hasRecentExternalPressure()
+		local RecentCutoff = os.clock() - 1.25
+
+		for _, Group in ipairs({"Current", "Max", "Flags", "Spend"}) do
+			for _, Entry in ipairs(StaminaFeature.Handles[Group]) do
+				local Candidate = Entry.Candidate
+
+				if Candidate
+					and Candidate.ExternalWriteCount > 0
+					and (Candidate.LastChangeTime or 0) >= RecentCutoff then
+					return true
+				end
+			end
+		end
+
+		return false
+	end
+
+	local function noteVerifiedLogic()
+		StaminaFeature.LastEffectiveLogicAt = os.clock()
+
+		for _, Group in ipairs({"Current", "Max"}) do
+			for _, Entry in ipairs(StaminaFeature.Handles[Group]) do
+				local Candidate = Entry.Candidate
+
+				if isLogicLocalCandidate(Candidate) then
+					Candidate.FailedVerificationCount = 0
+					Candidate.LastFailureReason = nil
+				end
+			end
+		end
+	end
+
+	local function demoteIneffectiveLogicCandidates(Reason)
+		local Demoted = 0
+
+		for _, Group in ipairs({"Current", "Max"}) do
+			for _, Entry in ipairs(StaminaFeature.Handles[Group]) do
+				local Candidate = Entry.Candidate
+
+				if isLogicLocalCandidate(Candidate) then
+					Candidate.FailedVerificationCount = (Candidate.FailedVerificationCount or 0) + 1
+					Candidate.LastFailureReason = Reason
+
+					local FailureLimit = Candidate.SourceKind == "instance" and 3 or 2
+
+					if Candidate.FailedVerificationCount >= FailureLimit then
+						Candidate.BootstrapBlocked = true
+						normalizeCandidate(Candidate)
+						Demoted = Demoted + 1
+					end
+				end
+			end
+		end
+
+		return Demoted
+	end
+
+	local function requestFailureRecovery(Profile)
+		if not StaminaFeature.Enabled then
+			return false
+		end
+
+		local Now = os.clock()
+
+		if (Now - StaminaFeature.LastRecoveryAt) < StaminaFeature.RecoveryCooldown then
+			return false
+		end
+
+		StaminaFeature.LastRecoveryAt = Now
+		StaminaFeature.LastResolveAt = 0
+		StaminaFeature.LastGcResolveAt = 0
+		StaminaFeature.DropEventCount = 0
+
+		if CaptureProfiles[Profile] then
+			StaminaFeature.DebugProfile = Profile
+		end
+
+		requestFailureCapture(Profile)
+		scheduleGcResolve()
+		scheduleStep()
+
+		return true
 	end
 
 	local function refreshCaptureWindow(Session)
@@ -1900,6 +2129,7 @@ return function(Config)
 
 		StaminaFeature.LastCaptureSummary = Lines
 		Session.State = "completed"
+		refreshStatusSummary()
 
 		if StaminaFeature.Enabled then
 			if LogicLocalCount > 0 then
@@ -1966,6 +2196,8 @@ return function(Config)
 
 	local function resetCaptureState()
 		clearCaptureSessionState()
+		StaminaFeature.LastFailureCaptureAt = 0
+		StaminaFeature.LastRecoveryAt = 0
 
 		for _, Candidate in ipairs(StaminaFeature.RemoteCandidateOrder) do
 			Candidate.Promoted = false
@@ -1976,6 +2208,9 @@ return function(Config)
 		for _, Candidate in ipairs(StaminaFeature.CandidateOrder) do
 			Candidate.Score = 0
 			Candidate.CaptureHits = 0
+			Candidate.FailedVerificationCount = 0
+			Candidate.BootstrapBlocked = false
+			Candidate.LastFailureReason = nil
 
 			if Candidate.Group == "Flags" then
 				if Candidate.ExactAlias and Candidate.Confidence >= 85 then
@@ -1995,7 +2230,7 @@ return function(Config)
 		end
 	end
 
-	local function scheduleGcResolve()
+	scheduleGcResolve = function()
 		if not shouldRunRuntime()
 			or StaminaFeature.GcResolveQueued
 			or type(getgc) ~= "function" then
@@ -2019,7 +2254,7 @@ return function(Config)
 		end)
 	end
 
-	local function scheduleStep()
+	scheduleStep = function()
 		if not shouldRunRuntime() or StaminaFeature.StepQueued then
 			return
 		end
@@ -2725,6 +2960,104 @@ return function(Config)
 		return AppliedLogic, AppliedDisplay
 	end
 
+	local function evaluateRuntimeVerification(AppliedLogic, AppliedDisplay)
+		local Metrics = getCharacterMetrics()
+		local Profile = inferRuntimeProfile(Metrics)
+		local RecentExternalPressure = hasRecentExternalPressure()
+		local ActionPressure = Profile ~= "Free" or RecentExternalPressure
+		local DropDetected = false
+		local FailureReason = nil
+
+		if Profile == "Free" and Metrics.ToolEquipped and RecentExternalPressure then
+			Profile = "Attack"
+			ActionPressure = true
+		end
+
+		StaminaFeature.LastActionProfile = Profile
+
+		if not hasHandles() then
+			return "searching", "no_handles", Profile, true
+		end
+
+		if not hasPrimaryHandles() or #StaminaFeature.Handles.Current == 0 then
+			return "searching", "missing_primary_handles", Profile, true
+		end
+
+		if not hasLogicPrimaryHandles() then
+			if AppliedDisplay or getDiagnosticSnapshot().DisplayCurrentCount > 0 or getDiagnosticSnapshot().DisplayMaxCount > 0 then
+				return "display_only", "display_handles_only", Profile, true
+			end
+
+			return "searching", "no_logic_handles", Profile, true
+		end
+
+		if not AppliedLogic then
+			return "logic_unverified", "logic_not_applied", Profile, true
+		end
+
+		for _, Entry in ipairs(StaminaFeature.Handles.Current) do
+			if isLogicLocalCandidate(Entry.Candidate) then
+				local Target = getTargetForEntry(Entry)
+				local CurrentValue = toNumber(readEntryValue(Entry))
+
+				if Target ~= nil
+					and CurrentValue ~= nil
+					and CurrentValue < (Target - StaminaFeature.DropThreshold) then
+					DropDetected = true
+					break
+				end
+			end
+		end
+
+		if ActionPressure then
+			for _, Entry in ipairs(StaminaFeature.Handles.Flags) do
+				if isFlagCandidate(Entry.Candidate) then
+					local CurrentValue = readEntryValue(Entry)
+					local DesiredValue = getTruthyValue(CurrentValue)
+
+					if not valuesEquivalent(CurrentValue, DesiredValue) then
+						FailureReason = string.lower(Profile) .. "_flag_blocked"
+						break
+					end
+				end
+			end
+
+			if not FailureReason then
+				for _, Entry in ipairs(StaminaFeature.Handles.Spend) do
+					if isSpendCandidate(Entry.Candidate) then
+						local CurrentValue = readEntryValue(Entry)
+						local DesiredValue = getZeroLikeValue(CurrentValue)
+
+						if not valuesEquivalent(CurrentValue, DesiredValue) then
+							FailureReason = string.lower(Profile) .. "_spend_locked"
+							break
+						end
+					end
+				end
+			end
+		end
+
+		if ActionPressure and DropDetected then
+			return "logic_ineffective", string.lower(Profile) .. "_still_drains", Profile, true
+		end
+
+		if ActionPressure and FailureReason then
+			return "logic_ineffective", FailureReason, Profile, true
+		end
+
+		if ActionPressure then
+			noteVerifiedLogic()
+			return "verified", string.lower(Profile) .. "_stable", Profile, false
+		end
+
+		if StaminaFeature.LastEffectiveLogicAt > 0
+			and (os.clock() - StaminaFeature.LastEffectiveLogicAt) <= 6 then
+			return "verified", "holding", Profile, false
+		end
+
+		return "logic_unverified", "awaiting_action", Profile, false
+	end
+
 	local function shouldQueueGcResolve()
 		if not hasLogicPrimaryHandles() then
 			StaminaFeature.DropEventCount = StaminaFeature.DropEventCount + 1
@@ -3028,6 +3361,7 @@ return function(Config)
 
 		if not self.DebugEnabled then
 			clearCaptureSessionState()
+			refreshStatusSummary()
 		end
 
 		syncHookController()
@@ -3070,8 +3404,21 @@ return function(Config)
 
 	function StaminaFeature:ClearDebugCapture()
 		clearCaptureSessionState()
+		refreshStatusSummary()
 		syncHookController()
 		disconnectHeartbeatIfIdle()
+	end
+
+	function StaminaFeature:GetStatusLines()
+		refreshStatusSummary()
+
+		local Lines = {}
+
+		for _, Line in ipairs(self.LastStatusSummary) do
+			table.insert(Lines, Line)
+		end
+
+		return Lines
 	end
 
 	function StaminaFeature:GetDebugLines()
@@ -3083,7 +3430,10 @@ return function(Config)
 
 		local Lines = {
 			string.format("DebugEnabled: %s", tostring(self.DebugEnabled)),
+			string.format("State: %s", tostring(self.VerificationState or "idle")),
+			string.format("FailureReason: %s", tostring(self.LastFailureReason or "none")),
 			string.format("Profile: %s", self.DebugProfile),
+			string.format("ActionProfile: %s", tostring(self.LastActionProfile or "Free")),
 			string.format("PromotedLocal: %d", countPromotedLocalCandidates()),
 			string.format("PromotedRemote: %d", countPromotedRemoteCandidates()),
 			string.format(
@@ -3131,7 +3481,11 @@ return function(Config)
 				end
 
 				if self.Enabled then
+					setVerificationState("searching", "no_handles", self.LastActionProfile)
+					requestFailureRecovery(self.LastActionProfile ~= "Free" and self.LastActionProfile or self.DebugProfile)
 					warnMissingHandles()
+				else
+					setVerificationState("idle", "disabled", self.LastActionProfile)
 				end
 
 				return false
@@ -3140,6 +3494,7 @@ return function(Config)
 			computeTargets()
 
 			if not self.Enabled then
+				setVerificationState("idle", "disabled", self.LastActionProfile)
 				return true
 			end
 
@@ -3147,6 +3502,13 @@ return function(Config)
 			applySpend()
 			applyMaxHandles()
 			local AppliedLogic, AppliedDisplay = applyCurrentHandles()
+			local VerificationState, FailureReason, ActionProfile, ShouldRecover = evaluateRuntimeVerification(AppliedLogic, AppliedDisplay)
+
+			setVerificationState(VerificationState, FailureReason, ActionProfile)
+
+			if VerificationState == "logic_ineffective" then
+				demoteIneffectiveLogicCandidates(FailureReason)
+			end
 
 			if shouldQueueGcResolve() then
 				self.DropEventCount = 0
@@ -3158,11 +3520,15 @@ return function(Config)
 				end
 			end
 
-			if not AppliedLogic then
+			if ShouldRecover then
+				requestFailureRecovery(ActionProfile ~= "Free" and ActionProfile or self.DebugProfile)
+			end
+
+			if VerificationState == "searching" or VerificationState == "display_only" then
 				warnMissingHandles()
 			end
 
-			return AppliedLogic or AppliedDisplay
+			return VerificationState == "verified" or AppliedLogic or AppliedDisplay
 		end)
 
 		self.StepBusy = false
@@ -3184,6 +3550,8 @@ return function(Config)
 		self.StepQueued = false
 		self.GcResolveQueued = false
 		self.DropEventCount = 0
+		self.LastRecoveryAt = 0
+		self.LastEffectiveLogicAt = 0
 
 		if self.Enabled then
 			clearScopeCache()
@@ -3191,6 +3559,7 @@ return function(Config)
 			syncHookController()
 			installHooks()
 			ensureHeartbeatConnection()
+			setVerificationState("searching", "initializing", self.LastActionProfile)
 			self:Step(true, false)
 
 			if not hasLogicPrimaryHandles() or not hasPrimaryHandles() or #self.Handles.Current == 0 then
@@ -3202,6 +3571,7 @@ return function(Config)
 			resetCaptureState()
 
 			clearHandleSignals()
+			setVerificationState("idle", "disabled", "Free")
 			syncHookController()
 			disconnectHeartbeatIfIdle()
 		end
@@ -3216,6 +3586,8 @@ return function(Config)
 		self.StepQueued = false
 		self.GcResolveQueued = false
 		self.DropEventCount = 0
+		self.LastRecoveryAt = 0
+		self.LastEffectiveLogicAt = 0
 		restoreOriginalFlags()
 		restoreOriginalSpends()
 		resetCaptureState()
@@ -3240,6 +3612,7 @@ return function(Config)
 		self.LastResolveAt = 0
 		self.LastGcResolveAt = 0
 		self.LastKnownTargets = {}
+		setVerificationState("idle", "destroyed", "Free")
 		clearScopeCache()
 		clearHandles()
 		clearRuntimeCandidates()
@@ -3254,6 +3627,8 @@ return function(Config)
 		StaminaFeature.StepQueued = false
 		StaminaFeature.GcResolveQueued = false
 		StaminaFeature.DropEventCount = 0
+		StaminaFeature.LastRecoveryAt = 0
+		StaminaFeature.LastEffectiveLogicAt = 0
 		table.clear(StaminaFeature.OriginalFlagValues)
 		table.clear(StaminaFeature.OriginalSpendValues)
 		resetCaptureState()
@@ -3261,6 +3636,7 @@ return function(Config)
 		clearHandles()
 		clearRuntimeCandidates()
 		syncHookController()
+		setVerificationState(StaminaFeature.Enabled and "searching" or "idle", StaminaFeature.Enabled and "character_reset" or "disabled", "Free")
 
 		if shouldRunRuntime() then
 			scheduleStep()
