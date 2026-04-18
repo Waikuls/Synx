@@ -35,6 +35,22 @@ local function executeSource(SourceCode, SourceLabel)
 end
 
 local function loadScript(LocalPath, RemoteUrl)
+	local LocalErrorMessage
+
+	if type(readfile) == "function" then
+		local Success, Result = pcall(readfile, LocalPath)
+
+		if Success and type(Result) == "string" and Result ~= "" then
+			local ExecuteSuccess, ExecuteResult = pcall(executeSource, Result, LocalPath)
+
+			if ExecuteSuccess then
+				return ExecuteResult
+			end
+
+			LocalErrorMessage = tostring(ExecuteResult)
+		end
+	end
+
 	if type(RemoteUrl) == "string" and RemoteUrl ~= "" then
 		local Success, Result = pcall(function()
 			return game:HttpGet(RemoteUrl)
@@ -47,30 +63,20 @@ local function loadScript(LocalPath, RemoteUrl)
 				return ExecuteResult
 			end
 
-			if type(readfile) ~= "function" then
-				error(string.format("Remote %s failed: %s", LocalPath, tostring(ExecuteResult)), 0)
+			if not LocalErrorMessage then
+				LocalErrorMessage = string.format("Remote %s failed: %s", LocalPath, tostring(ExecuteResult))
 			end
 		end
 	end
 
-	if type(readfile) == "function" then
-		local Success, Result = pcall(readfile, LocalPath)
-
-		if Success and type(Result) == "string" and Result ~= "" then
-			local ExecuteSuccess, ExecuteResult = pcall(executeSource, Result, LocalPath)
-
-			if ExecuteSuccess then
-				return ExecuteResult
-			end
-
-			error(string.format("Local %s failed: %s", LocalPath, tostring(ExecuteResult)), 0)
-		end
+	if LocalErrorMessage then
+		error(LocalErrorMessage, 0)
 	end
 
 	error(string.format("No source available for %s", LocalPath), 0)
 end
 
-local RemoteVersion = "20260418-2"
+local RemoteVersion = "20260418-3"
 
 local function buildRemoteUrl(Path)
 	return string.format("https://raw.githubusercontent.com/Waikuls/Synx/main/%s?v=%s", Path, RemoteVersion)
