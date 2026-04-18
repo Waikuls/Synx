@@ -1309,6 +1309,16 @@ return function(Config)
 		end
 
 		if ValueType == "string" then
+			local Normalized = string.lower(Value)
+
+			if tonumber(Value) ~= nil then
+				return "1"
+			end
+
+			if Normalized == "false" or Normalized == "true" then
+				return "true"
+			end
+
 			return "true"
 		end
 
@@ -1327,20 +1337,70 @@ return function(Config)
 		end
 
 		if ValueType == "string" then
+			local Normalized = string.lower(Value)
+
+			if tonumber(Value) ~= nil then
+				return "0"
+			end
+
+			if Normalized == "false" or Normalized == "true" then
+				return "false"
+			end
+
 			return "0"
 		end
 
 		return 0
 	end
 
-	local function supportsSafeRuntimeRewrite(GroupName, Value)
+	local function supportsScopedStringSupportRewrite(GroupName, Candidate)
+		if not Candidate
+			or Candidate.SourceKind ~= "instance"
+			or not Candidate.Handle
+			or not isMainScriptStatsHandle(Candidate.Handle) then
+			return false
+		end
+
+		local NameLower = Candidate.NameLower or ""
+
+		if GroupName == "Flags" then
+			return Candidate.ExactAlias == true
+				or string.find(NameLower, "stamina", 1, true) ~= nil
+				or string.find(NameLower, "sprint", 1, true) ~= nil
+				or string.find(NameLower, "run", 1, true) ~= nil
+				or string.find(NameLower, "dash", 1, true) ~= nil
+				or string.find(NameLower, "attack", 1, true) ~= nil
+		end
+
+		if GroupName == "Spend" then
+			return Candidate.ExactAlias == true
+				or string.find(NameLower, "stamina", 1, true) ~= nil
+				or string.find(NameLower, "deplete", 1, true) ~= nil
+				or string.find(NameLower, "cost", 1, true) ~= nil
+				or string.find(NameLower, "cooldown", 1, true) ~= nil
+				or string.find(NameLower, "exhaust", 1, true) ~= nil
+				or string.find(NameLower, "eevee", 1, true) ~= nil
+		end
+
+		return false
+	end
+
+	local function supportsSafeRuntimeRewrite(GroupName, Value, Candidate)
 		local ValueType = typeof(Value)
 
 		if GroupName == "Flags" then
+			if ValueType == "string" then
+				return supportsScopedStringSupportRewrite(GroupName, Candidate)
+			end
+
 			return ValueType == "boolean" or ValueType == "number"
 		end
 
 		if GroupName == "Spend" then
+			if ValueType == "string" then
+				return supportsScopedStringSupportRewrite(GroupName, Candidate)
+			end
+
 			return ValueType == "boolean" or ValueType == "number"
 		end
 
@@ -3658,7 +3718,7 @@ return function(Config)
 		for _, Entry in ipairs(StaminaFeature.Handles.Flags) do
 			if isRuntimeFlagCandidate(Entry.Candidate) then
 				local CurrentValue = readEntryValue(Entry)
-				local CanRewrite = supportsSafeRuntimeRewrite("Flags", CurrentValue)
+				local CanRewrite = supportsSafeRuntimeRewrite("Flags", CurrentValue, Entry.Candidate)
 				local DesiredValue = getTruthyValue(CurrentValue)
 
 				if CanRewrite and CurrentValue ~= DesiredValue then
@@ -3674,7 +3734,7 @@ return function(Config)
 		for _, Entry in ipairs(StaminaFeature.Handles.Spend) do
 			if isRuntimeSpendCandidate(Entry.Candidate) then
 				local CurrentValue = readEntryValue(Entry)
-				local CanRewrite = supportsSafeRuntimeRewrite("Spend", CurrentValue)
+				local CanRewrite = supportsSafeRuntimeRewrite("Spend", CurrentValue, Entry.Candidate)
 				local DesiredValue = getZeroLikeValue(CurrentValue)
 
 				if CanRewrite and CurrentValue ~= DesiredValue then
@@ -3691,7 +3751,7 @@ return function(Config)
 			local Target = getMaxTargetForEntry(Entry)
 			local RawValue = readEntryValue(Entry)
 			local CurrentValue = toNumber(RawValue)
-			local CanRewrite = supportsSafeRuntimeRewrite("Max", RawValue)
+			local CanRewrite = supportsSafeRuntimeRewrite("Max", RawValue, Entry.Candidate)
 
 			if Target ~= nil
 				and CanRewrite
@@ -3709,7 +3769,7 @@ return function(Config)
 			local Target = getMaxTargetForEntry(Entry)
 			local RawValue = readEntryValue(Entry)
 			local CurrentValue = toNumber(RawValue)
-			local CanRewrite = supportsSafeRuntimeRewrite("Max", RawValue)
+			local CanRewrite = supportsSafeRuntimeRewrite("Max", RawValue, Entry.Candidate)
 
 			if Target ~= nil
 				and CanRewrite
@@ -3728,7 +3788,7 @@ return function(Config)
 			local Target = getCurrentTargetForEntry(Entry)
 			local RawValue = readEntryValue(Entry)
 			local CurrentValue = toNumber(RawValue)
-			local CanRewrite = supportsSafeRuntimeRewrite("Current", RawValue)
+			local CanRewrite = supportsSafeRuntimeRewrite("Current", RawValue, Entry.Candidate)
 
 			if Target ~= nil
 				and CanRewrite
@@ -3750,7 +3810,7 @@ return function(Config)
 			local Target = getCurrentTargetForEntry(Entry)
 			local RawValue = readEntryValue(Entry)
 			local CurrentValue = toNumber(RawValue)
-			local CanRewrite = supportsSafeRuntimeRewrite("Current", RawValue)
+			local CanRewrite = supportsSafeRuntimeRewrite("Current", RawValue, Entry.Candidate)
 
 			if Target ~= nil
 				and CanRewrite
@@ -4114,7 +4174,7 @@ return function(Config)
 			return nil, false
 		end
 
-		if not supportsSafeRuntimeRewrite(GroupName, IncomingValue) then
+		if not supportsSafeRuntimeRewrite(GroupName, IncomingValue, Candidate) then
 			return nil, false
 		end
 
