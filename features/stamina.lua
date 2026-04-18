@@ -30,9 +30,6 @@ return function(Config)
 			"StaminaInStat",
 			"CurrentStamina",
 			"StaminaValue",
-			"Eevee",
-			"BodyFatigue",
-			"BodyFatique",
 			"DashStamina",
 			"SprintStamina",
 			"RunStamina",
@@ -51,16 +48,13 @@ return function(Config)
 		},
 		Flags = {
 			"NoStaminaCost",
-			"NoCooldown",
-			"NoEeveeDeplete",
 			"CanUseStamina",
 			"HasStamina",
 			"EnoughStamina",
 			"CanDash",
 			"CanSprint",
 			"CanRun",
-			"CanAttack",
-			"Sleeping"
+			"CanAttack"
 		},
 		Spend = {
 			"StaminaCost",
@@ -70,16 +64,6 @@ return function(Config)
 			"LowStamina",
 			"OutOfStamina",
 			"StaminaLocked",
-			"Exhaustion",
-			"Exhausted",
-			"Fatigue",
-			"Fatigued",
-			"Breath",
-			"OutOfBreath",
-			"BreathLocked",
-			"ExhaustionLevel",
-			"FatigueLevel",
-			"EeveeDeplete",
 			"DashCost",
 			"SprintCost",
 			"RunCost",
@@ -90,6 +74,31 @@ return function(Config)
 			"RunCooldown",
 			"CombatCooldown",
 			"AttackCooldown"
+		}
+	}
+
+	local ObservedAliases = {
+		Current = {
+			"Eevee",
+			"BodyFatigue",
+			"BodyFatique"
+		},
+		Flags = {
+			"NoCooldown",
+			"NoEeveeDeplete",
+			"Sleeping"
+		},
+		Spend = {
+			"Exhaustion",
+			"Exhausted",
+			"Fatigue",
+			"Fatigued",
+			"Breath",
+			"OutOfBreath",
+			"BreathLocked",
+			"ExhaustionLevel",
+			"FatigueLevel",
+			"EeveeDeplete"
 		}
 	}
 
@@ -109,6 +118,53 @@ return function(Config)
 		Flags = createLookup(ExactAliases.Flags),
 		Spend = createLookup(ExactAliases.Spend)
 	}
+
+	local ObservedLookups = {
+		Current = createLookup(ObservedAliases.Current),
+		Max = createLookup(ObservedAliases.Max or {}),
+		Flags = createLookup(ObservedAliases.Flags),
+		Spend = createLookup(ObservedAliases.Spend)
+	}
+
+	local function hasLookupValue(Lookup, NameLower)
+		return type(NameLower) == "string"
+			and type(Lookup) == "table"
+			and Lookup[NameLower] == true
+	end
+
+	local function isTrustedAliasName(GroupName, NameLower)
+		return hasLookupValue(Lookups[GroupName], NameLower)
+	end
+
+	local function isObservedAliasName(GroupName, NameLower)
+		return hasLookupValue(ObservedLookups[GroupName], NameLower)
+	end
+
+	local function isKnownAliasName(GroupName, NameLower)
+		return isTrustedAliasName(GroupName, NameLower)
+			or isObservedAliasName(GroupName, NameLower)
+	end
+
+	local function isRejectedSupportName(GroupName, NameLower)
+		if type(NameLower) ~= "string" or NameLower == "" then
+			return false
+		end
+
+		if GroupName == "Flags" then
+			return isObservedAliasName("Flags", NameLower)
+				or string.find(NameLower, "eevee", 1, true) ~= nil
+		end
+
+		if GroupName == "Spend" then
+			return isObservedAliasName("Spend", NameLower)
+				or string.find(NameLower, "exhaust", 1, true) ~= nil
+				or string.find(NameLower, "fatigue", 1, true) ~= nil
+				or string.find(NameLower, "breath", 1, true) ~= nil
+				or string.find(NameLower, "eevee", 1, true) ~= nil
+		end
+
+		return false
+	end
 
 	local ScopeCache = setmetatable({}, {__mode = "k"})
 	local InstanceKeyCache = setmetatable({}, {__mode = "k"})
@@ -985,25 +1041,18 @@ return function(Config)
 		return 0
 	end
 
-	local function shouldBootstrapLogicHandle(GroupName, Handle, Confidence, SourceKind, ExactAlias, NameLower)
+	local function shouldBootstrapLogicHandle(GroupName, Handle, Confidence, SourceKind, TrustedAlias, NameLower)
 		if GroupName ~= "Current" and GroupName ~= "Max" then
 			return false
 		end
 
 		local ConfidenceValue = Confidence or 0
 		local HiddenLogicName = type(NameLower) == "string"
-			and (
-				string.find(NameLower, "stamina", 1, true) ~= nil
-				or string.find(NameLower, "exhaust", 1, true) ~= nil
-				or string.find(NameLower, "fatigue", 1, true) ~= nil
-				or string.find(NameLower, "breath", 1, true) ~= nil
-				or string.find(NameLower, "tired", 1, true) ~= nil
-				or string.find(NameLower, "winded", 1, true) ~= nil
-			)
+			and string.find(NameLower, "stamina", 1, true) ~= nil
 
 		if SourceKind ~= "instance" then
 			if SourceKind == "upvalue" then
-				if ExactAlias == true or HiddenLogicName then
+				if TrustedAlias == true or HiddenLogicName then
 					return ConfidenceValue >= 145
 				end
 
@@ -1011,7 +1060,7 @@ return function(Config)
 			end
 
 			if SourceKind == "table" or SourceKind == "env" then
-				if ExactAlias == true or HiddenLogicName then
+				if TrustedAlias == true or HiddenLogicName then
 					return ConfidenceValue >= 150
 				end
 
@@ -1172,17 +1221,12 @@ return function(Config)
 		end
 
 		return string.find(NameLower, "stamina", 1, true) ~= nil
-			or string.find(NameLower, "eevee", 1, true) ~= nil
-			or string.find(NameLower, "exhaust", 1, true) ~= nil
-			or string.find(NameLower, "endurance", 1, true) ~= nil
-			or string.find(NameLower, "fatigue", 1, true) ~= nil
-			or string.find(NameLower, "breath", 1, true) ~= nil
 	end
 
 	local function isStrongMainScriptStatsPrimaryAlias(Candidate)
 		if not Candidate
 			or Candidate.SourceKind ~= "instance"
-			or not Candidate.ExactAlias
+			or Candidate.TrustedAlias ~= true
 			or not isMainScriptStatsHandle(Candidate.Handle)
 			or (Candidate.Group ~= "Current" and Candidate.Group ~= "Max") then
 			return false
@@ -1192,14 +1236,53 @@ return function(Config)
 
 		return NameLower == "stamina"
 			or NameLower == "staminainstat"
-			or NameLower == "eevee"
-			or NameLower == "bodyfatigue"
-			or NameLower == "bodyfatique"
 			or NameLower == "currentstamina"
 			or NameLower == "staminavalue"
+			or NameLower == "dashstamina"
+			or NameLower == "sprintstamina"
+			or NameLower == "runstamina"
+			or NameLower == "combatstamina"
+			or NameLower == "attackstamina"
 			or NameLower == "maxstamina"
 			or NameLower == "maximumstamina"
 			or NameLower == "staminamax"
+			or NameLower == "maxdashstamina"
+			or NameLower == "maxsprintstamina"
+			or NameLower == "maxrunstamina"
+			or NameLower == "maxcombatstamina"
+			or NameLower == "maxattackstamina"
+	end
+
+	local function isTrustedPrimaryCandidate(Candidate)
+		return Candidate ~= nil
+			and (Candidate.Group == "Current" or Candidate.Group == "Max")
+			and Candidate.TrustedAlias == true
+	end
+
+	local function isRejectedPrimaryCandidate(Candidate)
+		return Candidate ~= nil
+			and (Candidate.Group == "Current" or Candidate.Group == "Max")
+			and Candidate.TrustedAlias ~= true
+			and (
+				Candidate.ObservedAlias == true
+				or Candidate.Category == "logic-local"
+			)
+	end
+
+	local function getRejectedPrimaryReason(Candidate)
+		if not Candidate then
+			return "none"
+		end
+
+		if Candidate.ObservedAlias == true then
+			return "untrusted_secondary_stat"
+		end
+
+		if isStaminaDisplayName(Candidate.NameLower or "") then
+			return "untrusted_stamina_handle"
+		end
+
+		return "non_stamina_handle"
 	end
 
 	local function getHandleScopeInstance(Handle)
@@ -1246,7 +1329,9 @@ return function(Config)
 	local function upsertLocalCandidate(GroupName, Name, NameLower, Handle, InitialValue, Confidence, SourceKind)
 		local RegistryKey = getCandidateRegistryKey(GroupName, Handle)
 		local Candidate = StaminaFeature.CandidateRegistry[RegistryKey]
-		local ExactAlias = Lookups[GroupName] and Lookups[GroupName][NameLower] == true or false
+		local ExactAlias = isKnownAliasName(GroupName, NameLower)
+		local TrustedAlias = isTrustedAliasName(GroupName, NameLower)
+		local ObservedAlias = isObservedAliasName(GroupName, NameLower)
 		local Now = os.clock()
 
 		if not Candidate then
@@ -1262,6 +1347,8 @@ return function(Config)
 				SourceKind = SourceKind or "instance",
 				Confidence = Confidence or 0,
 				ExactAlias = ExactAlias,
+				TrustedAlias = TrustedAlias,
+				ObservedAlias = ObservedAlias,
 				Category = initialCategoryForGroup(GroupName),
 				Promoted = false,
 				Score = 0,
@@ -1284,13 +1371,13 @@ return function(Config)
 				LastFailureReason = nil
 			}
 
-			if ExactAlias
+			if TrustedAlias
 				and not Candidate.BootstrapBlocked
-				and shouldBootstrapLogicHandle(GroupName, Handle, Confidence, SourceKind, ExactAlias, NameLower) then
+				and shouldBootstrapLogicHandle(GroupName, Handle, Confidence, SourceKind, TrustedAlias, NameLower) then
 				promoteCandidate(Candidate, "logic-local", 7, "exact_logic_bootstrap")
-			elseif GroupName == "Flags" and ExactAlias and (Confidence or 0) >= 85 then
+			elseif GroupName == "Flags" and TrustedAlias and (Confidence or 0) >= 85 then
 				promoteCandidate(Candidate, "flags", 5, "exact_flag_bootstrap")
-			elseif GroupName == "Spend" and ExactAlias and (Confidence or 0) >= 85 then
+			elseif GroupName == "Spend" and TrustedAlias and (Confidence or 0) >= 85 then
 				promoteCandidate(Candidate, "spend", 5, "exact_spend_bootstrap")
 			end
 
@@ -1308,12 +1395,14 @@ return function(Config)
 		Candidate.SourceKind = SourceKind or Candidate.SourceKind
 		Candidate.Confidence = math.max(Candidate.Confidence or 0, Confidence or 0)
 		Candidate.ExactAlias = ExactAlias
+		Candidate.TrustedAlias = TrustedAlias
+		Candidate.ObservedAlias = ObservedAlias
 		Candidate.Active = true
 		Candidate.LastObservedAt = Now
 
-		if ExactAlias
+		if TrustedAlias
 			and not Candidate.BootstrapBlocked
-			and shouldBootstrapLogicHandle(GroupName, Handle, Candidate.Confidence, Candidate.SourceKind, ExactAlias, NameLower) then
+			and shouldBootstrapLogicHandle(GroupName, Handle, Candidate.Confidence, Candidate.SourceKind, TrustedAlias, NameLower) then
 			promoteCandidate(Candidate, "logic-local", 7, "exact_logic_bootstrap")
 		end
 
@@ -1421,8 +1510,12 @@ return function(Config)
 
 		local NameLower = Candidate.NameLower or ""
 
+		if isRejectedSupportName(GroupName, NameLower) then
+			return false
+		end
+
 		if GroupName == "Flags" then
-			return Candidate.ExactAlias == true
+			return Candidate.TrustedAlias == true
 				or string.find(NameLower, "stamina", 1, true) ~= nil
 				or string.find(NameLower, "sprint", 1, true) ~= nil
 				or string.find(NameLower, "run", 1, true) ~= nil
@@ -1431,13 +1524,11 @@ return function(Config)
 		end
 
 		if GroupName == "Spend" then
-			return Candidate.ExactAlias == true
+			return Candidate.TrustedAlias == true
 				or string.find(NameLower, "stamina", 1, true) ~= nil
 				or string.find(NameLower, "deplete", 1, true) ~= nil
 				or string.find(NameLower, "cost", 1, true) ~= nil
 				or string.find(NameLower, "cooldown", 1, true) ~= nil
-				or string.find(NameLower, "exhaust", 1, true) ~= nil
-				or string.find(NameLower, "eevee", 1, true) ~= nil
 		end
 
 		return false
@@ -1469,48 +1560,15 @@ return function(Config)
 		return false
 	end
 
-	local DirectStatsFlagTruthLookup = createLookup({
-		"NoStaminaCost",
-		"NoCooldown",
-		"NoEeveeDeplete",
-		"CanUseStamina",
-		"HasStamina",
-		"EnoughStamina",
-		"CanDash",
-		"CanSprint",
-		"CanRun",
-		"CanAttack"
-	})
+	local DirectStatsFlagTruthLookup = createLookup({})
 
-	local DirectStatsFlagFalseLookup = createLookup({
-		"Sleeping"
-	})
+	local DirectStatsFlagFalseLookup = createLookup({})
 
-	local DirectStatsSpendZeroLookup = createLookup({
-		"Exhaustion",
-		"Exhausted",
-		"Fatigue",
-		"Fatigued",
-		"Breath",
-		"OutOfBreath",
-		"BreathLocked",
-		"ExhaustionLevel",
-		"FatigueLevel",
-		"EeveeDeplete"
-	})
+	local DirectStatsSpendZeroLookup = createLookup({})
 
-	local DirectStatsFillToMaxLookup = createLookup({
-		"DownedHealth",
-		"RecoveryHealth"
-	})
+	local DirectStatsFillToMaxLookup = createLookup({})
 
-	local DirectStatsHighWaterLookup = createLookup({
-		"Eevee",
-		"BodyFatigue",
-		"BodyFatique",
-		"DownedHealth",
-		"RecoveryHealth"
-	})
+	local DirectStatsHighWaterLookup = createLookup(ExactAliases.Current)
 
 	local function getCharacterMetrics()
 		local Character = LocalPlayer.Character
@@ -1752,7 +1810,7 @@ return function(Config)
 
 		if Source == "external_write"
 			and (Candidate.Group == "Flags" or Candidate.Group == "Spend")
-			and Candidate.ExactAlias then
+			and Candidate.TrustedAlias == true then
 			promoteCandidate(Candidate, initialCategoryForGroup(Candidate.Group), 6, "runtime_external_write")
 		elseif Source == "external_write"
 			and (Candidate.Group == "Current" or Candidate.Group == "Max")
@@ -1762,7 +1820,8 @@ return function(Config)
 			if isStrongMainScriptStatsPrimaryAlias(Candidate) then
 				Candidate.RuntimePinned = true
 				promoteCandidate(Candidate, "logic-local", 7 + Candidate.ExternalWriteCount, "runtime_stats_external_write")
-			elseif not isMainScriptStatsHandle(Candidate.Handle) then
+			elseif not isMainScriptStatsHandle(Candidate.Handle)
+				and Candidate.TrustedAlias == true then
 				promoteCandidate(Candidate, "logic-local", 6 + Candidate.ExternalWriteCount, "runtime_external_write")
 			end
 		end
@@ -1851,13 +1910,15 @@ return function(Config)
 		local DisplayMaxCount = 0
 
 		for _, Entry in ipairs(StaminaFeature.Handles.Current) do
-			if isDisplayCandidate(Entry.Candidate) then
+			if isDisplayCandidate(Entry.Candidate)
+				and isStaminaDisplayName(Entry.Candidate and Entry.Candidate.NameLower or "") then
 				DisplayCurrentCount = DisplayCurrentCount + 1
 			end
 		end
 
 		for _, Entry in ipairs(StaminaFeature.Handles.Max) do
-			if isDisplayCandidate(Entry.Candidate) then
+			if isDisplayCandidate(Entry.Candidate)
+				and isStaminaDisplayName(Entry.Candidate and Entry.Candidate.NameLower or "") then
 				DisplayMaxCount = DisplayMaxCount + 1
 			end
 		end
@@ -1872,6 +1933,42 @@ return function(Config)
 			DisplayCurrentCount = DisplayCurrentCount,
 			DisplayMaxCount = DisplayMaxCount
 		}
+	end
+
+	local function getHandleCandidateLabel(GroupName, Predicate)
+		local Group = StaminaFeature.Handles[GroupName]
+
+		if type(Group) ~= "table" or type(Predicate) ~= "function" then
+			return "none", nil
+		end
+
+		local BestCandidate = nil
+
+		for _, Entry in ipairs(Group) do
+			if Predicate(Entry.Candidate) then
+				local Candidate = Entry.Candidate
+
+				if BestCandidate == nil
+					or (Candidate.Score or 0) > (BestCandidate.Score or 0)
+					or (
+						(Candidate.Score or 0) == (BestCandidate.Score or 0)
+						and (Candidate.Confidence or 0) > (BestCandidate.Confidence or 0)
+					) then
+					BestCandidate = Candidate
+				end
+			end
+		end
+
+		if not BestCandidate then
+			return "none", nil
+		end
+
+		return string.format(
+			"%s[%s/%s]",
+			getCandidateConsoleLabel(BestCandidate),
+			tostring(BestCandidate.Category or "unknown"),
+			tostring(BestCandidate.SourceKind or "unknown")
+		), BestCandidate
 	end
 
 	local function getLastCaptureLabel()
@@ -1890,6 +1987,9 @@ return function(Config)
 
 	local function buildStatusLines()
 		local Snapshot = getDiagnosticSnapshot()
+		local TrustedPrimaryLabel = getHandleCandidateLabel("Current", isLogicLocalCandidate)
+		local RejectedPrimaryLabel, RejectedPrimaryCandidate = getHandleCandidateLabel("Current", isRejectedPrimaryCandidate)
+		local RejectedReason = RejectedPrimaryCandidate and getRejectedPrimaryReason(RejectedPrimaryCandidate) or "none"
 
 		return {
 			string.format("State: %s", tostring(StaminaFeature.VerificationState or "idle")),
@@ -1897,53 +1997,22 @@ return function(Config)
 			string.format("Profile: %s", tostring(StaminaFeature.LastActionProfile or "Free")),
 			string.format("LogicHandles: C=%d M=%d", Snapshot.LogicCurrentCount, Snapshot.LogicMaxCount),
 			string.format("DisplayHandles: C=%d M=%d", Snapshot.DisplayCurrentCount, Snapshot.DisplayMaxCount),
+			string.format("TrustedPrimary: %s", TrustedPrimaryLabel),
+			string.format("RejectedPrimary: %s (%s)", RejectedPrimaryLabel, RejectedReason),
 			string.format("LastCapture: %s", getLastCaptureLabel())
 		}
 	end
 
 	local function buildStatusConsoleLine()
 		local Snapshot = getDiagnosticSnapshot()
-		local function getHandleCandidateLabel(GroupName, Predicate)
-			local Group = StaminaFeature.Handles[GroupName]
-
-			if type(Group) ~= "table" or type(Predicate) ~= "function" then
-				return "none"
-			end
-
-			local BestCandidate = nil
-
-			for _, Entry in ipairs(Group) do
-				if Predicate(Entry.Candidate) then
-					local Candidate = Entry.Candidate
-
-					if BestCandidate == nil
-						or (Candidate.Score or 0) > (BestCandidate.Score or 0)
-						or (
-							(Candidate.Score or 0) == (BestCandidate.Score or 0)
-							and (Candidate.Confidence or 0) > (BestCandidate.Confidence or 0)
-						) then
-						BestCandidate = Candidate
-					end
-				end
-			end
-
-			if not BestCandidate then
-				return "none"
-			end
-
-			return string.format(
-				"%s[%s/%s]",
-				getCandidateConsoleLabel(BestCandidate),
-				tostring(BestCandidate.Category or "unknown"),
-				tostring(BestCandidate.SourceKind or "unknown")
-			)
-		end
-		local PrimaryLabel = getHandleCandidateLabel("Current", isLogicLocalCandidate)
+		local TrustedPrimaryLabel = getHandleCandidateLabel("Current", isLogicLocalCandidate)
+		local RejectedPrimaryLabel, RejectedPrimaryCandidate = getHandleCandidateLabel("Current", isRejectedPrimaryCandidate)
 		local FlagLabel = getHandleCandidateLabel("Flags", isRuntimeFlagCandidate)
 		local SpendLabel = getHandleCandidateLabel("Spend", isRuntimeSpendCandidate)
+		local RejectedReason = RejectedPrimaryCandidate and getRejectedPrimaryReason(RejectedPrimaryCandidate) or "none"
 
 		local BaseLine = string.format(
-			"State=%s Reason=%s Profile=%s Logic C=%d M=%d Display C=%d M=%d Handles C=%d M=%d F=%d S=%d Primary=%s Flag=%s Spend=%s",
+			"State=%s Reason=%s Profile=%s Logic C=%d M=%d Display C=%d M=%d Handles C=%d M=%d F=%d S=%d TrustedPrimary=%s RejectedPrimary=%s(%s) Flag=%s Spend=%s",
 			tostring(StaminaFeature.VerificationState or "idle"),
 			tostring(StaminaFeature.LastFailureReason or "none"),
 			tostring(StaminaFeature.LastActionProfile or "Free"),
@@ -1955,7 +2024,9 @@ return function(Config)
 			Snapshot.HandleMaxCount,
 			Snapshot.HandleFlagCount,
 			Snapshot.HandleSpendCount,
-			PrimaryLabel,
+			TrustedPrimaryLabel,
+			RejectedPrimaryLabel,
+			RejectedReason,
 			FlagLabel,
 			SpendLabel
 		)
@@ -2186,6 +2257,7 @@ return function(Config)
 		return Candidate
 			and Candidate.Promoted
 			and Candidate.Category == "logic-local"
+			and isTrustedPrimaryCandidate(Candidate)
 	end
 
 	isFlagCandidate = function(Candidate)
@@ -2215,7 +2287,8 @@ return function(Config)
 
 		local NameLower = Candidate.NameLower or ""
 
-		if NameLower == "nocooldown" then
+		if NameLower == "nocooldown"
+			or isRejectedSupportName("Flags", NameLower) then
 			return false
 		end
 
@@ -2263,13 +2336,14 @@ return function(Config)
 
 		if NameLower == "issprinting"
 			or NameLower == "offensive"
+			or isRejectedSupportName(GroupName, NameLower)
 			or FamilyRank == nil then
 			return nil
 		end
 
 		Score = Score + math.max(0, 8 - (FamilyRank * 2))
 
-		if Candidate.ExactAlias == true then
+		if Candidate.TrustedAlias == true then
 			Score = Score + 4
 		end
 
@@ -2397,7 +2471,7 @@ return function(Config)
 					end
 
 					if Item.Score >= ScoreFloor
-						or (Candidate and Candidate.ExactAlias == true)
+						or (Candidate and Candidate.TrustedAlias == true)
 						or IsKeyScopedName then
 						table.insert(Entries, Item.Entry)
 					end
@@ -2472,20 +2546,17 @@ return function(Config)
 
 		local NameLower = Candidate.NameLower or ""
 
-		if string.find(NameLower, "eevee", 1, true) ~= nil then
-			return hasStrongPrimarySiblingHandle(Candidate)
+		if isRejectedSupportName("Spend", NameLower) then
+			return false
 		end
 
-		return Candidate.ExactAlias == true
+		return Candidate.TrustedAlias == true
 			or string.find(NameLower, "stamina", 1, true) ~= nil
 			or string.find(NameLower, "sprint", 1, true) ~= nil
 			or string.find(NameLower, "run", 1, true) ~= nil
 			or string.find(NameLower, "dash", 1, true) ~= nil
 			or string.find(NameLower, "attack", 1, true) ~= nil
 			or string.find(NameLower, "combat", 1, true) ~= nil
-			or string.find(NameLower, "exhaust", 1, true) ~= nil
-			or string.find(NameLower, "fatigue", 1, true) ~= nil
-			or string.find(NameLower, "breath", 1, true) ~= nil
 	end
 
 	local function shouldMirrorDisplayCandidate(Candidate)
@@ -2495,7 +2566,7 @@ return function(Config)
 
 		local NameLower = Candidate.NameLower or ""
 
-		return (Candidate.ExactAlias == true and (Candidate.Group == "Current" or Candidate.Group == "Max"))
+		return (Candidate.TrustedAlias == true and (Candidate.Group == "Current" or Candidate.Group == "Max"))
 			or isStaminaDisplayName(NameLower)
 	end
 
@@ -2728,7 +2799,7 @@ return function(Config)
 			if not Candidate
 				or not Observation
 				or Candidate.SourceKind ~= "instance"
-				or not Candidate.ExactAlias
+				or Candidate.TrustedAlias ~= true
 				or not isMainScriptStatsHandle(Candidate.Handle)
 				or (Candidate.Group ~= "Current" and Candidate.Group ~= "Max") then
 				return false
@@ -2767,19 +2838,30 @@ return function(Config)
 
 					if SiblingObservation then
 						if Sibling.Group == "Spend" then
-							if Sibling.ExactAlias
-								or containsSpend(Sibling.NameLower or "")
-								or (SiblingObservation.TotalChanges or 0) >= 1
-								or (SiblingObservation.DeltaMagnitude or 0) > 0.25 then
+							local IsRejectedSpend = isRejectedSupportName("Spend", Sibling.NameLower or "")
+
+							if not IsRejectedSpend
+								and (
+									Sibling.TrustedAlias == true
+									or containsSpend(Sibling.NameLower or "")
+									or (SiblingObservation.TotalChanges or 0) >= 1
+									or (SiblingObservation.DeltaMagnitude or 0) > 0.25
+								) then
 								SupportWeight = SupportWeight + 2
 							end
 						elseif Sibling.Group == "Flags" then
-							if Sibling.ExactAlias or (SiblingObservation.TotalChanges or 0) >= 1 then
+							local IsRejectedFlag = isRejectedSupportName("Flags", Sibling.NameLower or "")
+
+							if not IsRejectedFlag
+								and (
+									Sibling.TrustedAlias == true
+									or (SiblingObservation.TotalChanges or 0) >= 1
+								) then
 								SupportWeight = SupportWeight + 1
 							end
 						elseif Candidate.Group == "Max"
 							and Sibling.Group == "Current"
-							and Sibling.ExactAlias
+							and Sibling.TrustedAlias == true
 							and (
 								(SiblingObservation.TotalChanges or 0) >= 4
 								or (SiblingObservation.DeltaMagnitude or 0) >= 5
@@ -2787,7 +2869,7 @@ return function(Config)
 							SupportWeight = SupportWeight + 2
 						elseif Candidate.Group == "Current"
 							and Sibling.Group == "Max"
-							and Sibling.ExactAlias then
+							and Sibling.TrustedAlias == true then
 							SupportWeight = SupportWeight + 1
 						end
 					end
@@ -2834,6 +2916,7 @@ return function(Config)
 				end
 
 				local IsHiddenLocalPrimary = (Candidate.Group == "Current" or Candidate.Group == "Max")
+					and isTrustedPrimaryCandidate(Candidate)
 					and Candidate.SourceKind ~= "instance"
 					and (Candidate.Confidence or 0) >= 145
 					and (
@@ -2881,7 +2964,7 @@ return function(Config)
 				end
 
 				if Candidate.Group == "Flags" then
-					if Score >= 4 then
+					if Score >= 4 and not isRejectedSupportName("Flags", Candidate.NameLower or "") then
 						promoteCandidate(Candidate, "flags", Score, "capture_flags")
 						table.insert(PromotedLogic, {
 							Candidate = Candidate,
@@ -2890,7 +2973,7 @@ return function(Config)
 						SupportLogicCount = SupportLogicCount + 1
 					end
 				elseif Candidate.Group == "Spend" then
-					if Score >= 4 then
+					if Score >= 4 and not isRejectedSupportName("Spend", Candidate.NameLower or "") then
 						promoteCandidate(Candidate, "spend", Score, "capture_spend")
 						table.insert(PromotedLogic, {
 							Candidate = Candidate,
@@ -2898,7 +2981,8 @@ return function(Config)
 						})
 						SupportLogicCount = SupportLogicCount + 1
 					end
-				elseif (not BlockPrimaryPromotion or AllowBlockedPrimaryPromotion)
+				elseif isTrustedPrimaryCandidate(Candidate)
+					and (not BlockPrimaryPromotion or AllowBlockedPrimaryPromotion)
 					and (
 						Score >= 6
 						or (Observation.ExternalWrites or 0) >= 2
@@ -2979,7 +3063,7 @@ return function(Config)
 		for _, Entry in ipairs(PromotedLogic) do
 			local Candidate = Entry.Candidate
 
-			if not PrimaryCandidate and Candidate.Category == "logic-local" then
+			if not PrimaryCandidate and isLogicLocalCandidate(Candidate) then
 				PrimaryCandidate = Candidate
 			end
 
@@ -3186,16 +3270,17 @@ return function(Config)
 				and Candidate.Group ~= "Flags"
 				and Candidate.Group ~= "Spend"
 				and Candidate.Category == "logic-local"
+				and isTrustedPrimaryCandidate(Candidate)
 				and Candidate.Promoted then
 				promoteCandidate(Candidate, "logic-local", 6, Candidate.PromotionReason or "preserved_logic")
 			elseif Candidate.Group == "Flags" then
-				if Candidate.ExactAlias and Candidate.Confidence >= 85 then
+				if Candidate.TrustedAlias == true and Candidate.Confidence >= 85 then
 					promoteCandidate(Candidate, "flags", 5, "exact_flag_bootstrap")
 				else
 					normalizeCandidate(Candidate)
 				end
 			elseif Candidate.Group == "Spend" then
-				if Candidate.ExactAlias and Candidate.Confidence >= 85 then
+				if Candidate.TrustedAlias == true and Candidate.Confidence >= 85 then
 					promoteCandidate(Candidate, "spend", 5, "exact_spend_bootstrap")
 				else
 					normalizeCandidate(Candidate)
@@ -3342,7 +3427,7 @@ return function(Config)
 				return
 			end
 
-			local IsExactAlias = Lookups[GroupName] and Lookups[GroupName][NameLower] == true or false
+			local IsExactAlias = isKnownAliasName(GroupName, NameLower)
 			local AllowHiddenTablePrimary = SourceKind == "table"
 				and (GroupName == "Current" or GroupName == "Max")
 				and (Confidence or 0) >= 110
@@ -3878,7 +3963,7 @@ return function(Config)
 					local AnchorTable = Handle and Handle.Table
 
 					if Candidate
-						and Candidate.ExactAlias then
+						and Candidate.TrustedAlias == true then
 						local AnchorNameLower = Candidate.NameLower or Entry.NameLower
 
 						if Candidate.SourceKind == "instance" and AnchorInstance then
@@ -4057,7 +4142,7 @@ return function(Config)
 							and Sibling ~= Candidate
 							and handlesShareScope(Candidate.Handle, Sibling.Handle)
 							and (
-								Sibling.ExactAlias
+								Sibling.TrustedAlias == true
 								or GroupName == "Max"
 							) then
 							return true
@@ -4095,20 +4180,16 @@ return function(Config)
 					local ObservationHits = Candidate and Candidate.ObservationHits or 0
 					local ExternalWriteCount = Candidate and Candidate.ExternalWriteCount or 0
 					local HasHiddenNameSignal = string.find(NameLower, "stamina", 1, true) ~= nil
-						or string.find(NameLower, "exhaust", 1, true) ~= nil
-						or string.find(NameLower, "fatigue", 1, true) ~= nil
-						or string.find(NameLower, "breath", 1, true) ~= nil
-						or string.find(NameLower, "tired", 1, true) ~= nil
-						or string.find(NameLower, "winded", 1, true) ~= nil
 
 					if Candidate
 						and not Candidate.BootstrapBlocked
 						and Candidate.SourceKind ~= "instance"
 						and (
 							HasHiddenNameSignal
-							or Candidate.ExactAlias == true
+							or Candidate.TrustedAlias == true
 							or Confidence >= 155
 						)
+						and isTrustedPrimaryCandidate(Candidate)
 						and (
 							ChangeCount >= 2
 							or ObservationHits >= 6
@@ -4294,13 +4375,15 @@ return function(Config)
 		end
 
 		for _, Entry in ipairs(StaminaFeature.Handles.Current) do
-			if CurrentTargets[Entry.Family] == nil then
+			if CurrentTargets[Entry.Family] == nil
+				and isTrustedPrimaryCandidate(Entry.Candidate) then
 				considerEntry(Entry)
 			end
 		end
 
 		for _, Entry in ipairs(StaminaFeature.Handles.Max) do
-			if MaxTargets[Entry.Family] == nil then
+			if MaxTargets[Entry.Family] == nil
+				and isTrustedPrimaryCandidate(Entry.Candidate) then
 				considerMaxEntry(Entry)
 			end
 		end
@@ -4350,7 +4433,7 @@ return function(Config)
 		local Target = getStoredTarget(GroupName, Family, FallbackValue)
 
 		if Candidate
-			and isStrongMainScriptStatsPrimaryAlias(Candidate) then
+			and isTrustedPrimaryCandidate(Candidate) then
 			local BestObservedNumber = Candidate.BestObservedNumber
 
 			if GroupName == "Current" then
@@ -4362,7 +4445,7 @@ return function(Config)
 			end
 
 			if GroupName == "Max" then
-				return Target or BestObservedNumber or toNumber(FallbackValue)
+				return Target or toNumber(FallbackValue)
 			end
 		end
 
@@ -4648,7 +4731,7 @@ return function(Config)
 	)
 		local DropDetected = false
 		local FailureReason = nil
-		local SupportHandles = hasSupportHandles(Profile)
+		local Snapshot = getDiagnosticSnapshot()
 		local PreferredFlagEntries = getPreferredRuntimeFlagEntries(Profile)
 		local PreferredSpendEntries = getPreferredRuntimeSpendEntries(Profile)
 
@@ -4663,49 +4746,11 @@ return function(Config)
 		end
 
 		if not hasLogicPrimaryHandles() then
-			if SupportHandles then
-				if ActionPressure then
-					for _, Entry in ipairs(PreferredFlagEntries) do
-						local CurrentValue = readEntryValue(Entry)
-						local DesiredValue = CurrentValue ~= nil and getTruthyValue(CurrentValue) or nil
-
-						if DesiredValue ~= nil and not valuesEquivalent(CurrentValue, DesiredValue) then
-							setSupportIssue("flag", Entry, CurrentValue, DesiredValue, "verify")
-							FailureReason = string.lower(Profile) .. "_flag_blocked"
-							break
-						end
-					end
-
-					if not FailureReason then
-						for _, Entry in ipairs(PreferredSpendEntries) do
-							local CurrentValue = readEntryValue(Entry)
-							local DesiredValue = CurrentValue ~= nil and getZeroLikeValue(CurrentValue) or nil
-
-							if DesiredValue ~= nil and not valuesEquivalent(CurrentValue, DesiredValue) then
-								setSupportIssue("spend", Entry, CurrentValue, DesiredValue, "verify")
-								FailureReason = string.lower(Profile) .. "_spend_locked"
-								break
-							end
-						end
-					end
-				end
-
-				if FailureReason then
-					return "logic_unverified", FailureReason, Profile, true
-				end
-
-				if AppliedDisplay or getDiagnosticSnapshot().DisplayCurrentCount > 0 or getDiagnosticSnapshot().DisplayMaxCount > 0 then
-					return "display_only", "display_handles_only", Profile, true
-				end
-
-				return "logic_unverified", ActionPressure and "support_handles_only" or "support_handles_waiting", Profile, ActionPressure
+			if AppliedDisplay or Snapshot.DisplayCurrentCount > 0 or Snapshot.DisplayMaxCount > 0 then
+				return "display_only", "no_trusted_stamina", Profile, true
 			end
 
-			if AppliedDisplay or getDiagnosticSnapshot().DisplayCurrentCount > 0 or getDiagnosticSnapshot().DisplayMaxCount > 0 then
-				return "display_only", "display_handles_only", Profile, true
-			end
-
-			return "searching", "no_logic_handles", Profile, true
+			return "searching", "no_trusted_stamina", Profile, true
 		end
 
 		if ActionPressure
@@ -4769,11 +4814,6 @@ return function(Config)
 
 			noteVerifiedLogic()
 			return "verified", string.lower(Profile) .. "_stable", Profile, false
-		end
-
-		if StaminaFeature.LastEffectiveLogicAt > 0
-			and (os.clock() - StaminaFeature.LastEffectiveLogicAt) <= 6 then
-			return "verified", "holding", Profile, false
 		end
 
 		return "logic_unverified", "awaiting_action", Profile, false
@@ -5179,6 +5219,9 @@ return function(Config)
 		end
 
 		local LogicCurrentCount, LogicMaxCount = countLogicPrimaryEntries()
+		local TrustedPrimaryLabel = getHandleCandidateLabel("Current", isLogicLocalCandidate)
+		local RejectedPrimaryLabel, RejectedPrimaryCandidate = getHandleCandidateLabel("Current", isRejectedPrimaryCandidate)
+		local RejectedReason = RejectedPrimaryCandidate and getRejectedPrimaryReason(RejectedPrimaryCandidate) or "none"
 
 		local Lines = {
 			string.format("DebugEnabled: %s", tostring(self.DebugEnabled)),
@@ -5195,7 +5238,9 @@ return function(Config)
 				#self.Handles.Flags,
 				#self.Handles.Spend
 			),
-			string.format("LogicHandles: C=%d M=%d", LogicCurrentCount, LogicMaxCount)
+			string.format("LogicHandles: C=%d M=%d", LogicCurrentCount, LogicMaxCount),
+			string.format("TrustedPrimary: %s", TrustedPrimaryLabel),
+			string.format("RejectedPrimary: %s (%s)", RejectedPrimaryLabel, RejectedReason)
 		}
 
 		local Session = self.CaptureSession
@@ -5293,7 +5338,7 @@ return function(Config)
 				warnMissingHandles()
 			end
 
-			return VerificationState == "verified" or AppliedLogic or AppliedDisplay
+			return VerificationState == "verified"
 		end)
 
 		self.StepBusy = false
