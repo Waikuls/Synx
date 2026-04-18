@@ -654,7 +654,6 @@ return function(Config)
 
 		if PreferredCount >= 4 then
 			appendStaminaStatusLines(TargetPlayer, PreferredRight)
-			appendStaminaDebugLines(TargetPlayer, PreferredRight)
 			return PreferredLeft, PreferredRight
 		end
 
@@ -713,7 +712,6 @@ return function(Config)
 		end
 
 		appendStaminaStatusLines(TargetPlayer, RightLines)
-		appendStaminaDebugLines(TargetPlayer, RightLines)
 
 		return LeftLines, RightLines
 	end

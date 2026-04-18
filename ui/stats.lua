@@ -118,43 +118,6 @@ return function(Config)
 		end
 	})
 
-	if StatsFeature:IsStaminaDebugAvailable() then
-		Setting:AddToggle({
-			Name = "Stamina debug",
-			Default = StatsFeature:IsStaminaDebugEnabled(),
-			Callback = function(Value)
-				StatsFeature:SetStaminaDebugEnabled(Value)
-				refresh()
-			end
-		})
-
-		Setting:AddDropdown({
-			Name = "Capture profile",
-			Default = StatsFeature:GetStaminaDebugProfile(),
-			Values = StatsFeature:GetStaminaCaptureProfiles(),
-			Callback = function(Value)
-				StatsFeature:SetStaminaDebugProfile(Value)
-				refresh()
-			end
-		})
-
-		Setting:AddButton({
-			Name = "Start capture",
-			Callback = function()
-				StatsFeature:StartStaminaDebugCapture()
-				refresh()
-			end
-		})
-
-		Setting:AddButton({
-			Name = "Clear capture",
-			Callback = function()
-				StatsFeature:ClearStaminaDebugCapture()
-				refresh()
-			end
-		})
-	end
-
 	refresh()
 	syncPlayerDropdown(SelectedPlayerDropdown)
 

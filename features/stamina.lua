@@ -1576,9 +1576,32 @@ return function(Config)
 
 	local function buildStatusConsoleLine()
 		local Snapshot = getDiagnosticSnapshot()
+		local function getHandleCandidateLabel(GroupName, Predicate)
+			local Group = StaminaFeature.Handles[GroupName]
+
+			if type(Group) ~= "table" then
+				return "none"
+			end
+
+			for _, Entry in ipairs(Group) do
+				if Predicate(Entry.Candidate) then
+					return string.format(
+						"%s[%s/%s]",
+						getCandidateDisplayName(Entry.Candidate),
+						tostring(Entry.Candidate.Category or "unknown"),
+						tostring(Entry.Candidate.SourceKind or "unknown")
+					)
+				end
+			end
+
+			return "none"
+		end
+		local PrimaryLabel = getHandleCandidateLabel("Current", isLogicLocalCandidate)
+		local FlagLabel = getHandleCandidateLabel("Flags", isFlagCandidate)
+		local SpendLabel = getHandleCandidateLabel("Spend", isSpendCandidate)
 
 		return string.format(
-			"State=%s Reason=%s Profile=%s Logic C=%d M=%d Display C=%d M=%d Handles C=%d M=%d F=%d S=%d",
+			"State=%s Reason=%s Profile=%s Logic C=%d M=%d Display C=%d M=%d Handles C=%d M=%d F=%d S=%d Primary=%s Flag=%s Spend=%s",
 			tostring(StaminaFeature.VerificationState or "idle"),
 			tostring(StaminaFeature.LastFailureReason or "none"),
 			tostring(StaminaFeature.LastActionProfile or "Free"),
@@ -1589,7 +1612,10 @@ return function(Config)
 			Snapshot.HandleCurrentCount,
 			Snapshot.HandleMaxCount,
 			Snapshot.HandleFlagCount,
-			Snapshot.HandleSpendCount
+			Snapshot.HandleSpendCount,
+			PrimaryLabel,
+			FlagLabel,
+			SpendLabel
 		)
 	end
 
@@ -2008,6 +2034,19 @@ return function(Config)
 		)
 	end
 
+	local function getCandidateSummaryLabel(Candidate)
+		if not Candidate then
+			return "none"
+		end
+
+		return string.format(
+			"%s [%s/%s]",
+			getCandidateDisplayName(Candidate),
+			tostring(Candidate.Category or "unknown"),
+			tostring(Candidate.SourceKind or "unknown")
+		)
+	end
+
 	local function finalizeCaptureSession()
 		local Session = StaminaFeature.CaptureSession
 
@@ -2027,6 +2066,8 @@ return function(Config)
 
 			if Observation then
 				local Score = (Candidate.Confidence or 0) / 35
+				local BlockPrimaryPromotion = Candidate.SourceKind == "instance"
+					and isMainScriptStatsHandle(Candidate.Handle)
 
 				if Candidate.Group == "Flags" then
 					Score = Score + 3
@@ -2080,7 +2121,8 @@ return function(Config)
 						})
 						SupportLogicCount = SupportLogicCount + 1
 					end
-				elseif Score >= 6 or (Observation.ExternalWrites or 0) >= 2 then
+				elseif not BlockPrimaryPromotion
+					and (Score >= 6 or (Observation.ExternalWrites or 0) >= 2) then
 					promoteCandidate(Candidate, "logic-local", Score, "capture_logic")
 					table.insert(PromotedLogic, {
 						Candidate = Candidate,
@@ -2108,6 +2150,26 @@ return function(Config)
 			return (Left.Candidate.Score or 0) > (Right.Candidate.Score or 0)
 		end)
 
+		local PrimaryCandidate = nil
+		local FlagCandidate = nil
+		local SpendCandidate = nil
+
+		for _, Entry in ipairs(PromotedLogic) do
+			local Candidate = Entry.Candidate
+
+			if not PrimaryCandidate and Candidate.Category == "logic-local" then
+				PrimaryCandidate = Candidate
+			end
+
+			if not FlagCandidate and Candidate.Category == "flags" then
+				FlagCandidate = Candidate
+			end
+
+			if not SpendCandidate and Candidate.Category == "spend" then
+				SpendCandidate = Candidate
+			end
+		end
+
 		for _, Candidate in ipairs(StaminaFeature.RemoteCandidateOrder) do
 			local Observation = Session.RemoteObservations[Candidate.RegistryKey]
 
@@ -2134,6 +2196,9 @@ return function(Config)
 		end)
 
 		local Lines = {
+			string.format("PrimaryCandidate: %s", getCandidateSummaryLabel(PrimaryCandidate)),
+			string.format("FlagCandidate: %s", getCandidateSummaryLabel(FlagCandidate)),
+			string.format("SpendCandidate: %s", getCandidateSummaryLabel(SpendCandidate)),
 			string.format("LastProfile: %s", Session.Profile),
 			string.format("ActionValid: %s", tostring(Session.ActionValid)),
 			string.format("MaxSpeed: %s", formatNumber(Session.MaxSpeed or 0)),
