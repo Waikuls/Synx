@@ -3214,12 +3214,11 @@ return function(Config)
 		end
 
 		if ActionPressure then
-			noteVerifiedLogic()
-
 			if FailureReason then
-				return "verified", string.lower(Profile) .. "_primary_stable", Profile, false
+				return "logic_unverified", FailureReason, Profile, true
 			end
 
+			noteVerifiedLogic()
 			return "verified", string.lower(Profile) .. "_stable", Profile, false
 		end
 
@@ -3708,7 +3707,9 @@ return function(Config)
 
 			setVerificationState(VerificationState, FailureReason, ActionProfile)
 
-			if VerificationState == "logic_ineffective" then
+			if VerificationState == "logic_ineffective"
+				and type(FailureReason) == "string"
+				and string.find(FailureReason, "_still_drains", 1, true) ~= nil then
 				demoteIneffectiveLogicCandidates(FailureReason)
 			end
 
