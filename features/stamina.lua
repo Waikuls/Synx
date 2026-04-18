@@ -984,20 +984,31 @@ return function(Config)
 		end
 
 		local ConfidenceValue = Confidence or 0
+		local HiddenLogicName = type(NameLower) == "string"
+			and (
+				string.find(NameLower, "stamina", 1, true) ~= nil
+				or string.find(NameLower, "exhaust", 1, true) ~= nil
+				or string.find(NameLower, "fatigue", 1, true) ~= nil
+				or string.find(NameLower, "breath", 1, true) ~= nil
+				or string.find(NameLower, "tired", 1, true) ~= nil
+				or string.find(NameLower, "winded", 1, true) ~= nil
+			)
 
 		if SourceKind ~= "instance" then
-			if ExactAlias ~= true then
-				return false
-			end
-
 			if SourceKind == "upvalue" then
-				return ConfidenceValue >= 145
+				if ExactAlias == true or HiddenLogicName then
+					return ConfidenceValue >= 145
+				end
+
+				return ConfidenceValue >= 165
 			end
 
-			if (SourceKind == "table" or SourceKind == "env")
-				and type(NameLower) == "string"
-				and string.find(NameLower, "stamina", 1, true) ~= nil then
-				return ConfidenceValue >= 150
+			if SourceKind == "table" or SourceKind == "env" then
+				if ExactAlias == true or HiddenLogicName then
+					return ConfidenceValue >= 150
+				end
+
+				return ConfidenceValue >= 170
 			end
 
 			return false
@@ -1732,6 +1743,7 @@ return function(Config)
 	local isDisplayCandidate
 	local isRuntimeFlagCandidate
 	local isRuntimeSpendCandidate
+	local inferContextGroup
 
 	local function countLogicPrimaryEntries()
 		local CurrentCount = 0
@@ -3227,7 +3239,22 @@ return function(Config)
 			return Success and Hits > 0
 		end
 
-		local function visitEnvTable(TableValue, Confidence, Depth, Visited)
+		local function appendScopeText(BaseScopeTextLower, ExtraText)
+			local Base = type(BaseScopeTextLower) == "string" and BaseScopeTextLower or ""
+			local Extra = type(ExtraText) == "string" and string.lower(ExtraText) or ""
+
+			if Base == "" then
+				return Extra
+			end
+
+			if Extra == "" then
+				return Base
+			end
+
+			return Base .. " " .. Extra
+		end
+
+		local function visitEnvTable(TableValue, Confidence, Depth, Visited, ScopeTextLower)
 			if type(TableValue) ~= "table" then
 				return
 			end
@@ -3246,7 +3273,7 @@ return function(Config)
 					Scanned = Scanned + 1
 
 					if type(Key) == "string" then
-						local GroupName, NameLower = classifyName(Key)
+						local GroupName, NameLower = inferContextGroup(Key, Value, ScopeTextLower)
 
 						if GroupName then
 							recordHandle(GroupName, Key, NameLower, createTableHandle(TableValue, Key), Value, Confidence, "env")
@@ -3254,12 +3281,24 @@ return function(Config)
 
 						if type(Value) == "table"
 							and shouldRecurseEnvTable(Key, Value, Depth) then
-							visitEnvTable(Value, math.max((Confidence or 0) - 8, 80), Depth + 1, Visited)
+							visitEnvTable(
+								Value,
+								math.max((Confidence or 0) - 8, 80),
+								Depth + 1,
+								Visited,
+								appendScopeText(ScopeTextLower, Key)
+							)
 						end
 					elseif type(Value) == "table"
 						and Depth == 0
 						and shouldRecurseEnvTable(nil, Value, Depth) then
-						visitEnvTable(Value, math.max((Confidence or 0) - 8, 80), Depth + 1, Visited)
+						visitEnvTable(
+							Value,
+							math.max((Confidence or 0) - 8, 80),
+							Depth + 1,
+							Visited,
+							ScopeTextLower
+						)
 					end
 
 					if Scanned >= 64 then
@@ -3296,7 +3335,17 @@ return function(Config)
 				local Success, EnvironmentTable = pcall(getsenv, ScriptInstance)
 
 				if Success and type(EnvironmentTable) == "table" then
-					visitEnvTable(EnvironmentTable, Confidence or 135, 0, {})
+					visitEnvTable(
+						EnvironmentTable,
+						Confidence or 135,
+						0,
+						{},
+						string.lower(table.concat({
+							tostring(ScriptInstance.Name or ""),
+							tostring(ScriptInstance.Parent and ScriptInstance.Parent.Name or ""),
+							tostring(MainScript and MainScript.Name or "")
+						}, " "))
+					)
 				end
 			end
 
@@ -3368,11 +3417,17 @@ return function(Config)
 
 		local function visitFunctionUpvalues(FunctionValue, Confidence, VisitedTables)
 			local Upvalues = enumerateFunctionUpvalues(FunctionValue)
+			local Info = getFunctionInfo(FunctionValue)
+			local FunctionScopeTextLower = string.lower(table.concat({
+				tostring(Info and Info.name or ""),
+				tostring(Info and Info.source or ""),
+				tostring(Info and Info.short_src or "")
+			}, " "))
 
 			for _, Upvalue in ipairs(Upvalues) do
 				local UpvalueName = Upvalue.Name
 				local UpvalueValue = Upvalue.Value
-				local GroupName, NameLower = classifyName(UpvalueName)
+				local GroupName, NameLower = inferContextGroup(UpvalueName, UpvalueValue, FunctionScopeTextLower)
 
 				if GroupName then
 					recordHandle(
@@ -3391,7 +3446,13 @@ return function(Config)
 						tableBelongsToLocalPlayer(UpvalueValue)
 						or isInterestingLogicName(string.lower(tostring(UpvalueName)))
 					) then
-					visitEnvTable(UpvalueValue, math.max((Confidence or 0) - 6, 90), 0, VisitedTables)
+					visitEnvTable(
+						UpvalueValue,
+						math.max((Confidence or 0) - 6, 90),
+						0,
+						VisitedTables,
+						appendScopeText(FunctionScopeTextLower, tostring(UpvalueName or ""))
+					)
 				end
 			end
 		end
@@ -3441,7 +3502,7 @@ return function(Config)
 			end
 		end
 
-		local function inferContextGroup(Name, Value, ScopeTextLower)
+		inferContextGroup = function(Name, Value, ScopeTextLower)
 			local GroupName, NameLower = classifyName(Name)
 
 			if GroupName then
