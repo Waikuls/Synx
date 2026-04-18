@@ -4,7 +4,10 @@ return function()
 	local LocalPlayer = Players.LocalPlayer
 
 	local StatsFeature = {
-		TargetPlayerName = LocalPlayer.Name
+		TargetPlayerName = LocalPlayer.Name,
+		HungerSignal = nil,
+		LastHungerScanAt = 0,
+		HungerRefreshInterval = 1
 	}
 	local PreferredLeftStats = {
 		"Style",
@@ -12,6 +15,7 @@ return function()
 		"Strength",
 		"Muscle",
 		"Starving",
+		"Hungry",
 		"Offensive",
 		"Durability",
 		"RhythmCharge",
@@ -58,6 +62,166 @@ return function()
 
 	for _, Name in ipairs(PreferredRightStats) do
 		PreferredLookup[Name] = true
+	end
+
+	local function trimString(Value)
+		if typeof(Value) ~= "string" then
+			return nil
+		end
+
+		return string.match(Value, "^%s*(.-)%s*$")
+	end
+
+	local function isReadableTextInstance(Instance)
+		return Instance
+			and (
+				Instance:IsA("TextLabel")
+				or Instance:IsA("TextButton")
+				or Instance:IsA("TextBox")
+			)
+	end
+
+	local function isVisibleTextInstance(Instance)
+		if not Instance or not Instance:IsA("GuiObject") then
+			return true
+		end
+
+		local Success, Value = pcall(function()
+			return Instance.Visible
+		end)
+
+		if Success then
+			return Value
+		end
+
+		return true
+	end
+
+	local function isExplicitFalseStatus(TextLower, StatusName)
+		return string.match(TextLower, "^" .. StatusName .. "%s*:%s*false") ~= nil
+	end
+
+	local function isStatusText(TextLower, StatusName)
+		return TextLower == StatusName or string.match(TextLower, "^" .. StatusName .. "%s*[:%-]") ~= nil
+	end
+
+	local function classifyHungerText(Text)
+		local Trimmed = trimString(Text)
+
+		if not Trimmed or Trimmed == "" then
+			return nil, nil
+		end
+
+		local Lower = string.lower(Trimmed)
+
+		if isExplicitFalseStatus(Lower, "hungry")
+			or isExplicitFalseStatus(Lower, "ishungry")
+			or isExplicitFalseStatus(Lower, "starving")
+			or isExplicitFalseStatus(Lower, "isstarving")
+			or Lower == "not hungry"
+			or Lower == "full"
+			or Lower == "well fed" then
+			return false, Trimmed
+		end
+
+		if string.find(Lower, "lack of nutrients", 1, true) then
+			return true, Trimmed
+		end
+
+		if isStatusText(Lower, "hungry")
+			or isStatusText(Lower, "ishungry")
+			or isStatusText(Lower, "starving")
+			or isStatusText(Lower, "isstarving") then
+			return true, Trimmed
+		end
+
+		return nil, nil
+	end
+
+	local function readLocalHungerTextSignal()
+		local Character = LocalPlayer.Character
+		local Roots = {
+			LocalPlayer:FindFirstChild("PlayerGui"),
+			Character
+		}
+		local NegativeText = nil
+
+		for _, Root in ipairs(Roots) do
+			if Root then
+				local function visit(Instance)
+					if not isReadableTextInstance(Instance) or not isVisibleTextInstance(Instance) then
+						return nil
+					end
+
+					local Success, Text = pcall(function()
+						return Instance.Text
+					end)
+
+					if not Success then
+						return nil
+					end
+
+					local IsHungry, MatchedText = classifyHungerText(Text)
+
+					if IsHungry == true then
+						return {
+							HasSignal = true,
+							IsHungry = true,
+							Text = MatchedText
+						}
+					end
+
+					if IsHungry == false and not NegativeText then
+						NegativeText = MatchedText
+					end
+
+					return nil
+				end
+
+				local Result = visit(Root)
+
+				if Result then
+					return Result
+				end
+
+				for _, Descendant in ipairs(Root:GetDescendants()) do
+					Result = visit(Descendant)
+
+					if Result then
+						return Result
+					end
+				end
+			end
+		end
+
+		if NegativeText then
+			return {
+				HasSignal = true,
+				IsHungry = false,
+				Text = NegativeText
+			}
+		end
+
+		return {
+			HasSignal = false,
+			IsHungry = false,
+			Text = nil
+		}
+	end
+
+	local function scanLocalHungerText(ForceRefresh)
+		local Now = os.clock()
+
+		if not ForceRefresh
+			and StatsFeature.HungerSignal
+			and (Now - StatsFeature.LastHungerScanAt) < StatsFeature.HungerRefreshInterval then
+			return StatsFeature.HungerSignal
+		end
+
+		StatsFeature.HungerSignal = readLocalHungerTextSignal()
+		StatsFeature.LastHungerScanAt = Now
+
+		return StatsFeature.HungerSignal
 	end
 
 	local function formatNumber(Value)
@@ -186,6 +350,14 @@ return function()
 		local FoundCount = 0
 
 		addPreferredRoots(Store, TargetPlayer)
+
+		if TargetPlayer == LocalPlayer then
+			local HungerSignal = scanLocalHungerText()
+
+			if HungerSignal.HasSignal then
+				recordPreferredValue(Store, "Hungry", HungerSignal.IsHungry, -1)
+			end
+		end
 
 		for _, Name in ipairs(PreferredLeftStats) do
 			local Entry = Store[Name]

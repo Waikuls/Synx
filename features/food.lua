@@ -237,6 +237,145 @@ return function(Config)
 		return NumberValue
 	end
 
+	local function isReadableTextInstance(Instance)
+		return Instance
+			and (
+				Instance:IsA("TextLabel")
+				or Instance:IsA("TextButton")
+				or Instance:IsA("TextBox")
+			)
+	end
+
+	local function isVisibleTextInstance(Instance)
+		if not Instance or not Instance:IsA("GuiObject") then
+			return true
+		end
+
+		local Success, Value = pcall(function()
+			return Instance.Visible
+		end)
+
+		if Success then
+			return Value
+		end
+
+		return true
+	end
+
+	local function getInstanceText(Instance)
+		if not isReadableTextInstance(Instance) or not isVisibleTextInstance(Instance) then
+			return nil
+		end
+
+		local Success, Value = pcall(function()
+			return Instance.Text
+		end)
+
+		if not Success or typeof(Value) ~= "string" then
+			return nil
+		end
+
+		return trimString(Value)
+	end
+
+	local function isExplicitFalseStatus(TextLower, StatusName)
+		return string.match(TextLower, "^" .. StatusName .. "%s*:%s*false") ~= nil
+	end
+
+	local function isStatusText(TextLower, StatusName)
+		return TextLower == StatusName or string.match(TextLower, "^" .. StatusName .. "%s*[:%-]") ~= nil
+	end
+
+	local function classifyHungerText(Text)
+		local Trimmed = trimString(Text)
+
+		if not Trimmed or Trimmed == "" then
+			return nil
+		end
+
+		local Lower = string.lower(Trimmed)
+
+		if isExplicitFalseStatus(Lower, "hungry")
+			or isExplicitFalseStatus(Lower, "ishungry")
+			or isExplicitFalseStatus(Lower, "starving")
+			or isExplicitFalseStatus(Lower, "isstarving")
+			or Lower == "not hungry"
+			or Lower == "full"
+			or Lower == "well fed" then
+			return false, Trimmed
+		end
+
+		if string.find(Lower, "lack of nutrients", 1, true) then
+			return true, Trimmed
+		end
+
+		if isStatusText(Lower, "hungry")
+			or isStatusText(Lower, "ishungry")
+			or isStatusText(Lower, "starving")
+			or isStatusText(Lower, "isstarving") then
+			return true, Trimmed
+		end
+
+		return nil
+	end
+
+	local function scanHungerTextSignal()
+		local Character = LocalPlayer.Character
+		local Roots = {
+			LocalPlayer:FindFirstChild("PlayerGui"),
+			Character
+		}
+		local NegativeText = nil
+
+		for _, Root in ipairs(Roots) do
+			if Root then
+				local function visit(Instance)
+					local Text = getInstanceText(Instance)
+
+					if not Text then
+						return nil
+					end
+
+					local IsHungry, MatchedText = classifyHungerText(Text)
+
+					if IsHungry == true then
+						return {
+							HasSignal = true,
+							ShouldEat = true,
+							Text = MatchedText
+						}
+					end
+
+					if IsHungry == false and not NegativeText then
+						NegativeText = MatchedText
+					end
+
+					return nil
+				end
+
+				local Result = visit(Root)
+
+				if Result then
+					return Result
+				end
+
+				for _, Descendant in ipairs(Root:GetDescendants()) do
+					Result = visit(Descendant)
+
+					if Result then
+						return Result
+					end
+				end
+			end
+		end
+
+		return {
+			HasSignal = NegativeText ~= nil,
+			ShouldEat = false,
+			Text = NegativeText
+		}
+	end
+
 	local function toSlotIndex(Value)
 		local NumberValue = toNumber(Value)
 
@@ -401,6 +540,7 @@ return function(Config)
 	local function scanHungerSnapshot()
 		local Roots = buildScanRoots()
 		local BestCandidates = {}
+		local TextSignal = scanHungerTextSignal()
 
 		local function recordCandidate(Kind, Name, Value, Priority)
 			local NameLower = string.lower(Name)
@@ -456,7 +596,8 @@ return function(Config)
 			PercentValue = BestCandidates.percent and BestCandidates.percent.Value or nil,
 			CurrentValue = BestCandidates.current and BestCandidates.current.Value or nil,
 			MaxValue = BestCandidates.max and BestCandidates.max.Value or nil,
-			HasSignal = next(BestCandidates) ~= nil
+			TextSignal = TextSignal,
+			HasSignal = next(BestCandidates) ~= nil or TextSignal.HasSignal
 		}
 	end
 
@@ -508,8 +649,16 @@ return function(Config)
 	local function getHungerState(ForceRefresh)
 		local Snapshot = getHungerSnapshot(ForceRefresh)
 		local StarvingValue = Snapshot.StarvingValue
+		local TextSignal = Snapshot.TextSignal
 
 		if isHungryFlag(StarvingValue) then
+			return {
+				HasSignal = true,
+				ShouldEat = true
+			}
+		end
+
+		if TextSignal and TextSignal.ShouldEat then
 			return {
 				HasSignal = true,
 				ShouldEat = true
@@ -524,7 +673,7 @@ return function(Config)
 		local CurrentNumber = parseLooseNumber(CurrentValue)
 		local MaxNumber = parseLooseNumber(MaxValue)
 		local RatioCurrent, RatioMax = parseRatio(CurrentValue)
-		local HasSignal = Snapshot.HasSignal
+		local HasSignal = Snapshot.HasSignal or (TextSignal and TextSignal.HasSignal) or false
 
 		if (CurrentNumber == nil or MaxNumber == nil) and RatioCurrent and RatioMax then
 			CurrentNumber = RatioCurrent
