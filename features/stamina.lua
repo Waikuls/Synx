@@ -1,50 +1,62 @@
 return function(Config)
 	local Players = game:GetService("Players")
 	local ReplicatedStorage = game:GetService("ReplicatedStorage")
+	local RunService = game:GetService("RunService")
 	local LocalPlayer = Players.LocalPlayer
+	local Notification = Config and Config.Notification
 
 	local StaminaFeature = {
 		Enabled = false,
-		Destroyed = false,
-		Applying = false,
-		RefreshInterval = 0.15,
+		Connection = nil,
+		CharacterAddedConnection = nil,
 		ResolveInterval = 1,
 		LastResolveAt = 0,
-		CurrentHandles = {},
-		NoCostHandles = {},
-		MaxHandle = nil,
-		PeakValues = {},
-		OriginalNoCostValues = {},
-		ChangeConnections = {},
-		CharacterAddedConnection = nil
+		LastKnownMax = nil,
+		LastWarnAt = 0,
+		WarnCooldown = 5,
+		Handles = {
+			Current = {},
+			Max = {},
+			Flags = {},
+			Guard = {}
+		},
+		OriginalFlagValues = {}
 	}
 
 	local CurrentAliases = {
 		"Stamina",
-		"StaminaInStat"
+		"StaminaInStat",
+		"CurrentStamina",
+		"StaminaValue"
 	}
 	local MaxAliases = {
 		"MaxStamina",
 		"MaximumStamina",
 		"StaminaMax"
 	}
-	local NoCostAliases = {
+	local FlagAliases = {
 		"NoStaminaCost"
 	}
+	local GuardAliases = {
+		"Exhaustion",
+		"BodyFatigue",
+		"BodyFatique"
+	}
 
-	local function createAliasRanking(Aliases)
-		local Ranking = {}
+	local function createAliasLookup(Aliases)
+		local Lookup = {}
 
-		for Index, Name in ipairs(Aliases) do
-			Ranking[string.lower(Name)] = Index
+		for _, Name in ipairs(Aliases) do
+			Lookup[string.lower(Name)] = true
 		end
 
-		return Ranking
+		return Lookup
 	end
 
-	local CurrentRanking = createAliasRanking(CurrentAliases)
-	local MaxRanking = createAliasRanking(MaxAliases)
-	local NoCostRanking = createAliasRanking(NoCostAliases)
+	local CurrentLookup = createAliasLookup(CurrentAliases)
+	local MaxLookup = createAliasLookup(MaxAliases)
+	local FlagLookup = createAliasLookup(FlagAliases)
+	local GuardLookup = createAliasLookup(GuardAliases)
 
 	local function toNumber(Value)
 		if typeof(Value) == "number" then
@@ -58,7 +70,7 @@ return function(Config)
 		return nil
 	end
 
-	local function findEntityMainScript()
+	local function findMainScript()
 		local Entities = workspace:FindFirstChild("Entities")
 
 		if not Entities then
@@ -88,44 +100,41 @@ return function(Config)
 
 	local function buildSearchRoots()
 		local Character = LocalPlayer.Character
-		local MainScript = findEntityMainScript()
+		local MainScript = findMainScript()
 		local Stats = MainScript and MainScript:FindFirstChild("Stats")
 		local Roots = {}
 		local Seen = {}
 
-		local function addRoot(Root, Priority)
+		local function addRoot(Root)
 			if not Root or Seen[Root] then
 				return
 			end
 
 			Seen[Root] = true
-			table.insert(Roots, {
-				Root = Root,
-				Priority = Priority
-			})
+			table.insert(Roots, Root)
 		end
 
-		addRoot(Stats, 0)
-		addRoot(MainScript, 1)
-		addRoot(LocalPlayer:FindFirstChild("Stats"), 2)
-		addRoot(Character and Character:FindFirstChild("Stats"), 2)
-		addRoot(LocalPlayer:FindFirstChild("Data"), 2)
-		addRoot(Character and Character:FindFirstChild("Data"), 2)
-		addRoot(Character, 3)
-		addRoot(LocalPlayer, 4)
+		addRoot(Stats)
+		addRoot(MainScript)
+		addRoot(LocalPlayer:FindFirstChild("Stats"))
+		addRoot(Character and Character:FindFirstChild("Stats"))
+		addRoot(LocalPlayer:FindFirstChild("Data"))
+		addRoot(Character and Character:FindFirstChild("Data"))
+		addRoot(Character)
+		addRoot(LocalPlayer)
 
 		for _, RootName in ipairs({"PlayerData", "Data", "Stats"}) do
 			local Root = ReplicatedStorage:FindFirstChild(RootName)
 
 			if Root then
-				addRoot(Root:FindFirstChild(LocalPlayer.Name), 5)
-				addRoot(Root:FindFirstChild(tostring(LocalPlayer.UserId)), 5)
+				addRoot(Root:FindFirstChild(LocalPlayer.Name))
+				addRoot(Root:FindFirstChild(tostring(LocalPlayer.UserId)))
 
 				local PlayersFolder = Root:FindFirstChild("Players")
 
 				if PlayersFolder then
-					addRoot(PlayersFolder:FindFirstChild(LocalPlayer.Name), 5)
-					addRoot(PlayersFolder:FindFirstChild(tostring(LocalPlayer.UserId)), 5)
+					addRoot(PlayersFolder:FindFirstChild(LocalPlayer.Name))
+					addRoot(PlayersFolder:FindFirstChild(tostring(LocalPlayer.UserId)))
 				end
 			end
 		end
@@ -148,18 +157,6 @@ return function(Config)
 		}
 	end
 
-	local function getHandleName(Handle)
-		if not Handle then
-			return nil
-		end
-
-		if Handle.Kind == "attribute" then
-			return Handle.Attribute
-		end
-
-		return Handle.Instance and Handle.Instance.Name or nil
-	end
-
 	local function getInstanceKey(Instance)
 		if not Instance then
 			return "nil"
@@ -177,7 +174,7 @@ return function(Config)
 	end
 
 	local function getHandleKey(Handle)
-		if not Handle then
+		if not Handle or not Handle.Instance then
 			return "nil"
 		end
 
@@ -228,20 +225,6 @@ return function(Config)
 		return nil
 	end
 
-	local function normalizeNumberForHandle(Handle, Value)
-		if not Handle or Handle.Kind ~= "value" then
-			return Value
-		end
-
-		local Instance = Handle.Instance
-
-		if Instance and Instance:IsA("IntValue") then
-			return math.floor(Value + 0.5)
-		end
-
-		return Value
-	end
-
 	local function writeHandle(Handle, Value)
 		if not isHandleValid(Handle) then
 			return false
@@ -253,8 +236,8 @@ return function(Config)
 			end)
 		end
 
-		if typeof(Value) == "number" then
-			Value = normalizeNumberForHandle(Handle, Value)
+		if typeof(Value) == "number" and Handle.Instance:IsA("IntValue") then
+			Value = math.floor(Value + 0.5)
 		end
 
 		return pcall(function()
@@ -262,287 +245,141 @@ return function(Config)
 		end)
 	end
 
-	local function getModeScore(Handle)
-		if Handle.Kind == "value" then
-			return 0
+	local function classifyName(Name)
+		local Lower = string.lower(Name)
+
+		if FlagLookup[Lower] then
+			return "Flags"
 		end
 
-		return 1
+		if GuardLookup[Lower] then
+			return "Guard"
+		end
+
+		if MaxLookup[Lower] or (string.find(Lower, "stamina", 1, true) and string.find(Lower, "max", 1, true)) then
+			return "Max"
+		end
+
+		if CurrentLookup[Lower] then
+			return "Current"
+		end
+
+		if string.find(Lower, "stamina", 1, true)
+			and not string.find(Lower, "max", 1, true)
+			and not string.find(Lower, "cost", 1, true)
+			and not string.find(Lower, "regen", 1, true)
+			and not string.find(Lower, "recover", 1, true)
+			and not string.find(Lower, "delay", 1, true) then
+			return "Current"
+		end
+
+		return nil
 	end
 
-	local function isBetterCandidate(NewCandidate, CurrentCandidate)
-		if not CurrentCandidate then
-			return true
-		end
-
-		if NewCandidate.AliasRank ~= CurrentCandidate.AliasRank then
-			return NewCandidate.AliasRank < CurrentCandidate.AliasRank
-		end
-
-		if NewCandidate.Priority ~= CurrentCandidate.Priority then
-			return NewCandidate.Priority < CurrentCandidate.Priority
-		end
-
-		local NewScore = getModeScore(NewCandidate.Handle)
-		local CurrentScore = getModeScore(CurrentCandidate.Handle)
-
-		if NewScore ~= CurrentScore then
-			return NewScore < CurrentScore
-		end
-
-		local NewName = string.lower(getHandleName(NewCandidate.Handle) or "")
-		local CurrentName = string.lower(getHandleName(CurrentCandidate.Handle) or "")
-
-		return NewName < CurrentName
-	end
-
-	local function scanHandles()
-		local CurrentCandidates = {}
-		local NoCostCandidates = {}
-		local MaxCandidate = nil
-
-		local function considerNumericCandidate(Store, Ranking, Handle, Name, Value, Priority)
-			local AliasRank = Ranking[string.lower(Name)]
-			local NumberValue = toNumber(Value)
-
-			if AliasRank == nil or NumberValue == nil then
-				return
-			end
-
-			local Candidate = {
-				AliasRank = AliasRank,
-				Priority = Priority,
-				Handle = Handle
-			}
-
-			if isBetterCandidate(Candidate, Store[string.lower(Name)]) then
-				Store[string.lower(Name)] = Candidate
-			end
-		end
-
-		local function considerNoCostCandidate(Handle, Name, Value, Priority)
-			local AliasRank = NoCostRanking[string.lower(Name)]
-
-			if AliasRank == nil then
-				return
-			end
-
+	local function isUsefulHandleValue(GroupName, Value)
+		if GroupName == "Flags" then
 			local ValueType = typeof(Value)
 
-			if ValueType ~= "boolean" and ValueType ~= "number" and ValueType ~= "string" then
-				return
-			end
-
-			local Candidate = {
-				AliasRank = AliasRank,
-				Priority = Priority,
-				Handle = Handle
-			}
-
-			local Key = string.lower(Name)
-
-			if isBetterCandidate(Candidate, NoCostCandidates[Key]) then
-				NoCostCandidates[Key] = Candidate
-			end
+			return ValueType == "boolean" or ValueType == "number" or ValueType == "string"
 		end
 
-		local function visit(Instance, Priority)
-			if Instance:IsA("ValueBase") then
-				local Handle = createValueHandle(Instance)
-				local Value = readHandle(Handle)
-
-				considerNumericCandidate(CurrentCandidates, CurrentRanking, Handle, Instance.Name, Value, Priority)
-
-				local MaxAliasRank = MaxRanking[string.lower(Instance.Name)]
-				local NumberValue = toNumber(Value)
-
-				if MaxAliasRank ~= nil and NumberValue ~= nil then
-					local Candidate = {
-						AliasRank = MaxAliasRank,
-						Priority = Priority,
-						Handle = Handle
-					}
-
-					if isBetterCandidate(Candidate, MaxCandidate) then
-						MaxCandidate = Candidate
-					end
-				end
-
-				considerNoCostCandidate(Handle, Instance.Name, Value, Priority)
-			end
-
-			for Name, Value in pairs(Instance:GetAttributes()) do
-				local Handle = createAttributeHandle(Instance, Name)
-
-				considerNumericCandidate(CurrentCandidates, CurrentRanking, Handle, Name, Value, Priority)
-
-				local MaxAliasRank = MaxRanking[string.lower(Name)]
-				local NumberValue = toNumber(Value)
-
-				if MaxAliasRank ~= nil and NumberValue ~= nil then
-					local Candidate = {
-						AliasRank = MaxAliasRank,
-						Priority = Priority,
-						Handle = Handle
-					}
-
-					if isBetterCandidate(Candidate, MaxCandidate) then
-						MaxCandidate = Candidate
-					end
-				end
-
-				considerNoCostCandidate(Handle, Name, Value, Priority)
-			end
+		if GroupName == "Guard" or GroupName == "Current" or GroupName == "Max" then
+			return toNumber(Value) ~= nil
 		end
 
-		for _, RootInfo in ipairs(buildSearchRoots()) do
-			visit(RootInfo.Root, RootInfo.Priority)
-
-			for _, Descendant in ipairs(RootInfo.Root:GetDescendants()) do
-				visit(Descendant, RootInfo.Priority)
-			end
-		end
-
-		local CurrentHandles = {}
-		local NoCostHandles = {}
-		local SeenCurrent = {}
-		local SeenNoCost = {}
-
-		for _, Alias in ipairs(CurrentAliases) do
-			local Candidate = CurrentCandidates[string.lower(Alias)]
-
-			if Candidate then
-				local Key = getHandleKey(Candidate.Handle)
-
-				if not SeenCurrent[Key] then
-					SeenCurrent[Key] = true
-					table.insert(CurrentHandles, Candidate.Handle)
-				end
-			end
-		end
-
-		for _, Alias in ipairs(NoCostAliases) do
-			local Candidate = NoCostCandidates[string.lower(Alias)]
-
-			if Candidate then
-				local Key = getHandleKey(Candidate.Handle)
-
-				if not SeenNoCost[Key] then
-					SeenNoCost[Key] = true
-					table.insert(NoCostHandles, Candidate.Handle)
-				end
-			end
-		end
-
-		StaminaFeature.CurrentHandles = CurrentHandles
-		StaminaFeature.NoCostHandles = NoCostHandles
-		StaminaFeature.MaxHandle = MaxCandidate and MaxCandidate.Handle or nil
-		StaminaFeature.LastResolveAt = os.clock()
+		return false
 	end
 
-	local function disconnectChangeConnections()
-		for _, Connection in ipairs(StaminaFeature.ChangeConnections) do
-			Connection:Disconnect()
-		end
-
-		table.clear(StaminaFeature.ChangeConnections)
-	end
-
-	local function markDirty()
-		StaminaFeature.LastResolveAt = 0
-	end
-
-	local function connectHandleChange(Handle)
-		if not isHandleValid(Handle) then
-			return
-		end
-
-		local Connection
-
-		if Handle.Kind == "attribute" then
-			Connection = Handle.Instance:GetAttributeChangedSignal(Handle.Attribute):Connect(function()
-				if StaminaFeature.Enabled and not StaminaFeature.Applying then
-					task.defer(function()
-						if StaminaFeature.Enabled and not StaminaFeature.Destroyed then
-							StaminaFeature:Step(false)
-						end
-					end)
-				end
-			end)
-		else
-			Connection = Handle.Instance:GetPropertyChangedSignal("Value"):Connect(function()
-				if StaminaFeature.Enabled and not StaminaFeature.Applying then
-					task.defer(function()
-						if StaminaFeature.Enabled and not StaminaFeature.Destroyed then
-							StaminaFeature:Step(false)
-						end
-					end)
-				end
-			end)
-		end
-
-		table.insert(StaminaFeature.ChangeConnections, Connection)
-	end
-
-	local function refreshHandleConnections()
-		disconnectChangeConnections()
-
-		for _, Handle in ipairs(StaminaFeature.CurrentHandles) do
-			connectHandleChange(Handle)
-		end
-
-		for _, Handle in ipairs(StaminaFeature.NoCostHandles) do
-			connectHandleChange(Handle)
-		end
-
-		if StaminaFeature.MaxHandle then
-			connectHandleChange(StaminaFeature.MaxHandle)
-		end
+	local function clearHandles()
+		table.clear(StaminaFeature.Handles.Current)
+		table.clear(StaminaFeature.Handles.Max)
+		table.clear(StaminaFeature.Handles.Flags)
+		table.clear(StaminaFeature.Handles.Guard)
 	end
 
 	local function resolveHandles(ForceRefresh)
 		local Now = os.clock()
 
-		if not ForceRefresh
-			and StaminaFeature.LastResolveAt > 0
-			and (Now - StaminaFeature.LastResolveAt) < StaminaFeature.ResolveInterval then
-			local HandlesValid = true
+		if not ForceRefresh and (Now - StaminaFeature.LastResolveAt) < StaminaFeature.ResolveInterval then
+			local HasInvalidHandle = false
 
-			for _, Handle in ipairs(StaminaFeature.CurrentHandles) do
-				if not isHandleValid(Handle) then
-					HandlesValid = false
+			for _, Group in pairs(StaminaFeature.Handles) do
+				for _, Handle in ipairs(Group) do
+					if not isHandleValid(Handle) then
+						HasInvalidHandle = true
+						break
+					end
+				end
+
+				if HasInvalidHandle then
 					break
 				end
 			end
 
-			if HandlesValid then
-				for _, Handle in ipairs(StaminaFeature.NoCostHandles) do
-					if not isHandleValid(Handle) then
-						HandlesValid = false
-						break
-					end
-				end
-			end
-
-			if HandlesValid and StaminaFeature.MaxHandle and not isHandleValid(StaminaFeature.MaxHandle) then
-				HandlesValid = false
-			end
-
-			if HandlesValid then
+			if not HasInvalidHandle then
 				return
 			end
 		end
 
-		scanHandles()
-		refreshHandleConnections()
-	end
+		clearHandles()
 
-	local function rememberOriginalNoCostValues()
-		for _, Handle in ipairs(StaminaFeature.NoCostHandles) do
+		local SeenHandles = {
+			Current = {},
+			Max = {},
+			Flags = {},
+			Guard = {}
+		}
+
+		local function recordHandle(GroupName, Handle, Value)
+			if not isUsefulHandleValue(GroupName, Value) then
+				return
+			end
+
 			local Key = getHandleKey(Handle)
 
-			if StaminaFeature.OriginalNoCostValues[Key] == nil then
-				StaminaFeature.OriginalNoCostValues[Key] = readHandle(Handle)
+			if SeenHandles[GroupName][Key] then
+				return
+			end
+
+			SeenHandles[GroupName][Key] = true
+			table.insert(StaminaFeature.Handles[GroupName], Handle)
+		end
+
+		local function visit(Instance)
+			if Instance:IsA("ValueBase") then
+				local GroupName = classifyName(Instance.Name)
+
+				if GroupName then
+					recordHandle(GroupName, createValueHandle(Instance), Instance.Value)
+				end
+			end
+
+			for Name, Value in pairs(Instance:GetAttributes()) do
+				local GroupName = classifyName(Name)
+
+				if GroupName then
+					recordHandle(GroupName, createAttributeHandle(Instance, Name), Value)
+				end
+			end
+		end
+
+		for _, Root in ipairs(buildSearchRoots()) do
+			visit(Root)
+
+			for _, Descendant in ipairs(Root:GetDescendants()) do
+				visit(Descendant)
+			end
+		end
+
+		StaminaFeature.LastResolveAt = Now
+	end
+
+	local function rememberOriginalFlagValues()
+		for _, Handle in ipairs(StaminaFeature.Handles.Flags) do
+			local Key = getHandleKey(Handle)
+
+			if StaminaFeature.OriginalFlagValues[Key] == nil then
+				StaminaFeature.OriginalFlagValues[Key] = readHandle(Handle)
 			end
 		end
 	end
@@ -565,30 +402,52 @@ return function(Config)
 		return true
 	end
 
+	local function getZeroLikeValue(Value)
+		local ValueType = typeof(Value)
+
+		if ValueType == "boolean" then
+			return false
+		end
+
+		if ValueType == "number" then
+			return 0
+		end
+
+		if ValueType == "string" then
+			return "0"
+		end
+
+		return 0
+	end
+
 	local function computeTargetMax()
-		local Target = toNumber(readHandle(StaminaFeature.MaxHandle))
+		local Highest = StaminaFeature.LastKnownMax
 
-		for _, Handle in ipairs(StaminaFeature.CurrentHandles) do
-			local CurrentValue = toNumber(readHandle(Handle))
-			local Key = getHandleKey(Handle)
-			local PeakValue = StaminaFeature.PeakValues[Key]
+		for _, Handle in ipairs(StaminaFeature.Handles.Max) do
+			local Value = toNumber(readHandle(Handle))
 
-			if CurrentValue ~= nil and (Target == nil or CurrentValue > Target) then
-				Target = CurrentValue
-			end
-
-			if PeakValue ~= nil and (Target == nil or PeakValue > Target) then
-				Target = PeakValue
+			if Value ~= nil and (Highest == nil or Value > Highest) then
+				Highest = Value
 			end
 		end
 
-		return Target
+		for _, Handle in ipairs(StaminaFeature.Handles.Current) do
+			local Value = toNumber(readHandle(Handle))
+
+			if Value ~= nil and (Highest == nil or Value > Highest) then
+				Highest = Value
+			end
+		end
+
+		StaminaFeature.LastKnownMax = Highest
+
+		return Highest
 	end
 
-	local function applyNoCostHandles()
-		rememberOriginalNoCostValues()
+	local function applyFlagHandles()
+		rememberOriginalFlagValues()
 
-		for _, Handle in ipairs(StaminaFeature.NoCostHandles) do
+		for _, Handle in ipairs(StaminaFeature.Handles.Flags) do
 			local CurrentValue = readHandle(Handle)
 			local DesiredValue = getTruthyValue(CurrentValue)
 
@@ -598,125 +457,158 @@ return function(Config)
 		end
 	end
 
-	local function applyCurrentHandles()
-		local TargetMax = computeTargetMax()
+	local function applyGuardHandles()
+		for _, Handle in ipairs(StaminaFeature.Handles.Guard) do
+			local CurrentValue = readHandle(Handle)
+			local DesiredValue = getZeroLikeValue(CurrentValue)
 
+			if CurrentValue ~= DesiredValue then
+				writeHandle(Handle, DesiredValue)
+			end
+		end
+	end
+
+	local function applyMaxHandles(TargetMax)
+		if TargetMax == nil then
+			return
+		end
+
+		for _, Handle in ipairs(StaminaFeature.Handles.Max) do
+			local CurrentValue = toNumber(readHandle(Handle))
+
+			if CurrentValue == nil or math.abs(CurrentValue - TargetMax) > 0.001 then
+				writeHandle(Handle, TargetMax)
+			end
+		end
+	end
+
+	local function applyCurrentHandles(TargetMax)
 		if TargetMax == nil then
 			return false
 		end
 
-		for _, Handle in ipairs(StaminaFeature.CurrentHandles) do
-			local Key = getHandleKey(Handle)
+		local Applied = false
+
+		for _, Handle in ipairs(StaminaFeature.Handles.Current) do
 			local CurrentValue = toNumber(readHandle(Handle))
-			local DesiredValue = TargetMax
-			local PeakValue = StaminaFeature.PeakValues[Key]
 
-			if PeakValue ~= nil and PeakValue > DesiredValue then
-				DesiredValue = PeakValue
+			if CurrentValue == nil or math.abs(CurrentValue - TargetMax) > 0.001 then
+				writeHandle(Handle, TargetMax)
 			end
 
-			if CurrentValue ~= nil and CurrentValue > DesiredValue then
-				DesiredValue = CurrentValue
-			end
-
-			StaminaFeature.PeakValues[Key] = DesiredValue
-
-			if CurrentValue == nil or math.abs(CurrentValue - DesiredValue) > 0.001 then
-				writeHandle(Handle, DesiredValue)
-			end
+			Applied = true
 		end
 
-		return true
+		return Applied
 	end
 
-	local function restoreNoCostHandles()
-		for _, Handle in ipairs(StaminaFeature.NoCostHandles) do
+	local function restoreOriginalFlags()
+		for _, Handle in ipairs(StaminaFeature.Handles.Flags) do
 			local Key = getHandleKey(Handle)
-			local OriginalValue = StaminaFeature.OriginalNoCostValues[Key]
+			local OriginalValue = StaminaFeature.OriginalFlagValues[Key]
 
 			if OriginalValue ~= nil then
 				writeHandle(Handle, OriginalValue)
 			end
 		end
 
-		table.clear(StaminaFeature.OriginalNoCostValues)
+		table.clear(StaminaFeature.OriginalFlagValues)
 	end
 
-	function StaminaFeature:Step(ForceRefresh)
-		resolveHandles(ForceRefresh)
+	local function warnMissingHandles()
+		if not Notification then
+			return
+		end
 
-		if not self.Enabled then
+		local Now = os.clock()
+
+		if (Now - StaminaFeature.LastWarnAt) < StaminaFeature.WarnCooldown then
+			return
+		end
+
+		StaminaFeature.LastWarnAt = Now
+
+		Notification:Notify({
+			Title = "FATALITY",
+			Content = "Inf stamina could not find stamina values yet.",
+			Icon = "alert-circle"
+		})
+	end
+
+	local function step()
+		resolveHandles(false)
+
+		local TargetMax = computeTargetMax()
+		local HasCurrentHandles = #StaminaFeature.Handles.Current > 0
+		local HasSupportHandles = #StaminaFeature.Handles.Flags > 0 or #StaminaFeature.Handles.Guard > 0
+
+		if not HasCurrentHandles and not HasSupportHandles then
+			warnMissingHandles()
 			return false
 		end
 
-		self.Applying = true
+		applyFlagHandles()
+		applyGuardHandles()
+		applyMaxHandles(TargetMax)
 
-		local Success = pcall(function()
-			applyNoCostHandles()
-			applyCurrentHandles()
-		end)
+		if HasCurrentHandles then
+			return applyCurrentHandles(TargetMax)
+		end
 
-		self.Applying = false
-
-		return Success
+		return HasSupportHandles
 	end
 
 	function StaminaFeature:SetEnabled(Value)
-		local Enabled = Value and true or false
-
-		if self.Enabled == Enabled then
-			return true
-		end
-
-		self.Enabled = Enabled
-		markDirty()
+		self.Enabled = Value and true or false
+		self.LastResolveAt = 0
 
 		if self.Enabled then
-			self:Step(true)
+			step()
+
+			if not self.Connection then
+				self.Connection = RunService.Heartbeat:Connect(function()
+					if not self.Enabled then
+						return
+					end
+
+					step()
+				end)
+			end
 		else
-			restoreNoCostHandles()
+			restoreOriginalFlags()
+
+			if self.Connection then
+				self.Connection:Disconnect()
+				self.Connection = nil
+			end
 		end
 
 		return true
 	end
 
 	function StaminaFeature:Destroy()
-		if self.Destroyed then
-			return
-		end
-
 		self.Enabled = false
-		self.Destroyed = true
-		self.Applying = false
+		restoreOriginalFlags()
 
-		restoreNoCostHandles()
-		disconnectChangeConnections()
+		if self.Connection then
+			self.Connection:Disconnect()
+			self.Connection = nil
+		end
 
 		if self.CharacterAddedConnection then
 			self.CharacterAddedConnection:Disconnect()
 			self.CharacterAddedConnection = nil
 		end
 
-		table.clear(self.CurrentHandles)
-		table.clear(self.NoCostHandles)
-		table.clear(self.PeakValues)
-		self.MaxHandle = nil
 		self.LastResolveAt = 0
+		self.LastKnownMax = nil
+		clearHandles()
+		table.clear(self.OriginalFlagValues)
 	end
 
 	StaminaFeature.CharacterAddedConnection = LocalPlayer.CharacterAdded:Connect(function()
-		markDirty()
-	end)
-
-	task.spawn(function()
-		while not StaminaFeature.Destroyed do
-			if StaminaFeature.Enabled then
-				StaminaFeature:Step(false)
-				task.wait(StaminaFeature.RefreshInterval)
-			else
-				task.wait(0.4)
-			end
-		end
+		StaminaFeature.LastResolveAt = 0
+		StaminaFeature.LastKnownMax = nil
 	end)
 
 	return StaminaFeature
