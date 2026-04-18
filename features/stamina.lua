@@ -1210,6 +1210,7 @@ return function(Config)
 				ExternalWriteCount = 0,
 				LastWriteResult = nil,
 				LastValue = InitialValue,
+				BestObservedNumber = toNumber(InitialValue),
 				PreviousValue = nil,
 				LastChangeTime = 0,
 				LastObservedAt = Now,
@@ -1523,6 +1524,7 @@ return function(Config)
 		end
 
 		local Now = os.clock()
+		local NumberValue = toNumber(Value)
 
 		if Candidate.LastValue == nil and Value ~= nil then
 			Candidate.LastValue = Value
@@ -1543,6 +1545,15 @@ return function(Config)
 
 		Candidate.ObservationHits = Candidate.ObservationHits + 1
 		Candidate.LastObservedAt = Now
+
+		if NumberValue ~= nil then
+			local BestObservedNumber = Candidate.BestObservedNumber
+
+			if BestObservedNumber == nil or NumberValue > BestObservedNumber then
+				Candidate.BestObservedNumber = NumberValue
+			end
+		end
+
 		recordCaptureCandidateValue(Candidate, Value, Source)
 
 		if Source == "external_write"
@@ -3290,6 +3301,42 @@ return function(Config)
 			end
 		end
 
+		local function bootstrapSupportedStatsPrimaries()
+			local function hasScopeSupport(Candidate)
+				for _, GroupName in ipairs({"Max", "Flags", "Spend"}) do
+					for _, Entry in pairs(EntryMaps[GroupName]) do
+						local Sibling = Entry.Candidate
+
+						if Sibling
+							and Sibling ~= Candidate
+							and handlesShareScope(Candidate.Handle, Sibling.Handle)
+							and (
+								Sibling.ExactAlias
+								or GroupName == "Max"
+							) then
+							return true
+						end
+					end
+				end
+
+				return false
+			end
+
+			for _, GroupName in ipairs({"Current", "Max"}) do
+				for _, Entry in pairs(EntryMaps[GroupName]) do
+					local Candidate = Entry.Candidate
+
+					if Candidate
+						and not Candidate.BootstrapBlocked
+						and isStrongMainScriptStatsPrimaryAlias(Candidate)
+						and hasScopeSupport(Candidate) then
+						Candidate.RuntimePinned = true
+						promoteCandidate(Candidate, "logic-local", 8, "stats_scope_bootstrap")
+					end
+				end
+			end
+		end
+
 		visitRoots(buildSearchRoots(false))
 
 		if ForceRefresh and not hasRecordedPrimary() then
@@ -3307,6 +3354,8 @@ return function(Config)
 		if IncludeGc or ((ForceRefresh or StaminaFeature.DebugEnabled) and not hasRecordedLogicPrimary()) then
 			visitGcFunctions()
 		end
+
+		bootstrapSupportedStatsPrimaries()
 
 		if IncludeGc
 			and type(getgc) == "function"
@@ -3476,12 +3525,35 @@ return function(Config)
 
 	local getStoredTarget
 
+	local function getPreferredCandidateTarget(Candidate, GroupName, Family, FallbackValue)
+		local Target = getStoredTarget(GroupName, Family, FallbackValue)
+
+		if Candidate
+			and isStrongMainScriptStatsPrimaryAlias(Candidate) then
+			local BestObservedNumber = Candidate.BestObservedNumber
+
+			if GroupName == "Current" then
+				if typeof(Target) == "number" and typeof(BestObservedNumber) == "number" then
+					return math.max(Target, BestObservedNumber)
+				end
+
+				return Target or BestObservedNumber or toNumber(FallbackValue)
+			end
+
+			if GroupName == "Max" then
+				return Target or BestObservedNumber or toNumber(FallbackValue)
+			end
+		end
+
+		return Target
+	end
+
 	local function getCurrentTargetForEntry(Entry)
-		return getStoredTarget("Current", Entry.Family, readEntryValue(Entry))
+		return getPreferredCandidateTarget(Entry.Candidate, "Current", Entry.Family, readEntryValue(Entry))
 	end
 
 	local function getMaxTargetForEntry(Entry)
-		return getStoredTarget("Max", Entry.Family, readEntryValue(Entry))
+		return getPreferredCandidateTarget(Entry.Candidate, "Max", Entry.Family, readEntryValue(Entry))
 	end
 
 	local function rememberOriginalFlags()
@@ -3924,11 +3996,11 @@ return function(Config)
 			return nil, false
 		end
 
-		if Candidate.Group == "Flags" and isFlagCandidate(Candidate) then
+		if Candidate.Group == "Flags" and isRuntimeFlagCandidate(Candidate) then
 			return getTruthyValue(IncomingValue), true
 		end
 
-		if Candidate.Group == "Spend" and isSpendCandidate(Candidate) then
+		if Candidate.Group == "Spend" and isRuntimeSpendCandidate(Candidate) then
 			return getZeroLikeValue(IncomingValue), true
 		end
 
@@ -3940,7 +4012,7 @@ return function(Config)
 			return nil, false
 		end
 
-		local Target = getStoredTarget(Candidate.Group, Candidate.Family, IncomingValue)
+		local Target = getPreferredCandidateTarget(Candidate, Candidate.Group, Candidate.Family, IncomingValue)
 
 		if Target == nil then
 			return nil, false
