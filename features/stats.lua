@@ -14,6 +14,7 @@ return function()
 		"Agility",
 		"Strength",
 		"Muscle",
+		"Hunger",
 		"Starving",
 		"Hungry",
 		"Offensive",
@@ -70,6 +71,34 @@ return function()
 		end
 
 		return string.match(Value, "^%s*(.-)%s*$")
+	end
+
+	local function findEntityMainScript(TargetPlayer)
+		local Entities = workspace:FindFirstChild("Entities")
+
+		if not Entities or not TargetPlayer then
+			return nil
+		end
+
+		local Entity = Entities:FindFirstChild(TargetPlayer.Name)
+
+		if not Entity then
+			return nil
+		end
+
+		local MainScript = Entity:FindFirstChild("MainScript")
+
+		if MainScript then
+			return MainScript
+		end
+
+		for _, Descendant in ipairs(Entity:GetDescendants()) do
+			if Descendant.Name == "MainScript" then
+				return Descendant
+			end
+		end
+
+		return nil
 	end
 
 	local function isReadableTextInstance(Instance)
@@ -314,9 +343,12 @@ return function()
 	local function addPreferredRoots(Store, TargetPlayer)
 		local Character = TargetPlayer and TargetPlayer.Character
 		local CommonFolders = {"Stats", "Data", "Information", "Profile", "PlayerData", "Values"}
+		local EntityMainScript = findEntityMainScript(TargetPlayer)
 
 		scanPreferredValues(Store, TargetPlayer, 2)
 		scanPreferredValues(Store, Character, 2)
+		scanPreferredValues(Store, EntityMainScript, 0)
+		scanPreferredValues(Store, EntityMainScript and EntityMainScript:FindFirstChild("Stats"), 0)
 
 		for _, FolderName in ipairs(CommonFolders) do
 			scanPreferredValues(Store, TargetPlayer and TargetPlayer:FindFirstChild(FolderName), 1)

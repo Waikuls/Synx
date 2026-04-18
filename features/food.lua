@@ -23,11 +23,13 @@ return function(Config)
 		InputPressDelay = 0.08,
 		MaxEquipAttempts = 3,
 		MaxActivationAttempts = 3,
+		DirectHungerThreshold = 17,
 		HungerThreshold = 0.35,
 		FallbackThreshold = 25,
 		AutoManagedTool = nil,
 		HungerSnapshot = nil,
 		LastHungerScanAt = 0,
+		HungerValueObject = nil,
 		KnownHotbarOrder = {},
 		RemoteCache = {}
 	}
@@ -394,6 +396,88 @@ return function(Config)
 		return nil
 	end
 
+	local function isNumericValueObject(Instance)
+		return Instance
+			and Instance:IsA("ValueBase")
+			and typeof(Instance.Value) == "number"
+	end
+
+	local function getWorkspaceEntity()
+		local Entities = workspace:FindFirstChild("Entities")
+
+		if not Entities then
+			return nil
+		end
+
+		return Entities:FindFirstChild(LocalPlayer.Name)
+	end
+
+	local function findMainScriptRoot()
+		local Entity = getWorkspaceEntity()
+
+		if not Entity then
+			return nil
+		end
+
+		local MainScript = Entity:FindFirstChild("MainScript")
+
+		if MainScript then
+			return MainScript
+		end
+
+		for _, Descendant in ipairs(Entity:GetDescendants()) do
+			if Descendant.Name == "MainScript" then
+				return Descendant
+			end
+		end
+
+		return nil
+	end
+
+	local function findDirectHungerValueObject()
+		local Cached = FoodFeature.HungerValueObject
+
+		if isNumericValueObject(Cached) and Cached.Parent then
+			return Cached
+		end
+
+		local MainScript = findMainScriptRoot()
+
+		if not MainScript then
+			FoodFeature.HungerValueObject = nil
+			return nil
+		end
+
+		local Stats = MainScript:FindFirstChild("Stats")
+		local HungerValue = Stats and Stats:FindFirstChild("Hunger")
+
+		if isNumericValueObject(HungerValue) then
+			FoodFeature.HungerValueObject = HungerValue
+			return HungerValue
+		end
+
+		for _, Descendant in ipairs(MainScript:GetDescendants()) do
+			if Descendant.Name == "Hunger" and isNumericValueObject(Descendant) then
+				FoodFeature.HungerValueObject = Descendant
+				return Descendant
+			end
+		end
+
+		FoodFeature.HungerValueObject = nil
+
+		return nil
+	end
+
+	local function getDirectHungerValue()
+		local HungerValueObject = findDirectHungerValueObject()
+
+		if not HungerValueObject then
+			return nil
+		end
+
+		return HungerValueObject.Value
+	end
+
 	local function buildScanRoots()
 		local Character = LocalPlayer.Character
 		local Roots = {}
@@ -541,6 +625,7 @@ return function(Config)
 		local Roots = buildScanRoots()
 		local BestCandidates = {}
 		local TextSignal = scanHungerTextSignal()
+		local DirectHungerValue = getDirectHungerValue()
 
 		local function recordCandidate(Kind, Name, Value, Priority)
 			local NameLower = string.lower(Name)
@@ -592,12 +677,13 @@ return function(Config)
 		end
 
 		return {
+			DirectHungerValue = DirectHungerValue,
 			StarvingValue = BestCandidates.starving and BestCandidates.starving.Value or nil,
 			PercentValue = BestCandidates.percent and BestCandidates.percent.Value or nil,
 			CurrentValue = BestCandidates.current and BestCandidates.current.Value or nil,
 			MaxValue = BestCandidates.max and BestCandidates.max.Value or nil,
 			TextSignal = TextSignal,
-			HasSignal = next(BestCandidates) ~= nil or TextSignal.HasSignal
+			HasSignal = DirectHungerValue ~= nil or next(BestCandidates) ~= nil or TextSignal.HasSignal
 		}
 	end
 
@@ -648,8 +734,17 @@ return function(Config)
 
 	local function getHungerState(ForceRefresh)
 		local Snapshot = getHungerSnapshot(ForceRefresh)
+		local DirectHungerValue = parseLooseNumber(Snapshot.DirectHungerValue)
 		local StarvingValue = Snapshot.StarvingValue
 		local TextSignal = Snapshot.TextSignal
+
+		if DirectHungerValue ~= nil then
+			return {
+				HasSignal = true,
+				ShouldEat = DirectHungerValue <= FoodFeature.DirectHungerThreshold,
+				CurrentValue = DirectHungerValue
+			}
+		end
 
 		if isHungryFlag(StarvingValue) then
 			return {
@@ -1394,6 +1489,7 @@ return function(Config)
 		self.Enabled = Value and true or false
 		self.HungerSnapshot = nil
 		self.LastHungerScanAt = 0
+		self.HungerValueObject = nil
 
 		if self.Enabled then
 			self.StopRequested = false
@@ -1462,6 +1558,7 @@ return function(Config)
 		self.AutoManagedTool = nil
 		self.HungerSnapshot = nil
 		self.LastHungerScanAt = 0
+		self.HungerValueObject = nil
 		self.KnownHotbarOrder = {}
 		self.RemoteCache = {}
 
