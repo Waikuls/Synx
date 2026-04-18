@@ -1110,6 +1110,26 @@ return function(Config)
 		return string.format("%s%s", getCandidateDisplayName(Candidate), getCandidateLocationSuffix(Candidate))
 	end
 
+	local function getHandleScopeInstance(Handle)
+		if not Handle or not Handle.Instance then
+			return nil
+		end
+
+		if Handle.Kind == "attribute" then
+			return Handle.Instance
+		end
+
+		return Handle.Instance.Parent
+	end
+
+	local function handlesShareScope(LeftHandle, RightHandle)
+		local LeftScope = getHandleScopeInstance(LeftHandle)
+		local RightScope = getHandleScopeInstance(RightHandle)
+
+		return LeftScope ~= nil
+			and LeftScope == RightScope
+	end
+
 	local function promoteCandidate(Candidate, Category, Score, Reason)
 		Candidate.Category = Category
 		Candidate.Promoted = true
@@ -2116,6 +2136,77 @@ return function(Config)
 			return
 		end
 
+		local function isSupportedMainScriptStatsPrimary(Candidate, Observation)
+			if not Candidate
+				or not Observation
+				or Candidate.SourceKind ~= "instance"
+				or not Candidate.ExactAlias
+				or not isMainScriptStatsHandle(Candidate.Handle)
+				or (Candidate.Group ~= "Current" and Candidate.Group ~= "Max")
+				or Session.ActionValid ~= true then
+				return false
+			end
+
+			local NameLower = Candidate.NameLower or ""
+			local StrongPrimaryAlias = NameLower == "stamina"
+				or NameLower == "staminainstat"
+				or NameLower == "currentstamina"
+				or NameLower == "staminavalue"
+				or NameLower == "maxstamina"
+				or NameLower == "maximumstamina"
+				or NameLower == "staminamax"
+
+			if not StrongPrimaryAlias then
+				return false
+			end
+
+			local HasStrongMovement = (Observation.TotalChanges or 0) >= 8
+				or (Observation.DeltaMagnitude or 0) >= 10
+				or (Candidate.Score or 0) >= 8
+
+			if not HasStrongMovement then
+				return false
+			end
+
+			local SupportWeight = 0
+
+			for _, Sibling in ipairs(StaminaFeature.CandidateOrder) do
+				if Sibling ~= Candidate
+					and handlesShareScope(Candidate.Handle, Sibling.Handle) then
+					local SiblingObservation = Session.Observations[Sibling.RegistryKey]
+
+					if SiblingObservation then
+						if Sibling.Group == "Spend" then
+							if Sibling.ExactAlias
+								or containsSpend(Sibling.NameLower or "")
+								or (SiblingObservation.TotalChanges or 0) >= 1
+								or (SiblingObservation.DeltaMagnitude or 0) > 0.25 then
+								SupportWeight = SupportWeight + 2
+							end
+						elseif Sibling.Group == "Flags" then
+							if Sibling.ExactAlias or (SiblingObservation.TotalChanges or 0) >= 1 then
+								SupportWeight = SupportWeight + 1
+							end
+						elseif Candidate.Group == "Max"
+							and Sibling.Group == "Current"
+							and Sibling.ExactAlias
+							and (
+								(SiblingObservation.TotalChanges or 0) >= 4
+								or (SiblingObservation.DeltaMagnitude or 0) >= 5
+							) then
+							SupportWeight = SupportWeight + 2
+						elseif Candidate.Group == "Current"
+							and Sibling.Group == "Max"
+							and Sibling.ExactAlias then
+							SupportWeight = SupportWeight + 1
+						end
+					end
+				end
+			end
+
+			return SupportWeight >= 2
+		end
+
 		local ProfileFamily = getProfileFamily(Session.Profile)
 		local PromotedLogic = {}
 		local DisplaySuspects = {}
@@ -2130,6 +2221,8 @@ return function(Config)
 				local Score = (Candidate.Confidence or 0) / 35
 				local BlockPrimaryPromotion = Candidate.SourceKind == "instance"
 					and isMainScriptStatsHandle(Candidate.Handle)
+				local AllowBlockedPrimaryPromotion = BlockPrimaryPromotion
+					and isSupportedMainScriptStatsPrimary(Candidate, Observation)
 
 				if Candidate.Group == "Flags" then
 					Score = Score + 3
@@ -2183,9 +2276,18 @@ return function(Config)
 						})
 						SupportLogicCount = SupportLogicCount + 1
 					end
-				elseif not BlockPrimaryPromotion
-					and (Score >= 6 or (Observation.ExternalWrites or 0) >= 2) then
-					promoteCandidate(Candidate, "logic-local", Score, "capture_logic")
+				elseif (not BlockPrimaryPromotion or AllowBlockedPrimaryPromotion)
+					and (
+						Score >= 6
+						or (Observation.ExternalWrites or 0) >= 2
+						or AllowBlockedPrimaryPromotion
+					) then
+					promoteCandidate(
+						Candidate,
+						"logic-local",
+						Score + (AllowBlockedPrimaryPromotion and 1.5 or 0),
+						AllowBlockedPrimaryPromotion and "capture_stats_logic" or "capture_logic"
+					)
 					table.insert(PromotedLogic, {
 						Candidate = Candidate,
 						Observation = Observation
