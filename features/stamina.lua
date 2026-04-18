@@ -1338,7 +1338,11 @@ return function(Config)
 			return ValueType == "boolean" or ValueType == "number"
 		end
 
-		if GroupName == "Spend" or GroupName == "Current" or GroupName == "Max" then
+		if GroupName == "Spend" then
+			return ValueType == "boolean" or ValueType == "number"
+		end
+
+		if GroupName == "Current" or GroupName == "Max" then
 			return ValueType == "number"
 		end
 
@@ -2011,6 +2015,28 @@ return function(Config)
 			or string.find(NameLower, "stamina", 1, true) ~= nil
 	end
 
+	local function hasStrongPrimarySiblingHandle(Candidate)
+		if not Candidate or not Candidate.Handle then
+			return false
+		end
+
+		for _, GroupName in ipairs({"Current", "Max"}) do
+			for _, Entry in ipairs(StaminaFeature.Handles[GroupName]) do
+				local PrimaryCandidate = Entry.Candidate
+
+				if PrimaryCandidate
+					and PrimaryCandidate ~= Candidate
+					and isLogicLocalCandidate(PrimaryCandidate)
+					and isStrongMainScriptStatsPrimaryAlias(PrimaryCandidate)
+					and handlesShareScope(Candidate.Handle, PrimaryCandidate.Handle) then
+					return true
+				end
+			end
+		end
+
+		return false
+	end
+
 	local function isRuntimeSpendCandidate(Candidate)
 		if not isSpendCandidate(Candidate) then
 			return false
@@ -2019,7 +2045,7 @@ return function(Config)
 		local NameLower = Candidate.NameLower or ""
 
 		if string.find(NameLower, "eevee", 1, true) ~= nil then
-			return false
+			return hasStrongPrimarySiblingHandle(Candidate)
 		end
 
 		return Candidate.ExactAlias == true
