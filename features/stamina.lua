@@ -1829,18 +1829,33 @@ return function(Config)
 				return "none"
 			end
 
+			local BestCandidate = nil
+
 			for _, Entry in ipairs(Group) do
 				if Predicate(Entry.Candidate) then
-					return string.format(
-						"%s[%s/%s]",
-						getCandidateConsoleLabel(Entry.Candidate),
-						tostring(Entry.Candidate.Category or "unknown"),
-						tostring(Entry.Candidate.SourceKind or "unknown")
-					)
+					local Candidate = Entry.Candidate
+
+					if BestCandidate == nil
+						or (Candidate.Score or 0) > (BestCandidate.Score or 0)
+						or (
+							(Candidate.Score or 0) == (BestCandidate.Score or 0)
+							and (Candidate.Confidence or 0) > (BestCandidate.Confidence or 0)
+						) then
+						BestCandidate = Candidate
+					end
 				end
 			end
 
-			return "none"
+			if not BestCandidate then
+				return "none"
+			end
+
+			return string.format(
+				"%s[%s/%s]",
+				getCandidateConsoleLabel(BestCandidate),
+				tostring(BestCandidate.Category or "unknown"),
+				tostring(BestCandidate.SourceKind or "unknown")
+			)
 		end
 		local PrimaryLabel = getHandleCandidateLabel("Current", isLogicLocalCandidate)
 		local FlagLabel = getHandleCandidateLabel("Flags", isRuntimeFlagCandidate)
@@ -2654,8 +2669,10 @@ return function(Config)
 		end
 
 		local ProfileFamily = getProfileFamily(Session.Profile)
+		local Snapshot = getDiagnosticSnapshot()
 		local PromotedLogic = {}
 		local DisplaySuspects = {}
+		local HiddenPrimarySuspects = {}
 		local RemoteSuspects = {}
 		local PrimaryLogicCount = 0
 		local SupportLogicCount = 0
@@ -2687,8 +2704,30 @@ return function(Config)
 					Score = Score + 1
 				end
 
+				local IsHiddenLocalPrimary = (Candidate.Group == "Current" or Candidate.Group == "Max")
+					and Candidate.SourceKind ~= "instance"
+					and (Candidate.Confidence or 0) >= 145
+					and (
+						(Observation.TotalChanges or 0) >= 2
+						or (Observation.DeltaMagnitude or 0) >= 1
+					)
+
 				if ProfileFamily ~= nil and Candidate.Family == ProfileFamily then
 					Score = Score + 2
+				end
+
+				if IsHiddenLocalPrimary then
+					Score = Score + 2
+
+					if Candidate.SourceKind == "upvalue" then
+						Score = Score + 2
+					elseif Candidate.SourceKind == "env" or Candidate.SourceKind == "table" then
+						Score = Score + 1
+					end
+
+					if isInterestingLogicName(Candidate.NameLower or "") then
+						Score = Score + 2
+					end
 				end
 
 				if (Candidate.Group == "Current" or Candidate.Group == "Max")
@@ -2703,6 +2742,14 @@ return function(Config)
 				end
 
 				Candidate.Score = math.max(Candidate.Score or 0, Score)
+
+				if IsHiddenLocalPrimary then
+					table.insert(HiddenPrimarySuspects, {
+						Candidate = Candidate,
+						Observation = Observation,
+						Score = Score
+					})
+				end
 
 				if Candidate.Group == "Flags" then
 					if Score >= 4 then
@@ -2759,6 +2806,42 @@ return function(Config)
 		table.sort(DisplaySuspects, function(Left, Right)
 			return (Left.Candidate.Score or 0) > (Right.Candidate.Score or 0)
 		end)
+
+		table.sort(HiddenPrimarySuspects, function(Left, Right)
+			if (Left.Score or 0) ~= (Right.Score or 0) then
+				return (Left.Score or 0) > (Right.Score or 0)
+			end
+
+			return (Left.Candidate.Confidence or 0) > (Right.Candidate.Confidence or 0)
+		end)
+
+		if Session.ActionValid
+			and (Snapshot.DisplayCurrentCount or 0) >= 20
+			and #HiddenPrimarySuspects > 0 then
+			local PromotedHidden = 0
+
+			for _, Entry in ipairs(HiddenPrimarySuspects) do
+				local Candidate = Entry.Candidate
+
+				if Candidate.Category ~= "logic-local" then
+					promoteCandidate(Candidate, "logic-local", (Entry.Score or 0) + 3, "capture_hidden_logic")
+					table.insert(PromotedLogic, {
+						Candidate = Candidate,
+						Observation = Entry.Observation
+					})
+					PrimaryLogicCount = PrimaryLogicCount + 1
+					PromotedHidden = PromotedHidden + 1
+				end
+
+				if PromotedHidden >= 2 then
+					break
+				end
+			end
+
+			table.sort(PromotedLogic, function(Left, Right)
+				return (Left.Candidate.Score or 0) > (Right.Candidate.Score or 0)
+			end)
+		end
 
 		local PrimaryCandidate = nil
 		local FlagCandidate = nil
