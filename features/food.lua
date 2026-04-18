@@ -35,6 +35,8 @@ return function(Config)
 		KnownHotbarOrder = {},
 		RemoteCache = {}
 	}
+	local ToolIdentityCache = setmetatable({}, {__mode = "k"})
+	local NextToolIdentity = 0
 
 	local HungerCurrentAliases = {
 		"CurrentHunger",
@@ -1247,6 +1249,34 @@ return function(Config)
 		return nil
 	end
 
+	local function getToolIdentity(Tool)
+		if not Tool or not Tool:IsA("Tool") then
+			return nil
+		end
+
+		local Cached = ToolIdentityCache[Tool]
+
+		if Cached then
+			return Cached
+		end
+
+		NextToolIdentity = NextToolIdentity + 1
+
+		local Prefix = "Tool:" .. Tool.Name
+		local Success, Value = pcall(function()
+			return Tool:GetFullName()
+		end)
+
+		if Success and Value then
+			Prefix = Value
+		end
+
+		local Identity = string.format("%s#%d", Prefix, NextToolIdentity)
+		ToolIdentityCache[Tool] = Identity
+
+		return Identity
+	end
+
 	local function isSameTool(Left, Right)
 		if Left == Right then
 			return true
@@ -1260,18 +1290,20 @@ return function(Config)
 			return false
 		end
 
-		local LeftSuccess, LeftValue = pcall(function()
-			return Left:GetDebugId(0)
-		end)
-		local RightSuccess, RightValue = pcall(function()
-			return Right:GetDebugId(0)
-		end)
+		local LeftIdentity = getToolIdentity(Left)
+		local RightIdentity = getToolIdentity(Right)
 
-		if LeftSuccess and RightSuccess then
-			return LeftValue == RightValue
+		if LeftIdentity and RightIdentity and LeftIdentity == RightIdentity then
+			return true
 		end
 
-		return false
+		local LeftSlot = findToolSlotIndex(Left)
+		local RightSlot = findToolSlotIndex(Right)
+
+		return LeftSlot ~= nil
+			and RightSlot ~= nil
+			and LeftSlot == RightSlot
+			and Left.Name == Right.Name
 	end
 
 	local function isToolEquipped(Tool, Character)

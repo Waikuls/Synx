@@ -96,6 +96,8 @@ return function(Config)
 	}
 
 	local ScopeCache = setmetatable({}, {__mode = "k"})
+	local InstanceKeyCache = setmetatable({}, {__mode = "k"})
+	local NextInstanceKeyId = 0
 
 	local StaminaFeature = {
 		Enabled = false,
@@ -457,15 +459,27 @@ return function(Config)
 			return "nil"
 		end
 
+		local Cached = InstanceKeyCache[Instance]
+
+		if Cached then
+			return Cached
+		end
+
+		NextInstanceKeyId = NextInstanceKeyId + 1
+
+		local Prefix = Instance.ClassName .. ":" .. Instance.Name
 		local Success, Value = pcall(function()
-			return Instance:GetDebugId(0)
+			return Instance:GetFullName()
 		end)
 
 		if Success and Value then
-			return Value
+			Prefix = Value
 		end
 
-		return tostring(Instance)
+		local Key = string.format("%s#%d", Prefix, NextInstanceKeyId)
+		InstanceKeyCache[Instance] = Key
+
+		return Key
 	end
 
 	local function getHandleKey(Handle)
