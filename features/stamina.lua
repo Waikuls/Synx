@@ -1712,6 +1712,8 @@ return function(Config)
 	local isFlagCandidate
 	local isSpendCandidate
 	local isDisplayCandidate
+	local isRuntimeFlagCandidate
+	local isRuntimeSpendCandidate
 
 	local function countLogicPrimaryEntries()
 		local CurrentCount = 0
@@ -1793,7 +1795,7 @@ return function(Config)
 		local function getHandleCandidateLabel(GroupName, Predicate)
 			local Group = StaminaFeature.Handles[GroupName]
 
-			if type(Group) ~= "table" then
+			if type(Group) ~= "table" or type(Predicate) ~= "function" then
 				return "none"
 			end
 
@@ -2073,7 +2075,7 @@ return function(Config)
 			)
 	end
 
-	local function isRuntimeFlagCandidate(Candidate)
+	isRuntimeFlagCandidate = function(Candidate)
 		if not isFlagCandidate(Candidate) then
 			return false
 		end
@@ -2117,7 +2119,7 @@ return function(Config)
 		return false
 	end
 
-	local function isRuntimeSpendCandidate(Candidate)
+	isRuntimeSpendCandidate = function(Candidate)
 		if not isSpendCandidate(Candidate) then
 			return false
 		end
@@ -3306,6 +3308,8 @@ return function(Config)
 		local function visitSupportContexts()
 			local QueuedScopes = {}
 			local ScopeQueue = {}
+			local QueuedTables = {}
+			local TableQueue = {}
 
 			local function queueScope(Scope, AnchorNameLower, Depth)
 				if not Scope or not isLocalRelatedInstance(Scope) then
@@ -3326,19 +3330,45 @@ return function(Config)
 				})
 			end
 
+			local function queueTableScope(TableValue, AnchorNameLower, Depth, SourceKind)
+				if type(TableValue) ~= "table" then
+					return
+				end
+
+				local ExistingDepth = QueuedTables[TableValue]
+
+				if ExistingDepth ~= nil and ExistingDepth <= Depth then
+					return
+				end
+
+				QueuedTables[TableValue] = Depth
+				table.insert(TableQueue, {
+					Table = TableValue,
+					AnchorNameLower = AnchorNameLower,
+					Depth = Depth,
+					SourceKind = SourceKind or "table"
+				})
+			end
+
 			for _, GroupName in ipairs({"Flags", "Spend"}) do
 				for _, Entry in pairs(EntryMaps[GroupName]) do
 					local Candidate = Entry.Candidate
 					local Handle = Candidate and Candidate.Handle
 					local AnchorInstance = Handle and Handle.Instance
+					local AnchorTable = Handle and Handle.Table
 
 					if Candidate
-						and Candidate.SourceKind == "instance"
-						and Candidate.ExactAlias
-						and AnchorInstance then
-						queueScope(AnchorInstance, Candidate.NameLower or Entry.NameLower, 0)
-						queueScope(AnchorInstance.Parent, Candidate.NameLower or Entry.NameLower, 1)
-						queueScope(AnchorInstance.Parent and AnchorInstance.Parent.Parent, Candidate.NameLower or Entry.NameLower, 2)
+						and Candidate.ExactAlias then
+						local AnchorNameLower = Candidate.NameLower or Entry.NameLower
+
+						if Candidate.SourceKind == "instance" and AnchorInstance then
+							queueScope(AnchorInstance, AnchorNameLower, 0)
+							queueScope(AnchorInstance.Parent, AnchorNameLower, 1)
+							queueScope(AnchorInstance.Parent and AnchorInstance.Parent.Parent, AnchorNameLower, 2)
+						elseif (Candidate.SourceKind == "table" or Candidate.SourceKind == "env")
+							and AnchorTable then
+							queueTableScope(AnchorTable, AnchorNameLower, 0, Candidate.SourceKind)
+						end
 					end
 				end
 			end
@@ -3404,8 +3434,53 @@ return function(Config)
 				end
 			end
 
+			local function visitTableContextScope(TableValue, AnchorNameLower, Depth, SourceKind)
+				local ScopeTextLower = string.lower(table.concat({
+					AnchorNameLower or "",
+					tostring(SourceKind or "table")
+				}, " "))
+				local Confidence = math.max(70, 118 - (Depth * 10))
+				local VisitedChildren = 0
+
+				pcall(function()
+					for Key, Value in pairs(TableValue) do
+						VisitedChildren = VisitedChildren + 1
+
+						if type(Key) == "string" then
+							local GroupName, NameLower = inferContextGroup(Key, Value, ScopeTextLower)
+
+							if GroupName then
+								recordHandle(
+									GroupName,
+									Key,
+									NameLower,
+									createTableHandle(TableValue, Key),
+									Value,
+									Confidence,
+									SourceKind or "table"
+								)
+							end
+
+							if type(Value) == "table"
+								and Depth < 1
+								and shouldRecurseEnvTable(Key, Value, Depth) then
+								queueTableScope(Value, AnchorNameLower or NameLower or string.lower(Key), Depth + 1, SourceKind or "table")
+							end
+						end
+
+						if VisitedChildren >= 32 then
+							break
+						end
+					end
+				end)
+			end
+
 			for _, Item in ipairs(ScopeQueue) do
 				visitContextScope(Item.Scope, Item.AnchorNameLower, Item.Depth)
+			end
+
+			for _, Item in ipairs(TableQueue) do
+				visitTableContextScope(Item.Table, Item.AnchorNameLower, Item.Depth, Item.SourceKind)
 			end
 		end
 
