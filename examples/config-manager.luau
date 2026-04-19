@@ -3,18 +3,18 @@ local Fatality = loadstring(game:HttpGet("https://raw.githubusercontent.com/4lpa
 local Notification = Fatality:CreateNotifier();
 
 Fatality:Loader({
-	Name = "FATALITY",
+	Name = "KELV",
 	Duration = 4
 });
 
 local Window = Fatality.new({
-	Name = "FATALITY",
+	Name = "KELV",
 	Expire = "never",
 });
 
 local Config = Window:AddConfig();
 
-Config:Init("Counter-Strike 2","Fatality-Win");
+Config:Init("Counter-Strike 2","KELV-Win");
 
 local Rage = Window:AddMenu({
 	Name = "RAGE",

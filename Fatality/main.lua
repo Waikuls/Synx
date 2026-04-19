@@ -241,22 +241,22 @@ for _, Gui in ipairs(CoreGui:GetChildren()) do
 end
 
 Fatality:Loader({
-	Name = "FATALITY",
+	Name = "KELV",
 	Duration = 4
 });
 
 Notification:Notify({
-	Title = "FATALITY",
+	Title = "KELV",
 	Content = "Hello, "..game.Players.LocalPlayer.DisplayName..' Welcome back!',
 	Icon = "clipboard"
 })
 
 local function notifyModuleFailure(ModulePath, ErrorMessage)
-	warn(string.format("[FATALITY] Failed to load %s: %s", ModulePath, tostring(ErrorMessage)))
+	warn(string.format("[KELV] Failed to load %s: %s", ModulePath, tostring(ErrorMessage)))
 
 	task.defer(function()
 		Notification:Notify({
-			Title = "FATALITY",
+			Title = "KELV",
 			Content = string.format("%s failed to load. Other menus will stay available.", ModulePath),
 			Icon = "alert-circle"
 		})
@@ -443,7 +443,7 @@ local function safeBuildBlock(BlockLabel, Builder)
 end
 
 local Window = Fatality.new({
-	Name = "FATALITY",
+	Name = "KELV",
 	Expire = "never",
 });
 local MainWindowGui = Fatality.Windows[#Fatality.Windows]

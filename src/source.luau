@@ -4137,7 +4137,7 @@ end;
 
 function Fatality.new(Window: Window)
 	Window = Window or {};
-	Window.Name = Window.Name or "FATALITY";
+	Window.Name = Window.Name or "KELV";
 	Window.Scale = Window.Scale or UDim2.new(0, 750, 0, 500);
 	Window.Keybind = Window.Keybind or "Insert";
 	Window.Expire = Window.Expire or "never";
@@ -6209,7 +6209,7 @@ function Fatality.new(Window: Window)
 		local corner_2 = Instance.new("UICorner")
 		local _5 = Instance.new("Frame")
 
-		backpack.Name = "FATALITY"..Fatality:RandomString();
+		backpack.Name = "KELV"..Fatality:RandomString();
 		backpack.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
 		backpack.BackgroundTransparency = 1.000
 		backpack.BorderSizePixel = 0
@@ -6346,7 +6346,7 @@ end;
 
 function Fatality:Loader(Config: Loader)
 	Config = Config or {};
-	Config.Name = Config.Name or "FATALITY";
+	Config.Name = Config.Name or "KELV";
 	Config.Duration = Config.Duration or 3.5;
 	Config.Scale = Config.Scale or 3;
 
@@ -6772,6 +6772,6 @@ function Fatality:CreateNotifier(): Notifier
 	return res;
 end;
 
-Fatality.FATALITY_PID = Fatality:RandomString();
+Fatality.KELV_PID = Fatality:RandomString();
 
 return Fatality;
