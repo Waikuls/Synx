@@ -239,6 +239,37 @@ return function(Config)
 			or string.find(NameLower, "eevee", 1, true) ~= nil
 	end
 
+	local function isObservedExhaustionCurrentName(NameLower)
+		if type(NameLower) ~= "string" or NameLower == "" then
+			return false
+		end
+
+		return NameLower == "bodyfatigue"
+			or NameLower == "bodyfatique"
+			or NameLower == "eevee"
+			or string.find(NameLower, "fatigue", 1, true) ~= nil
+			or string.find(NameLower, "exhaust", 1, true) ~= nil
+			or string.find(NameLower, "breath", 1, true) ~= nil
+			or string.find(NameLower, "eevee", 1, true) ~= nil
+	end
+
+	local function isObservedExhaustionFlagName(NameLower)
+		if type(NameLower) ~= "string" or NameLower == "" then
+			return false
+		end
+
+		return NameLower == "noeeveedeplete"
+			or (
+				string.sub(NameLower, 1, 2) == "no"
+				and (
+					string.find(NameLower, "fatigue", 1, true) ~= nil
+					or string.find(NameLower, "exhaust", 1, true) ~= nil
+					or string.find(NameLower, "breath", 1, true) ~= nil
+					or string.find(NameLower, "eevee", 1, true) ~= nil
+				)
+			)
+	end
+
 	local ScopeCache = setmetatable({}, {__mode = "k"})
 	local InstanceKeyCache = setmetatable({}, {__mode = "k"})
 	local NextInstanceKeyId = 0
@@ -1815,6 +1846,17 @@ return function(Config)
 		return isCanonicalStatsPrimaryCandidate(Candidate)
 	end
 
+	local function isExhaustionCurrentCandidate(Candidate)
+		return type(Candidate) == "table"
+			and Candidate.Group == "Current"
+			and Candidate.SourceKind == "instance"
+			and isObservedExhaustionCurrentName(Candidate.NameLower or "")
+			and (
+				isMainScriptStatsHandle(Candidate.Handle)
+				or StaminaFeature.HasStrongPrimarySiblingHandle(Candidate)
+			)
+	end
+
 	local function isRejectedPrimaryCandidate(Candidate)
 		return type(Candidate) == "table"
 			and (Candidate.Group == "Current" or Candidate.Group == "Max")
@@ -2101,17 +2143,22 @@ return function(Config)
 		end
 
 		local NameLower = Candidate.NameLower or ""
+		local AllowObservedExhaustionFlag = GroupName == "Flags"
+			and isObservedExhaustionFlagName(NameLower)
+			and StaminaFeature.HasStrongPrimarySiblingHandle(Candidate)
 		local AllowObservedExhaustionSpend = GroupName == "Spend"
 			and isObservedExhaustionSpendName(NameLower)
 			and StaminaFeature.HasStrongPrimarySiblingHandle(Candidate)
 
 		if isRejectedSupportName(GroupName, NameLower)
+			and not AllowObservedExhaustionFlag
 			and not AllowObservedExhaustionSpend then
 			return false
 		end
 
 		if GroupName == "Flags" then
 			return Candidate.TrustedAlias == true
+				or AllowObservedExhaustionFlag
 				or string.find(NameLower, "stamina", 1, true) ~= nil
 				or string.find(NameLower, "sprint", 1, true) ~= nil
 				or string.find(NameLower, "run", 1, true) ~= nil
@@ -2151,7 +2198,18 @@ return function(Config)
 		end
 
 		if GroupName == "Current" or GroupName == "Max" then
-			return ValueType == "number"
+			if ValueType == "number" then
+				return true
+			end
+
+			if GroupName == "Current"
+				and ValueType == "string"
+				and Candidate
+				and isExhaustionCurrentCandidate(Candidate) then
+				return true
+			end
+
+			return false
 		end
 
 		return false
@@ -2975,13 +3033,19 @@ return function(Config)
 		end
 
 		local NameLower = Candidate.NameLower or ""
+		local AllowObservedExhaustionFlag = isObservedExhaustionFlagName(NameLower)
+			and StaminaFeature.HasStrongPrimarySiblingHandle(Candidate)
 
 		if NameLower == "nocooldown"
-			or isRejectedSupportName("Flags", NameLower) then
+			or (
+				isRejectedSupportName("Flags", NameLower)
+				and not AllowObservedExhaustionFlag
+			) then
 			return false
 		end
 
 		return NameLower == "nostaminacost"
+			or AllowObservedExhaustionFlag
 			or NameLower == "canusestamina"
 			or NameLower == "hasstamina"
 			or NameLower == "enoughstamina"
@@ -3050,6 +3114,9 @@ return function(Config)
 		local NameLower = Candidate.NameLower or ""
 		local FamilyRank = getActionFamilyRank(Profile, Candidate.Family)
 		local Score = 0
+		local AllowObservedExhaustionFlag = GroupName == "Flags"
+			and isObservedExhaustionFlagName(NameLower)
+			and StaminaFeature.HasStrongPrimarySiblingHandle(Candidate)
 		local AllowObservedExhaustionSpend = GroupName == "Spend"
 			and isObservedExhaustionSpendName(NameLower)
 			and StaminaFeature.HasStrongPrimarySiblingHandle(Candidate)
@@ -3058,6 +3125,7 @@ return function(Config)
 			or NameLower == "offensive"
 			or (
 				isRejectedSupportName(GroupName, NameLower)
+				and not AllowObservedExhaustionFlag
 				and not AllowObservedExhaustionSpend
 			)
 			or FamilyRank == nil then
@@ -3082,6 +3150,8 @@ return function(Config)
 		if GroupName == "Flags" then
 			if NameLower == "nostaminacost" then
 				Score = Score + 8
+			elseif AllowObservedExhaustionFlag then
+				Score = Score + 6
 			elseif NameLower == "cansprint"
 				or NameLower == "canrun"
 				or NameLower == "candash"
@@ -3879,7 +3949,15 @@ return function(Config)
 				end
 
 				if Candidate.Group == "Flags" then
-					if Score >= 4 and not isRejectedSupportName("Flags", Candidate.NameLower or "") then
+					local NameLower = Candidate.NameLower or ""
+					local AllowObservedExhaustionFlag = isObservedExhaustionFlagName(NameLower)
+						and StaminaFeature.HasStrongPrimarySiblingHandle(Candidate)
+
+					if Score >= 4
+						and (
+							not isRejectedSupportName("Flags", NameLower)
+							or AllowObservedExhaustionFlag
+						) then
 						promoteCandidate(Candidate, "flags", Score, "capture_flags")
 						table.insert(PromotedLogic, {
 							Candidate = Candidate,
@@ -5685,6 +5763,15 @@ return function(Config)
 	end
 
 	getCurrentTargetForEntry = function(Entry)
+		if Entry
+			and Entry.Candidate
+			and isExhaustionCurrentCandidate(Entry.Candidate) then
+			local RawValue = readEntryValue(Entry)
+			local ZeroValue = getZeroLikeValue(RawValue)
+
+			return toNumber(ZeroValue)
+		end
+
 		return getPreferredCandidateTarget(Entry.Candidate, "Current", Entry.Family, readEntryValue(Entry))
 	end
 
@@ -5803,6 +5890,8 @@ return function(Config)
 			if DirectStatsFlagTruthLookup[NameLower] then
 				DesiredValue = getTruthyValue(Value)
 			elseif DirectStatsFlagFalseLookup[NameLower] then
+				DesiredValue = getZeroLikeValue(Value)
+			elseif isObservedExhaustionCurrentName(NameLower) then
 				DesiredValue = getZeroLikeValue(Value)
 			elseif DirectStatsSpendZeroLookup[NameLower] then
 				DesiredValue = getZeroLikeValue(Value)
@@ -6344,6 +6433,14 @@ return function(Config)
 		end
 
 		if Candidate.Group == "Spend" and isRuntimeSpendCandidate(Candidate) then
+			if not StaminaFeature.HasCanonicalLogicCurrentHandleInternal() then
+				return nil, false
+			end
+
+			return getZeroLikeValue(IncomingValue), true
+		end
+
+		if Candidate.Group == "Current" and isExhaustionCurrentCandidate(Candidate) then
 			if not StaminaFeature.HasCanonicalLogicCurrentHandleInternal() then
 				return nil, false
 			end
