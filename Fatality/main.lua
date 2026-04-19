@@ -1,6 +1,6 @@
 -- Main entry script for using the Fatality UI library.
 -- Core library code lives in src/source.luau.
-local LoaderVersion = "20260420-loader-10"
+local LoaderVersion = "20260420-loader-11"
 
 local function getScriptCompiler()
 	if type(loadstring) == "function" then
@@ -131,8 +131,8 @@ local function buildRemoteUrls(Path)
 	local EncodedPath = string.gsub(Path, "\\", "/")
 
 	return {
-		string.format("https://cdn.jsdelivr.net/gh/Waikuls/Synx@main/%s?v=%s", EncodedPath, RemoteSeed),
-		string.format("https://raw.githubusercontent.com/Waikuls/Synx/main/%s?v=%s", EncodedPath, RemoteSeed)
+		string.format("https://raw.githubusercontent.com/Waikuls/Synx/main/%s?v=%s", EncodedPath, RemoteSeed),
+		string.format("https://cdn.jsdelivr.net/gh/Waikuls/Synx@main/%s?v=%s", EncodedPath, RemoteSeed)
 	}
 end
 
