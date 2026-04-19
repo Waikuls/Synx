@@ -2182,34 +2182,15 @@ return function(Config)
 		local ValueType = typeof(Value)
 
 		if GroupName == "Flags" then
-			if ValueType == "string" then
-				return supportsScopedStringSupportRewrite(GroupName, Candidate)
-			end
-
 			return ValueType == "boolean" or ValueType == "number"
 		end
 
 		if GroupName == "Spend" then
-			if ValueType == "string" then
-				return supportsScopedStringSupportRewrite(GroupName, Candidate)
-			end
-
 			return ValueType == "boolean" or ValueType == "number"
 		end
 
 		if GroupName == "Current" or GroupName == "Max" then
-			if ValueType == "number" then
-				return true
-			end
-
-			if GroupName == "Current"
-				and ValueType == "string"
-				and Candidate
-				and isExhaustionCurrentCandidate(Candidate) then
-				return true
-			end
-
-			return false
+			return ValueType == "number"
 		end
 
 		return false
@@ -5767,9 +5748,11 @@ return function(Config)
 			and Entry.Candidate
 			and isExhaustionCurrentCandidate(Entry.Candidate) then
 			local RawValue = readEntryValue(Entry)
-			local ZeroValue = getZeroLikeValue(RawValue)
+			local NumericValue = toNumber(RawValue)
 
-			return toNumber(ZeroValue)
+			if NumericValue ~= nil then
+				return 0
+			end
 		end
 
 		return getPreferredCandidateTarget(Entry.Candidate, "Current", Entry.Family, readEntryValue(Entry))
@@ -5886,14 +5869,55 @@ return function(Config)
 
 			local NameLower = string.lower(Name)
 			local DesiredValue = nil
+			local OverrideGroup = nil
+			local OverrideCandidate = {
+				Group = "Current",
+				SourceKind = "instance",
+				Handle = Handle,
+				NameLower = NameLower,
+				TrustedAlias = isTrustedAliasName("Current", NameLower)
+			}
 
 			if DirectStatsFlagTruthLookup[NameLower] then
+				OverrideGroup = "Flags"
+				OverrideCandidate.Group = "Flags"
+				OverrideCandidate.TrustedAlias = isTrustedAliasName("Flags", NameLower)
+				OverrideCandidate.ObservedAlias = isObservedAliasName("Flags", NameLower)
+
+				if not supportsSafeRuntimeRewrite(OverrideGroup, Value, OverrideCandidate) then
+					return
+				end
+
 				DesiredValue = getTruthyValue(Value)
 			elseif DirectStatsFlagFalseLookup[NameLower] then
+				OverrideGroup = "Flags"
+				OverrideCandidate.Group = "Flags"
+				OverrideCandidate.TrustedAlias = isTrustedAliasName("Flags", NameLower)
+				OverrideCandidate.ObservedAlias = isObservedAliasName("Flags", NameLower)
+
+				if not supportsSafeRuntimeRewrite(OverrideGroup, Value, OverrideCandidate) then
+					return
+				end
+
 				DesiredValue = getZeroLikeValue(Value)
 			elseif isObservedExhaustionCurrentName(NameLower) then
-				DesiredValue = getZeroLikeValue(Value)
+				OverrideGroup = "Current"
+
+				if not supportsSafeRuntimeRewrite(OverrideGroup, Value, OverrideCandidate) then
+					return
+				end
+
+				DesiredValue = 0
 			elseif DirectStatsSpendZeroLookup[NameLower] then
+				OverrideGroup = "Spend"
+				OverrideCandidate.Group = "Spend"
+				OverrideCandidate.TrustedAlias = isTrustedAliasName("Spend", NameLower)
+				OverrideCandidate.ObservedAlias = isObservedAliasName("Spend", NameLower)
+
+				if not supportsSafeRuntimeRewrite(OverrideGroup, Value, OverrideCandidate) then
+					return
+				end
+
 				DesiredValue = getZeroLikeValue(Value)
 			elseif DirectStatsFillToMaxLookup[NameLower] then
 				local MaxValue = NamedValues.maxdownedhealth
