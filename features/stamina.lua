@@ -1350,6 +1350,17 @@ return function(Config)
 			"dodge",
 			"slide"
 		})
+		local AttackKeywordLookup = createLookup({
+			"attack",
+			"combat",
+			"m1",
+			"m2",
+			"punch",
+			"swing",
+			"slash",
+			"heavy",
+			"hit"
+		})
 		local NoiseKeywordLookup = createLookup({
 			"emit",
 			"effect",
@@ -1390,6 +1401,9 @@ return function(Config)
 			elseif Profile == "Dash" then
 				ProfileHits = countLookupHits(PathLower, DashKeywordLookup)
 					+ countLookupHits(ArgsLower, DashKeywordLookup)
+			elseif Profile == "Attack" then
+				ProfileHits = countLookupHits(PathLower, AttackKeywordLookup)
+					+ countLookupHits(ArgsLower, AttackKeywordLookup)
 			end
 
 			local Score = (MovementHits * 2) + (ProfileHits * 2)
@@ -1415,7 +1429,7 @@ return function(Config)
 		end
 
 		function RemoteRuntime.isMovementProfile(Profile)
-			return Profile == "Run" or Profile == "Dash"
+			return Profile == "Run" or Profile == "Dash" or Profile == "Attack"
 		end
 
 		function RemoteRuntime.ensureProfileTable(Candidate, FieldName)
@@ -2365,7 +2379,8 @@ return function(Config)
 			end
 		end
 
-		if Session.Profile == "Attack" and Candidate.Family == "attack" then
+		if Session.Profile == "Attack"
+			and (Candidate.Family == "attack" or Candidate.Family == "combat") then
 			Session.AttackSignalCount = Session.AttackSignalCount + 1
 		end
 
@@ -3399,16 +3414,60 @@ return function(Config)
 	end
 
 	local function hasActiveAttackState(AttackState)
-		if type(AttackState) ~= "string" or AttackState == "" then
+		local AttackStateType = type(AttackState)
+
+		if AttackStateType == "boolean" then
+			return AttackState == true
+		end
+
+		if AttackStateType == "number" then
+			return AttackState ~= 0
+		end
+
+		if AttackStateType ~= "string" or AttackState == "" then
 			return false
 		end
 
 		local StateLower = string.lower(AttackState)
+		local NumericState = tonumber(AttackState)
+
+		if NumericState ~= nil then
+			return NumericState ~= 0
+		end
 
 		return StateLower ~= "idle"
 			and StateLower ~= "none"
 			and StateLower ~= "neutral"
 			and StateLower ~= "emote"
+			and StateLower ~= "false"
+			and StateLower ~= "0"
+	end
+
+	local function hasRecentAttackPressure()
+		local RecentCutoff = os.clock() - 1.25
+
+		for _, Group in ipairs({"Current", "Max", "Flags", "Spend"}) do
+			for _, Entry in ipairs(StaminaFeature.Handles[Group]) do
+				local Candidate = Entry.Candidate
+				local NameLower = Candidate and Candidate.NameLower or ""
+
+				if Candidate
+					and Candidate.ExternalWriteCount > 0
+					and (Candidate.LastChangeTime or 0) >= RecentCutoff
+					and (
+						Candidate.Family == "attack"
+						or Candidate.Family == "combat"
+						or string.find(NameLower, "attack", 1, true) ~= nil
+						or string.find(NameLower, "combat", 1, true) ~= nil
+						or string.find(NameLower, "m1", 1, true) ~= nil
+						or string.find(NameLower, "m2", 1, true) ~= nil
+					) then
+					return true
+				end
+			end
+		end
+
+		return false
 	end
 
 	local function resolveActionProfile(Metrics, RecentExternalPressure)
@@ -3418,22 +3477,27 @@ return function(Config)
 			return Session.Profile, Session.Profile ~= "Free", nil
 		end
 
+		local AttackStateActive = Metrics and hasActiveAttackState(Metrics.AttackState)
+		local AttackPressure = AttackStateActive
+			or hasRecentAttackPressure()
+			or (
+				RecentExternalPressure
+				and Metrics
+				and Metrics.ToolEquipped
+				and not (Metrics.IsSprinting and hasRunMotion(Metrics))
+				and not (Metrics.IsBoostedSprinting and hasDashMotion(Metrics))
+			)
+
+		if AttackPressure then
+			return "Attack", true, nil
+		end
+
 		if Metrics and Metrics.IsBoostedSprinting and hasDashMotion(Metrics) then
 			return "Dash", true, nil
 		end
 
 		if Metrics and Metrics.IsSprinting and hasRunMotion(Metrics) then
 			return "Run", true, nil
-		end
-
-		if RecentExternalPressure then
-			if Metrics and hasActiveAttackState(Metrics.AttackState) then
-				return "Attack", true, nil
-			end
-
-			if Metrics and Metrics.ToolEquipped then
-				return "Attack", true, "attack_signal_missing"
-			end
 		end
 
 		local Profile = inferRuntimeProfile(Metrics)
@@ -3481,7 +3545,7 @@ return function(Config)
 			return LastProfile
 		end
 
-		local Profile = inferRuntimeProfile(getCharacterMetrics())
+		local Profile = select(1, resolveActionProfile(getCharacterMetrics(), hasRecentExternalPressure()))
 
 		if StaminaFeature.RemoteRuntime.isMovementProfile(Profile) then
 			return Profile
@@ -4104,6 +4168,8 @@ return function(Config)
 			end
 		elseif Session.Profile == "Attack" then
 			if Metrics.ToolEquipped
+				or hasActiveAttackState(Metrics.AttackState)
+				or hasRecentAttackPressure()
 				or (Session.AttackSignalCount or 0) > 0
 				or (Session.RemoteCallCount or 0) > 0 then
 				Session.ActionValid = true
@@ -5982,15 +6048,7 @@ return function(Config)
 		end
 
 		if Profile == "Free" then
-			if ActionPressure and ActionHintReason == "attack_signal_missing" then
-				return "logic_unverified", "attack_signal_missing", "Attack", true
-			end
-
 			return "logic_unverified", "awaiting_action", Profile, false
-		end
-
-		if Profile == "Attack" and ActionHintReason == "attack_signal_missing" then
-			return "logic_unverified", "attack_signal_missing", Profile, true
 		end
 
 		if Profile == "Dash" and not hasDashMotion(Metrics) then
@@ -6526,6 +6584,7 @@ return function(Config)
 		local RejectedReason = RejectedPrimaryCandidate and getRejectedPrimaryReason(RejectedPrimaryCandidate) or "none"
 		local TopRunRemote = StaminaFeature.RemoteRuntime.getPreferredLabel("Run")
 		local TopDashRemote = StaminaFeature.RemoteRuntime.getPreferredLabel("Dash")
+		local TopAttackRemote = StaminaFeature.RemoteRuntime.getPreferredLabel("Attack")
 
 		local Lines = {
 			string.format("DebugEnabled: %s", tostring(self.DebugEnabled)),
@@ -6546,7 +6605,8 @@ return function(Config)
 			string.format("TrustedPrimary: %s", TrustedPrimaryLabel),
 			string.format("RejectedPrimary: %s (%s)", RejectedPrimaryLabel, RejectedReason),
 			string.format("TopRunRemote: %s", TopRunRemote),
-			string.format("TopDashRemote: %s", TopDashRemote)
+			string.format("TopDashRemote: %s", TopDashRemote),
+			string.format("TopAttackRemote: %s", TopAttackRemote)
 		}
 
 		local Session = self.CaptureSession
