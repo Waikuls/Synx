@@ -81,6 +81,27 @@ return function(Config)
 		BlindMashCooldown = 0.55,
 		DesiredStandDistance = 4,
 		VerticalOffset = 2.5,
+		ObservedContext = {
+			Name = nil,
+			Key = nil,
+			StartButton = nil
+		},
+		RemoteCapture = nil,
+		RemoteHookAvailable = false,
+		RemoteRecords = {
+			Start = {},
+			Prompt = {
+				W = {},
+				A = {},
+				S = {},
+				D = {}
+			},
+			GenericPrompt = {}
+		},
+		RemoteReplayCooldown = 0.08,
+		LastRemoteReplayAt = 0,
+		LastRemoteNotificationAt = 0,
+		LearnedContexts = {}
 	}
 
 	local function trimString(Value)
@@ -113,6 +134,355 @@ return function(Config)
 		end
 
 		return false
+	end
+
+	local function countAliases(Haystack, Aliases)
+		if Haystack == "" then
+			return 0
+		end
+
+		local Count = 0
+
+		for _, Alias in ipairs(Aliases) do
+			if string.find(Haystack, Alias, 1, true) then
+				Count = Count + 1
+			end
+		end
+
+		return Count
+	end
+
+	local function packArguments(...)
+		return table.pack(...)
+	end
+
+	local function cloneValue(Value, Depth, Seen)
+		Depth = Depth or 0
+		Seen = Seen or {}
+
+		if Depth > 6 then
+			return Value
+		end
+
+		if typeof(Value) ~= "table" then
+			return Value
+		end
+
+		if Seen[Value] then
+			return Seen[Value]
+		end
+
+		local Copy = {}
+		Seen[Value] = Copy
+
+		for Key, Entry in pairs(Value) do
+			Copy[cloneValue(Key, Depth + 1, Seen)] = cloneValue(Entry, Depth + 1, Seen)
+		end
+
+		local Metatable = getmetatable(Value)
+
+		if type(Metatable) == "table" then
+			setmetatable(Copy, Metatable)
+		end
+
+		return Copy
+	end
+
+	local function clonePackedArguments(Arguments)
+		if type(Arguments) ~= "table" then
+			return packArguments()
+		end
+
+		local Copy = {
+			n = Arguments.n or #Arguments
+		}
+
+		for Index = 1, Copy.n do
+			Copy[Index] = cloneValue(Arguments[Index])
+		end
+
+		return Copy
+	end
+
+	local function isRemoteLike(Instance)
+		return typeof(Instance) == "Instance"
+			and Instance.Parent
+			and (
+				Instance:IsA("RemoteEvent")
+				or Instance:IsA("RemoteFunction")
+				or Instance:IsA("UnreliableRemoteEvent")
+			)
+	end
+
+	local function getInstancePath(Instance)
+		if not Instance then
+			return "nil"
+		end
+
+		local Success, Value = pcall(function()
+			return Instance:GetFullName()
+		end)
+
+		if Success and type(Value) == "string" and Value ~= "" then
+			return Value
+		end
+
+		return tostring(Instance)
+	end
+
+	local function collectArgumentTokens(Value, Tokens, Depth, Seen)
+		Depth = Depth or 0
+		Seen = Seen or {}
+
+		if #Tokens >= 12 or Depth > 3 then
+			return
+		end
+
+		local ValueType = typeof(Value)
+
+		if ValueType == "string" then
+			local Normalized = normalizeText(Value)
+
+			if Normalized ~= "" then
+				table.insert(Tokens, Normalized)
+			end
+
+			return
+		end
+
+		if ValueType == "EnumItem" then
+			table.insert(Tokens, normalizeText(Value.Name))
+			return
+		end
+
+		if ValueType == "Instance" then
+			table.insert(Tokens, normalizeText(Value.Name))
+			return
+		end
+
+		if ValueType ~= "table" or Seen[Value] then
+			return
+		end
+
+		Seen[Value] = true
+
+		for Key, Entry in pairs(Value) do
+			collectArgumentTokens(Key, Tokens, Depth + 1, Seen)
+			collectArgumentTokens(Entry, Tokens, Depth + 1, Seen)
+
+			if #Tokens >= 12 then
+				return
+			end
+		end
+	end
+
+	local function getRemoteCaptureText(Remote, Arguments)
+		local Tokens = {
+			normalizeText(Remote and Remote.Name or ""),
+			normalizeText(getInstancePath(Remote))
+		}
+
+		for Index = 1, (Arguments and Arguments.n or 0) do
+			collectArgumentTokens(Arguments[Index], Tokens, 0, {})
+		end
+
+		return table.concat(Tokens, " ")
+	end
+
+	local function inferKeyFromValue(Value, Depth, Seen)
+		Depth = Depth or 0
+		Seen = Seen or {}
+
+		if Depth > 4 then
+			return nil
+		end
+
+		local ValueType = typeof(Value)
+
+		if ValueType == "EnumItem" and Value.EnumType == Enum.KeyCode and KeyCodes[Value.Name] then
+			return Value.Name
+		end
+
+		if ValueType == "string" then
+			local Normalized = string.upper(normalizeText(Value))
+
+			if KeyCodes[Normalized] then
+				return Normalized
+			end
+
+			for Key in pairs(KeyCodes) do
+				if string.find(Normalized, "KEYCODE." .. Key, 1, true)
+					or string.find(Normalized, " " .. Key .. " ", 1, true)
+					or Normalized == ("PRESS" .. Key)
+					or Normalized == ("INPUT" .. Key) then
+					return Key
+				end
+			end
+
+			return nil
+		end
+
+		if ValueType ~= "table" or Seen[Value] then
+			return nil
+		end
+
+		Seen[Value] = true
+
+		for Key, Entry in pairs(Value) do
+			local FoundKey = inferKeyFromValue(Key, Depth + 1, Seen) or inferKeyFromValue(Entry, Depth + 1, Seen)
+
+			if FoundKey then
+				return FoundKey
+			end
+		end
+
+		return nil
+	end
+
+	local function inferKeyFromArguments(Arguments)
+		if type(Arguments) ~= "table" then
+			return nil
+		end
+
+		for Index = 1, (Arguments.n or #Arguments) do
+			local FoundKey = inferKeyFromValue(Arguments[Index], 0, {})
+
+			if FoundKey then
+				return FoundKey
+			end
+		end
+
+		return nil
+	end
+
+	local function replaceKeyValue(Value, FromKey, ToKey, Depth, Seen)
+		Depth = Depth or 0
+		Seen = Seen or {}
+
+		if Depth > 6 then
+			return Value
+		end
+
+		local ValueType = typeof(Value)
+
+		if ValueType == "EnumItem"
+			and Value.EnumType == Enum.KeyCode
+			and Value.Name == FromKey
+			and KeyCodes[ToKey] then
+			return KeyCodes[ToKey]
+		end
+
+		if ValueType == "string" then
+			if Value == FromKey then
+				return ToKey
+			end
+
+			if string.upper(Value) == FromKey then
+				return ToKey
+			end
+
+			if string.lower(Value) == string.lower(FromKey) then
+				return string.lower(ToKey)
+			end
+
+			return Value
+		end
+
+		if ValueType ~= "table" or Seen[Value] then
+			return Value
+		end
+
+		Seen[Value] = true
+		local Copy = {}
+
+		for Key, Entry in pairs(Value) do
+			Copy[replaceKeyValue(Key, FromKey, ToKey, Depth + 1, Seen)] = replaceKeyValue(Entry, FromKey, ToKey, Depth + 1, Seen)
+		end
+
+		return Copy
+	end
+
+	local function replacePackedKey(Arguments, FromKey, ToKey)
+		if not FromKey or not ToKey or FromKey == ToKey or type(Arguments) ~= "table" then
+			return Arguments
+		end
+
+		local Copy = {
+			n = Arguments.n or #Arguments
+		}
+
+		for Index = 1, Copy.n do
+			Copy[Index] = replaceKeyValue(Arguments[Index], FromKey, ToKey, 0, {})
+		end
+
+		return Copy
+	end
+
+	local function getGlobalRemoteCapture()
+		local Environment = type(getgenv) == "function" and getgenv() or _G
+
+		if type(Environment.__KELVAutoTrainRemoteCapture) ~= "table" then
+			Environment.__KELVAutoTrainRemoteCapture = {
+				Installed = false,
+				Available = false,
+				Consumer = nil,
+				Replaying = false
+			}
+		end
+
+		return Environment.__KELVAutoTrainRemoteCapture
+	end
+
+	local function installRemoteCaptureHook()
+		local CaptureState = getGlobalRemoteCapture()
+
+		if CaptureState.Installed then
+			return CaptureState
+		end
+
+		CaptureState.Installed = true
+
+		if type(hookmetamethod) ~= "function" or type(getnamecallmethod) ~= "function" then
+			return CaptureState
+		end
+
+		local ClosureFactory = type(newcclosure) == "function" and newcclosure or function(Callback)
+			return Callback
+		end
+
+		local OriginalNamecall
+		local Success = pcall(function()
+			OriginalNamecall = hookmetamethod(game, "__namecall", ClosureFactory(function(Self, ...)
+				local Method = getnamecallmethod()
+				local Consumer = CaptureState.Consumer
+
+				if Consumer
+					and not CaptureState.Replaying
+					and isRemoteLike(Self)
+					and (Method == "FireServer" or Method == "InvokeServer") then
+					local ShouldSkip = false
+
+					if type(checkcaller) == "function" then
+						local CheckSuccess, Value = pcall(checkcaller)
+
+						if CheckSuccess and Value then
+							ShouldSkip = true
+						end
+					end
+
+					if not ShouldSkip then
+						local Arguments = packArguments(...)
+						pcall(Consumer, Self, Method, Arguments)
+					end
+				end
+
+				return OriginalNamecall(Self, ...)
+			end))
+		end)
+
+		CaptureState.Available = Success and type(OriginalNamecall) == "function"
+
+		return CaptureState
 	end
 
 	local function getSelectedAliases(SelectedType)
@@ -675,6 +1045,275 @@ return function(Config)
 		return Candidates
 	end
 
+	local function getLikelyVisibleKey(Candidates)
+		local BestCandidate = Candidates and Candidates[1]
+		local SecondCandidate = Candidates and Candidates[2]
+
+		if BestCandidate
+			and (
+				not SecondCandidate
+				or (BestCandidate.Score - SecondCandidate.Score) >= 18
+			) then
+			return BestCandidate.Key
+		end
+
+		return nil
+	end
+
+	function AutoTrainFeature:RefreshObservedContext()
+		local StartButton = findVisibleStartButton()
+
+		if StartButton then
+			self.ObservedContext = {
+				Name = "start",
+				Key = nil,
+				StartButton = StartButton
+			}
+
+			return self.ObservedContext
+		end
+
+		local Candidates = collectMinigameCandidates()
+
+		if #Candidates > 0 then
+			self.ObservedContext = {
+				Name = "prompt",
+				Key = getLikelyVisibleKey(Candidates),
+				StartButton = nil
+			}
+
+			return self.ObservedContext
+		end
+
+		local TrainingState = getTrainingState(self.SelectedType)
+
+		if TrainingState.IsTraining then
+			self.ObservedContext = {
+				Name = "prompt",
+				Key = nil,
+				StartButton = nil
+			}
+
+			return self.ObservedContext
+		end
+
+		self.ObservedContext = {
+			Name = nil,
+			Key = nil,
+			StartButton = nil
+		}
+
+		return self.ObservedContext
+	end
+
+	function AutoTrainFeature:NotifyRemoteLearned(ContextLabel)
+		if not Notification then
+			return
+		end
+
+		local Now = os.clock()
+
+		if self.LearnedContexts[ContextLabel]
+			or (Now - self.LastRemoteNotificationAt) < 0.8 then
+			return
+		end
+
+		self.LearnedContexts[ContextLabel] = true
+		self.LastRemoteNotificationAt = Now
+
+		Notification:Notify({
+			Title = "Auto Train",
+			Content = string.format("Learned remote for %s", ContextLabel),
+			Icon = "radio"
+		})
+	end
+
+	function AutoTrainFeature:BuildRemoteSignature(Remote, Method, Arguments, Key)
+		local Tokens = {
+			getInstancePath(Remote),
+			tostring(Method),
+			inferKeyFromArguments(Arguments) or "",
+			Key or "",
+			getRemoteCaptureText(Remote, Arguments)
+		}
+
+		return table.concat(Tokens, "|")
+	end
+
+	function AutoTrainFeature:ClassifyCapturedRemote(Remote, Arguments)
+		local Context = self.ObservedContext or {}
+		local InferredKey = inferKeyFromArguments(Arguments)
+		local CaptureText = getRemoteCaptureText(Remote, Arguments)
+		local RelevanceScore = 0
+
+		RelevanceScore = RelevanceScore + countAliases(CaptureText, {"train", "training", "workout", "gym", "exercise", "machine", "prompt", "input", "start"})
+		RelevanceScore = RelevanceScore + countAliases(CaptureText, getSelectedAliases(self.SelectedType))
+
+		if Context.Name == "start" then
+			if string.find(CaptureText, "start", 1, true) or RelevanceScore > 0 then
+				return "start", nil
+			end
+
+			return nil, nil
+		end
+
+		if Context.Name == "prompt" then
+			if InferredKey then
+				return "prompt", InferredKey
+			end
+
+			if Context.Key then
+				return "prompt", Context.Key
+			end
+
+			if RelevanceScore > 0 then
+				return "prompt", nil
+			end
+		end
+
+		return nil, nil
+	end
+
+	function AutoTrainFeature:StoreRemoteRecord(ContextName, Key, Remote, Method, Arguments)
+		local TargetList
+		local ContextLabel
+
+		if ContextName == "start" then
+			TargetList = self.RemoteRecords.Start
+			ContextLabel = "Start"
+		elseif ContextName == "prompt" and Key and self.RemoteRecords.Prompt[Key] then
+			TargetList = self.RemoteRecords.Prompt[Key]
+			ContextLabel = "Key " .. Key
+		elseif ContextName == "prompt" then
+			TargetList = self.RemoteRecords.GenericPrompt
+			ContextLabel = "Generic prompt"
+		else
+			return false
+		end
+
+		local Signature = self:BuildRemoteSignature(Remote, Method, Arguments, Key)
+
+		for _, Record in ipairs(TargetList) do
+			if Record.Signature == Signature then
+				Record.Remote = Remote
+				Record.Method = Method
+				Record.Args = clonePackedArguments(Arguments)
+				Record.Key = Key
+				Record.CapturedAt = os.clock()
+				Record.Hits = (Record.Hits or 1) + 1
+				return false
+			end
+		end
+
+		table.insert(TargetList, 1, {
+			Signature = Signature,
+			Remote = Remote,
+			Method = Method,
+			Args = clonePackedArguments(Arguments),
+			Key = Key,
+			CapturedAt = os.clock(),
+			Hits = 1
+		})
+
+		while #TargetList > 6 do
+			table.remove(TargetList)
+		end
+
+		self:NotifyRemoteLearned(ContextLabel)
+		return true
+	end
+
+	function AutoTrainFeature:OnRemoteCalled(Remote, Method, Arguments)
+		if not self.Enabled then
+			return
+		end
+
+		local ContextName, Key = self:ClassifyCapturedRemote(Remote, Arguments)
+
+		if not ContextName then
+			return
+		end
+
+		self:StoreRemoteRecord(ContextName, Key, Remote, Method, Arguments)
+	end
+
+	function AutoTrainFeature:RegisterRemoteCapture()
+		local CaptureState = installRemoteCaptureHook()
+
+		self.RemoteCapture = CaptureState
+		self.RemoteHookAvailable = CaptureState.Available == true
+
+		CaptureState.Consumer = function(Remote, Method, Arguments)
+			self:OnRemoteCalled(Remote, Method, Arguments)
+		end
+	end
+
+	function AutoTrainFeature:InvokeRecordedRemote(Record, DesiredKey)
+		if type(Record) ~= "table" or not isRemoteLike(Record.Remote) then
+			return false
+		end
+
+		local Arguments = clonePackedArguments(Record.Args)
+
+		if DesiredKey and Record.Key then
+			Arguments = replacePackedKey(Arguments, Record.Key, DesiredKey)
+		end
+
+		local CaptureState = self.RemoteCapture or getGlobalRemoteCapture()
+
+		CaptureState.Replaying = true
+
+		local Success
+
+		if Record.Method == "InvokeServer" then
+			Success = pcall(function()
+				Record.Remote:InvokeServer(table.unpack(Arguments, 1, Arguments.n))
+			end)
+		else
+			Success = pcall(function()
+				Record.Remote:FireServer(table.unpack(Arguments, 1, Arguments.n))
+			end)
+		end
+
+		CaptureState.Replaying = false
+
+		if Success then
+			self.LastRemoteReplayAt = os.clock()
+		end
+
+		return Success
+	end
+
+	function AutoTrainFeature:ReplayRemoteList(Records, DesiredKey, Now)
+		if type(Records) ~= "table" or #Records == 0 then
+			return false
+		end
+
+		if (Now or os.clock()) - self.LastRemoteReplayAt < self.RemoteReplayCooldown then
+			return false
+		end
+
+		for _, Record in ipairs(Records) do
+			if self:InvokeRecordedRemote(Record, DesiredKey) then
+				return true
+			end
+		end
+
+		return false
+	end
+
+	function AutoTrainFeature:TryReplayStartRemote(Now)
+		return self:ReplayRemoteList(self.RemoteRecords.Start, nil, Now)
+	end
+
+	function AutoTrainFeature:TryReplayPromptRemote(Key, Now)
+		if Key and self:ReplayRemoteList(self.RemoteRecords.Prompt[Key], Key, Now) then
+			return true
+		end
+
+		return self:ReplayRemoteList(self.RemoteRecords.GenericPrompt, Key, Now)
+	end
+
 	local function getPromptPart(Prompt)
 		if not Prompt or not Prompt.Parent then
 			return nil
@@ -866,7 +1505,13 @@ return function(Config)
 			return false
 		end
 
-		local StartButton = findVisibleStartButton()
+		if self:TryReplayStartRemote(Now) then
+			self.LastButtonClickAt = Now
+			self.LastPressedSignature = nil
+			return true
+		end
+
+		local StartButton = (self.ObservedContext and self.ObservedContext.StartButton) or findVisibleStartButton()
 
 		if not StartButton then
 			return false
@@ -889,6 +1534,12 @@ return function(Config)
 		local Candidates = collectMinigameCandidates()
 
 		if #Candidates == 0 then
+			if self:TryReplayPromptRemote(nil, Now) then
+				self.LastPressedSignature = "remote-generic"
+				self.LastPressedAt = Now
+				return true
+			end
+
 			if Now - self.LastBlindMashAt >= self.BlindMashCooldown then
 				self.LastBlindMashAt = Now
 				tapKeySequence(BlindMashOrder)
@@ -910,8 +1561,10 @@ return function(Config)
 				or (Now - self.LastPressedAt) >= self.RepeatPromptCooldown then
 				local Triggered = false
 
+				Triggered = self:TryReplayPromptRemote(BestCandidate.Key, Now)
+
 				if BestCandidate.Button then
-					Triggered = clickGuiButton(BestCandidate.Button)
+					Triggered = Triggered or clickGuiButton(BestCandidate.Button)
 				end
 
 				if not Triggered then
@@ -954,6 +1607,12 @@ return function(Config)
 			clickGuiButton(Button)
 		end
 
+		if self:TryReplayPromptRemote(getLikelyVisibleKey(Candidates), Now) then
+			self.LastPressedSignature = "remote-multi"
+			self.LastPressedAt = Now
+			return true
+		end
+
 		if #UniqueKeys > 0 then
 			tapKeySequence(UniqueKeys)
 			self.LastPressedSignature = table.concat(UniqueKeys, ",")
@@ -970,6 +1629,7 @@ return function(Config)
 		end
 
 		local Now = os.clock()
+		self:RefreshObservedContext()
 
 		if self:HandleActionMenu(Now) then
 			return
@@ -1030,6 +1690,20 @@ return function(Config)
 			return false
 		end
 
+		if self.SelectedType ~= Value then
+			self.RemoteRecords = {
+				Start = {},
+				Prompt = {
+					W = {},
+					A = {},
+					S = {},
+					D = {}
+				},
+				GenericPrompt = {}
+			}
+			self.LearnedContexts = {}
+		end
+
 		self.SelectedType = Value
 		self.CachedPrompt = nil
 		self.CachedPromptType = nil
@@ -1057,6 +1731,11 @@ return function(Config)
 		self.LastPressedSignature = nil
 		self.LastPressedAt = 0
 		self.LastBlindMashAt = 0
+		self.ObservedContext = {
+			Name = nil,
+			Key = nil,
+			StartButton = nil
+		}
 
 		if self.Connection then
 			self.Connection:Disconnect()
@@ -1064,6 +1743,7 @@ return function(Config)
 		end
 
 		if State then
+			self:RegisterRemoteCapture()
 			self.Elapsed = self.LoopInterval
 			self.Connection = RunService.Heartbeat:Connect(function(DeltaTime)
 				self.Elapsed = self.Elapsed + DeltaTime
@@ -1079,7 +1759,9 @@ return function(Config)
 			if Notification then
 				Notification:Notify({
 					Title = "Auto Train",
-					Content = string.format("Enabled (%s)", self.SelectedType),
+					Content = self.RemoteHookAvailable
+						and string.format("Enabled (%s) - remote learn active", self.SelectedType)
+						or string.format("Enabled (%s) - input fallback only", self.SelectedType),
 					Icon = "check-circle"
 				})
 			end
@@ -1098,6 +1780,10 @@ return function(Config)
 		self:SetEnabled(false)
 		self.CachedPrompt = nil
 		self.CachedPromptType = nil
+
+		if self.RemoteCapture and self.RemoteCapture.Consumer then
+			self.RemoteCapture.Consumer = nil
+		end
 	end
 
 	return AutoTrainFeature
