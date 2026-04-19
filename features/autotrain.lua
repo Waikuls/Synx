@@ -426,17 +426,35 @@ return function(Config)
 				Installed = false,
 				Available = false,
 				Consumer = nil,
-				Replaying = false
+				Replaying = false,
+				ForwardMode = "with_self",
+				Version = 2
 			}
 		end
 
-		return Environment.__KELVAutoTrainRemoteCapture
+		local CaptureState = Environment.__KELVAutoTrainRemoteCapture
+
+		if CaptureState.ForwardMode ~= "with_self" and CaptureState.ForwardMode ~= "without_self" then
+			CaptureState.ForwardMode = "with_self"
+		end
+
+		if type(CaptureState.Version) ~= "number" then
+			CaptureState.Version = 0
+		end
+
+		return CaptureState
 	end
 
 	local function installRemoteCaptureHook()
 		local CaptureState = getGlobalRemoteCapture()
 
 		if CaptureState.Installed then
+			if CaptureState.Version < 2 then
+				CaptureState.Available = false
+				CaptureState.Consumer = nil
+				CaptureState.RequiresRejoin = true
+			end
+
 			return CaptureState
 		end
 
@@ -448,6 +466,14 @@ return function(Config)
 
 		local ClosureFactory = type(newcclosure) == "function" and newcclosure or function(Callback)
 			return Callback
+		end
+
+		local function forwardNamecall(OriginalNamecall, Self, ...)
+			if CaptureState.ForwardMode == "without_self" then
+				return OriginalNamecall(...)
+			end
+
+			return OriginalNamecall(Self, ...)
 		end
 
 		local OriginalNamecall
@@ -476,11 +502,36 @@ return function(Config)
 					end
 				end
 
-				return OriginalNamecall(Self, ...)
+				return forwardNamecall(OriginalNamecall, Self, ...)
 			end))
 		end)
 
 		CaptureState.Available = Success and type(OriginalNamecall) == "function"
+		CaptureState.Version = 2
+		CaptureState.RequiresRejoin = false
+
+		if CaptureState.Available then
+			local function canForward(Mode)
+				CaptureState.ForwardMode = Mode
+
+				return pcall(function()
+					return workspace:GetChildren()
+				end)
+			end
+
+			local ForwardWithSelf = canForward("with_self")
+			local ForwardWithoutSelf = canForward("without_self")
+
+			if ForwardWithSelf then
+				CaptureState.ForwardMode = "with_self"
+			elseif ForwardWithoutSelf then
+				CaptureState.ForwardMode = "without_self"
+			else
+				CaptureState.Available = false
+				CaptureState.Consumer = nil
+				CaptureState.ForwardMode = "with_self"
+			end
+		end
 
 		return CaptureState
 	end
@@ -1243,8 +1294,12 @@ return function(Config)
 		self.RemoteCapture = CaptureState
 		self.RemoteHookAvailable = CaptureState.Available == true
 
-		CaptureState.Consumer = function(Remote, Method, Arguments)
-			self:OnRemoteCalled(Remote, Method, Arguments)
+		if self.RemoteHookAvailable then
+			CaptureState.Consumer = function(Remote, Method, Arguments)
+				self:OnRemoteCalled(Remote, Method, Arguments)
+			end
+		else
+			CaptureState.Consumer = nil
 		end
 	end
 
@@ -1757,11 +1812,19 @@ return function(Config)
 			end)
 
 			if Notification then
+				local EnableMessage
+
+				if self.RemoteCapture and self.RemoteCapture.RequiresRejoin then
+					EnableMessage = string.format("Enabled (%s) - rejoin required to clear old remote hook", self.SelectedType)
+				elseif self.RemoteHookAvailable then
+					EnableMessage = string.format("Enabled (%s) - remote learn active", self.SelectedType)
+				else
+					EnableMessage = string.format("Enabled (%s) - input fallback only", self.SelectedType)
+				end
+
 				Notification:Notify({
 					Title = "Auto Train",
-					Content = self.RemoteHookAvailable
-						and string.format("Enabled (%s) - remote learn active", self.SelectedType)
-						or string.format("Enabled (%s) - input fallback only", self.SelectedType),
+					Content = EnableMessage,
 					Icon = "check-circle"
 				})
 			end
