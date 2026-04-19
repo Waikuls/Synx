@@ -470,9 +470,26 @@ return function(Config)
 		return isInstanceInHierarchy(Instance, PlayerGui)
 	end
 
+	local function isHookScopeInstance(Instance)
+		if typeof(Instance) ~= "Instance" then
+			return false
+		end
+
+		local Character = LocalPlayer.Character
+		local MainScript = findMainScript()
+		local MainScriptStats = MainScript and MainScript:FindFirstChild("Stats")
+		local PlayerStats = LocalPlayer:FindFirstChild("Stats")
+		local CharacterStats = Character and Character:FindFirstChild("Stats")
+
+		return isInstanceInHierarchy(Instance, MainScriptStats)
+			or isInstanceInHierarchy(Instance, PlayerStats)
+			or isInstanceInHierarchy(Instance, CharacterStats)
+	end
+
 	local function shouldHookInstance(Instance)
 		return isLocalRelatedInstance(Instance)
 			and not isPlayerGuiRelatedInstance(Instance)
+			and isHookScopeInstance(Instance)
 	end
 
 	local function buildSearchRoots(IncludeBroadRoots)
