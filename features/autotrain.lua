@@ -31,6 +31,30 @@ return function(Config)
 		S = Enum.KeyCode.S,
 		D = Enum.KeyCode.D
 	}
+	local DigitVirtualKeys = {
+		Zero = 0x30,
+		One = 0x31,
+		Two = 0x32,
+		Three = 0x33,
+		Four = 0x34,
+		Five = 0x35,
+		Six = 0x36,
+		Seven = 0x37,
+		Eight = 0x38,
+		Nine = 0x39
+	}
+	local SpecialVirtualKeys = {
+		Space = 0x20,
+		Return = 0x0D,
+		Backspace = 0x08,
+		Tab = 0x09,
+		LeftShift = 0xA0,
+		RightShift = 0xA1,
+		LeftControl = 0xA2,
+		RightControl = 0xA3,
+		LeftAlt = 0xA4,
+		RightAlt = 0xA5
+	}
 	local BlindMashOrder = {"W", "A", "S", "D"}
 
 	local AutoTrainFeature = {
@@ -269,9 +293,79 @@ return function(Config)
 		return nil
 	end
 
+	local function getVirtualKeyCode(KeyCode)
+		if typeof(KeyCode) ~= "EnumItem" then
+			return nil
+		end
+
+		local Name = KeyCode.Name
+
+		if #Name == 1 then
+			local Byte = string.byte(Name)
+
+			if Byte and ((Byte >= 48 and Byte <= 57) or (Byte >= 65 and Byte <= 90)) then
+				return Byte
+			end
+		end
+
+		if DigitVirtualKeys[Name] then
+			return DigitVirtualKeys[Name]
+		end
+
+		if SpecialVirtualKeys[Name] then
+			return SpecialVirtualKeys[Name]
+		end
+
+		return nil
+	end
+
+	local function sendExecutorKeyTap(KeyCode)
+		local VirtualKey = getVirtualKeyCode(KeyCode)
+
+		if not VirtualKey then
+			return false
+		end
+
+		if type(keypress) == "function" and type(keyrelease) == "function" then
+			local Success = pcall(function()
+				keypress(VirtualKey)
+				task.wait(0.025)
+				keyrelease(VirtualKey)
+			end)
+
+			if Success then
+				return true
+			end
+		end
+
+		if type(keytap) == "function" then
+			local Success = pcall(function()
+				keytap(VirtualKey)
+			end)
+
+			if Success then
+				return true
+			end
+
+			Success = pcall(function()
+				keytap(KeyCode.Name)
+			end)
+
+			if Success then
+				return true
+			end
+		end
+
+		return false
+	end
+
 	local function sendKeyTap(KeyCode)
 		if not KeyCode then
 			return false
+		end
+
+		if sendExecutorKeyTap(KeyCode) then
+			return true
 		end
 
 		local VirtualInputManager = getVirtualInputManager()
@@ -386,6 +480,16 @@ return function(Config)
 
 		if type(firesignal) == "function" then
 			pcall(function()
+				firesignal(Button.MouseButton1Down)
+				Clicked = true
+			end)
+
+			pcall(function()
+				firesignal(Button.MouseButton1Up)
+				Clicked = true
+			end)
+
+			pcall(function()
 				firesignal(Button.MouseButton1Click)
 				Clicked = true
 			end)
@@ -394,6 +498,10 @@ return function(Config)
 				firesignal(Button.Activated)
 				Clicked = true
 			end)
+		end
+
+		if Clicked then
+			return true
 		end
 
 		local Center = getGuiCenter(Button)
