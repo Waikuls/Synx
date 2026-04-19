@@ -427,6 +427,21 @@ local function safeRunModule(ModulePath, Factory, Arguments)
 	return Result
 end
 
+local function safeBuildBlock(BlockLabel, Builder)
+	if type(Builder) ~= "function" then
+		return false
+	end
+
+	local Success, Result = pcall(Builder)
+
+	if not Success then
+		notifyModuleFailure(BlockLabel, Result)
+		return false
+	end
+
+	return Result
+end
+
 local Window = Fatality.new({
 	Name = "FATALITY",
 	Expire = "never",
@@ -492,7 +507,19 @@ local StatsUI = safeCreateModule("ui/stats.lua", CreateStatsUI, {
 	StatsFeature = StatsFeature
 }, createFallbackStatsUI)
 
-do
+safeRunModule("ui/main.lua", CreateMainUI, {
+	Main = Main,
+	FoodFeature = FoodFeature,
+	StaminaFeature = StaminaFeature
+})
+
+safeRunModule("ui/visual.lua", CreateVisualUI, {
+	Visual = Visual,
+	Window = Window,
+	ESP = ESP
+})
+
+safeBuildBlock("Fatality/main.lua:LEGIT_STATIC", function()
 	local Aim = Legit:AddSection({
 		Position = 'left',
 		Name = "AIM"
@@ -655,9 +682,9 @@ do
 	General:AddToggle({
 		Name = "Autorevolver"
 	})
-end
+end)
 
-do
+safeBuildBlock("Fatality/main.lua:MISC_STATIC", function()
 	local General = Misc:AddSection({
 		Name = "GENERAL",
 		Position = 'left'
@@ -689,16 +716,4 @@ do
 			table.clear(Fatality.Windows)
 		end,
 	})
-end
-
-safeRunModule("ui/main.lua", CreateMainUI, {
-	Main = Main,
-	FoodFeature = FoodFeature,
-	StaminaFeature = StaminaFeature
-})
-
-safeRunModule("ui/visual.lua", CreateVisualUI, {
-	Visual = Visual,
-	Window = Window,
-	ESP = ESP
-})
+end)
