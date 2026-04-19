@@ -81,11 +81,12 @@ return function(Config)
 				return oldNamecall(self, ...)
 			end
 			local method = getnamecallmethod()
-			if method == "FireServer" then
-				local MainScript = findMainScript()
-				if MainScript then
-					warn("DEBUG Remote FireServer:", self.Name) -- TEMP if needed
-				end
+			if method ~= "FireServer" or not self:IsA("RemoteEvent") then
+				return oldNamecall(self, ...)
+			end
+			local MainScript = findMainScript()
+			if MainScript then
+				warn("DEBUG RemoteEvent FireServer:", self.Name) -- TEMP
 			end
 			return oldNamecall(self, ...)
 		end)
