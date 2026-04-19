@@ -209,6 +209,20 @@ return function(Config)
 		return Position + (Size * 0.5), Size
 	end
 
+	local function getGuiButtonFromInstance(Instance)
+		local Current = Instance
+
+		while Current and Current ~= game do
+			if Current:IsA("GuiButton") then
+				return Current
+			end
+
+			Current = Current.Parent
+		end
+
+		return nil
+	end
+
 	local function getScreenCenter()
 		local Camera = workspace.CurrentCamera
 		local ViewportSize = Vector2.new(1280, 720)
@@ -218,6 +232,75 @@ return function(Config)
 		end
 
 		return ViewportSize * 0.5, ViewportSize
+	end
+
+	local function getVirtualInputManager()
+		local Success, VirtualInputManager = pcall(game.GetService, game, "VirtualInputManager")
+
+		if Success and VirtualInputManager then
+			return VirtualInputManager
+		end
+
+		return nil
+	end
+
+	local function clickGuiButton(Button)
+		local Triggered = false
+
+		if not Button then
+			return false
+		end
+
+		if not Button:IsA("GuiButton") then
+			return false
+		end
+
+		if not isVisibleGuiObject(Button) then
+			return false
+		end
+
+		if type(firesignal) == "function" then
+			pcall(function()
+				firesignal(Button.MouseButton1Down)
+				Triggered = true
+			end)
+
+			pcall(function()
+				firesignal(Button.MouseButton1Up)
+				Triggered = true
+			end)
+
+			pcall(function()
+				firesignal(Button.MouseButton1Click)
+				Triggered = true
+			end)
+
+			pcall(function()
+				firesignal(Button.Activated)
+				Triggered = true
+			end)
+		end
+
+		pcall(function()
+			Button:Activate()
+			Triggered = true
+		end)
+
+		if not Triggered then
+			local Center, Size = getGuiCenter(Button)
+			local VirtualInputManager = getVirtualInputManager()
+
+			if VirtualInputManager and Center and Size then
+				pcall(function()
+					VirtualInputManager:SendMouseButtonEvent(math.floor(Center.X), math.floor(Center.Y), 0, true, game, 0)
+					task.wait(0.03)
+					VirtualInputManager:SendMouseButtonEvent(math.floor(Center.X), math.floor(Center.Y), 0, false, game, 0)
+					Triggered = true
+				end)
+			end
+		end
+
+		return Triggered
 	end
 
 	local function findEntityMainScript()
@@ -655,6 +738,54 @@ return function(Config)
 		return false
 	end
 
+	local function findVisibleBikeStartButton()
+		local PlayerGui = getPlayerGui()
+		local Descendants
+		local ScreenCenter
+		local ViewportSize
+		local MaxDistance
+		local BestButton = nil
+		local BestScore = -math.huge
+
+		if not PlayerGui then
+			return nil
+		end
+
+		ScreenCenter, ViewportSize = getScreenCenter()
+		MaxDistance = math.max(ViewportSize.X, ViewportSize.Y) * 0.42
+		Descendants = PlayerGui:GetDescendants()
+
+		for Index = 1, #Descendants do
+			local Descendant = Descendants[Index]
+			local Button = nil
+			local Text = normalizeText(getInstanceText(Descendant))
+
+			if Text == "start" and isVisibleGuiObject(Descendant) then
+				Button = getGuiButtonFromInstance(Descendant)
+
+				if Button and isVisibleGuiObject(Button) then
+					local Center, Size = getGuiCenter(Button)
+
+					if Center and Size and Size.X >= 80 and Size.Y >= 20 then
+						local Distance = (Center - ScreenCenter).Magnitude
+
+						if Distance <= MaxDistance then
+							local Score = math.min(Size.X * Size.Y, 20000)
+							Score = Score + math.max(0, 450 - Distance)
+
+							if Score > BestScore then
+								BestScore = Score
+								BestButton = Button
+							end
+						end
+					end
+				end
+			end
+		end
+
+		return BestButton
+	end
+
 	local function getVisibleBikeKeyCandidate()
 		local PlayerGui = getPlayerGui()
 		local Descendants
@@ -725,6 +856,8 @@ return function(Config)
 	end
 
 	function AutoTrainFeature:TryBikeStart(Now)
+		local StartButton = nil
+
 		if self.SelectedType ~= "Bike" then
 			return false
 		end
@@ -735,6 +868,13 @@ return function(Config)
 
 		if not isBikeActionMenuVisible() and not isNearBikeRemote() then
 			return false
+		end
+
+		StartButton = findVisibleBikeStartButton()
+
+		if StartButton and clickGuiButton(StartButton) then
+			self.LastStartAt = Now
+			return true
 		end
 
 		if fireBikeRemote("Start", {Macro = false}) then
