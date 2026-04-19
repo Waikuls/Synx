@@ -3315,7 +3315,21 @@ return function(Config)
 		end
 
 		local function isRelevantCandidate(Candidate)
-			return Predicate(Candidate) and candidateMatchesActionProfile(Candidate, ResolvedProfile)
+			if not Predicate(Candidate) or not Candidate then
+				return false
+			end
+
+			if candidateMatchesActionProfile(Candidate, ResolvedProfile) then
+				return true
+			end
+
+			if ResolvedProfile ~= "Free" then
+				return false
+			end
+
+			-- Pre-arm combat support while idle so attack actions can start at all.
+			return Candidate.Family == "combat"
+				or Candidate.Family == "attack"
 		end
 
 		if GroupName == "Flags" or GroupName == "Spend" then
@@ -3663,8 +3677,16 @@ return function(Config)
 				and not (Metrics.IsSprinting and hasRunMotion(Metrics))
 				and not (Metrics.IsBoostedSprinting and hasDashMotion(Metrics))
 			)
+		local IdleCombatArmed = Metrics
+			and Metrics.ToolEquipped
+			and not (Metrics.IsSprinting and hasRunMotion(Metrics))
+			and not (Metrics.IsBoostedSprinting and hasDashMotion(Metrics))
+			and (
+				#getPreferredRuntimeFlagEntries("Attack") > 0
+				or #getPreferredRuntimeSpendEntries("Attack") > 0
+			)
 
-		if AttackPressure then
+		if AttackPressure or IdleCombatArmed then
 			return "Attack", true, nil
 		end
 
