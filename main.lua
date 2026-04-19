@@ -37,12 +37,6 @@ local function tryReadLocalEntry()
 end
 
 local function getRemoteSeed()
-	local Environment = type(getgenv) == "function" and getgenv() or nil
-
-	if Environment and type(Environment.__FatalityEntrySeed) == "string" and Environment.__FatalityEntrySeed ~= "" then
-		return Environment.__FatalityEntrySeed
-	end
-
 	local Timestamp = "0"
 	local SuccessDateTime, DateTimeValue = pcall(function()
 		return DateTime.now().UnixTimestampMillis
@@ -64,11 +58,16 @@ local function getRemoteSeed()
 		JobId = tostring(math.floor(os.clock() * 1000000))
 	end
 
-	local Seed = string.format("%s-%s", Timestamp, JobId)
+	local Entropy = tostring(math.floor(os.clock() * 1000000))
+	local SuccessGuid, GuidValue = pcall(function()
+		return game:GetService("HttpService"):GenerateGUID(false)
+	end)
 
-	if Environment then
-		Environment.__FatalityEntrySeed = Seed
+	if SuccessGuid and type(GuidValue) == "string" and GuidValue ~= "" then
+		Entropy = GuidValue
 	end
+
+	local Seed = string.format("%s-%s-%s", Timestamp, JobId, Entropy)
 
 	return Seed
 end

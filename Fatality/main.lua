@@ -1,6 +1,6 @@
 -- Main entry script for using the Fatality UI library.
 -- Core library code lives in src/source.luau.
-local LoaderVersion = "20260419-loader-8"
+local LoaderVersion = "20260420-loader-9"
 
 local function getScriptCompiler()
 	if type(loadstring) == "function" then
@@ -90,12 +90,6 @@ end
 local SourceMode = getSourceMode()
 
 local function getRemoteSeed()
-	local Environment = type(getgenv) == "function" and getgenv() or nil
-
-	if Environment and type(Environment.__FatalityRemoteSeed) == "string" and Environment.__FatalityRemoteSeed ~= "" then
-		return Environment.__FatalityRemoteSeed
-	end
-
 	local Timestamp = "0"
 	local SuccessDateTime, DateTimeValue = pcall(function()
 		return DateTime.now().UnixTimestampMillis
@@ -117,11 +111,16 @@ local function getRemoteSeed()
 		JobId = tostring(math.floor(os.clock() * 1000000))
 	end
 
-	local Seed = string.format("%s-%s", Timestamp, JobId)
+	local Entropy = tostring(math.floor(os.clock() * 1000000))
+	local SuccessGuid, GuidValue = pcall(function()
+		return game:GetService("HttpService"):GenerateGUID(false)
+	end)
 
-	if Environment then
-		Environment.__FatalityRemoteSeed = Seed
+	if SuccessGuid and type(GuidValue) == "string" and GuidValue ~= "" then
+		Entropy = GuidValue
 	end
+
+	local Seed = string.format("%s-%s-%s", Timestamp, JobId, Entropy)
 
 	return Seed
 end
