@@ -15,7 +15,17 @@ return function(Config)
 			Aliases = {"bench", "bench press"}
 		},
 		["Bike"] = {
-			Aliases = {"bike", "cycling", "cycle"}
+			Aliases = {"bike", "cycling", "cycle"},
+			Remote = {
+				Path = {"TrainingSpots", "Bike", "Radio", "Remote"},
+				StartAction = "Start",
+				StartPayload = {
+					Macro = false
+				},
+				PressAction = "PressKey",
+				PressKeyField = "Key",
+				LeaveAction = "Leave"
+			}
 		},
 		["Squat machine"] = {
 			Aliases = {"squat machine", "squat", "leg press"}
@@ -544,6 +554,24 @@ return function(Config)
 		end
 
 		return {normalizeText(SelectedType)}
+	end
+
+	local function getMachineDefinition(SelectedType)
+		return MachineDefinitions[SelectedType]
+	end
+
+	local function getExplicitRemoteConfig(SelectedType)
+		local Definition = getMachineDefinition(SelectedType)
+
+		if type(Definition) ~= "table" or type(Definition.Remote) ~= "table" then
+			return nil
+		end
+
+		return Definition.Remote
+	end
+
+	local function hasExplicitRemoteSupport(SelectedType)
+		return getExplicitRemoteConfig(SelectedType) ~= nil
 	end
 
 	local function getPlayerGui()
@@ -1369,6 +1397,107 @@ return function(Config)
 		return self:ReplayRemoteList(self.RemoteRecords.GenericPrompt, Key, Now)
 	end
 
+	local function resolveRemotePath(PathParts)
+		if type(PathParts) ~= "table" or #PathParts == 0 then
+			return nil
+		end
+
+		local Current = workspace
+
+		for _, PartName in ipairs(PathParts) do
+			if typeof(Current) ~= "Instance" then
+				return nil
+			end
+
+			Current = Current:FindFirstChild(PartName)
+
+			if not Current then
+				return nil
+			end
+		end
+
+		if isRemoteLike(Current) then
+			return Current
+		end
+
+		return nil
+	end
+
+	local function buildExplicitRemoteArguments(RemoteConfig, ActionName, Key)
+		if type(RemoteConfig) ~= "table" or type(ActionName) ~= "string" then
+			return nil
+		end
+
+		if ActionName == "start" then
+			return packArguments(
+				RemoteConfig.StartAction or "Start",
+				cloneValue(RemoteConfig.StartPayload or {Macro = false})
+			)
+		end
+
+		if ActionName == "press" and type(Key) == "string" and KeyCodes[Key] then
+			local KeyField = RemoteConfig.PressKeyField or "Key"
+
+			return packArguments(
+				RemoteConfig.PressAction or "PressKey",
+				{
+					[KeyField] = Key
+				}
+			)
+		end
+
+		if ActionName == "leave" then
+			return packArguments(RemoteConfig.LeaveAction or "Leave")
+		end
+
+		return nil
+	end
+
+	function AutoTrainFeature:InvokeExplicitRemote(ActionName, Key, Now)
+		local RemoteConfig = getExplicitRemoteConfig(self.SelectedType)
+
+		if not RemoteConfig then
+			return false
+		end
+
+		if (Now or os.clock()) - self.LastRemoteReplayAt < self.RemoteReplayCooldown then
+			return false
+		end
+
+		local Remote = resolveRemotePath(RemoteConfig.Path)
+		local Arguments = buildExplicitRemoteArguments(RemoteConfig, ActionName, Key)
+
+		if not Remote or not Arguments then
+			return false
+		end
+
+		local Success = pcall(function()
+			Remote:FireServer(table.unpack(Arguments, 1, Arguments.n))
+		end)
+
+		if Success then
+			self.LastRemoteReplayAt = os.clock()
+		end
+
+		return Success
+	end
+
+	function AutoTrainFeature:TryDirectStartRemote(Now)
+		return self:InvokeExplicitRemote("start", nil, Now)
+	end
+
+	function AutoTrainFeature:TryDirectPromptRemote(Key, Now)
+		if not Key then
+			return false
+		end
+
+		return self:InvokeExplicitRemote("press", Key, Now)
+	end
+
+	function AutoTrainFeature:TryDirectLeaveRemote(Now)
+		return self:InvokeExplicitRemote("leave", nil, Now)
+	end
+
 	local function getPromptPart(Prompt)
 		if not Prompt or not Prompt.Parent then
 			return nil
@@ -1560,6 +1689,12 @@ return function(Config)
 			return false
 		end
 
+		if self:TryDirectStartRemote(Now) then
+			self.LastButtonClickAt = Now
+			self.LastPressedSignature = nil
+			return true
+		end
+
 		if self:TryReplayStartRemote(Now) then
 			self.LastButtonClickAt = Now
 			self.LastPressedSignature = nil
@@ -1589,6 +1724,12 @@ return function(Config)
 		local Candidates = collectMinigameCandidates()
 
 		if #Candidates == 0 then
+			if self:TryDirectPromptRemote(self.ObservedContext and self.ObservedContext.Key or nil, Now) then
+				self.LastPressedSignature = "direct-generic"
+				self.LastPressedAt = Now
+				return true
+			end
+
 			if self:TryReplayPromptRemote(nil, Now) then
 				self.LastPressedSignature = "remote-generic"
 				self.LastPressedAt = Now
@@ -1616,7 +1757,8 @@ return function(Config)
 				or (Now - self.LastPressedAt) >= self.RepeatPromptCooldown then
 				local Triggered = false
 
-				Triggered = self:TryReplayPromptRemote(BestCandidate.Key, Now)
+				Triggered = self:TryDirectPromptRemote(BestCandidate.Key, Now)
+				Triggered = Triggered or self:TryReplayPromptRemote(BestCandidate.Key, Now)
 
 				if BestCandidate.Button then
 					Triggered = Triggered or clickGuiButton(BestCandidate.Button)
@@ -1660,6 +1802,12 @@ return function(Config)
 
 		for _, Button in ipairs(UniqueButtons) do
 			clickGuiButton(Button)
+		end
+
+		if self:TryDirectPromptRemote(getLikelyVisibleKey(Candidates), Now) then
+			self.LastPressedSignature = "direct-multi"
+			self.LastPressedAt = Now
+			return true
 		end
 
 		if self:TryReplayPromptRemote(getLikelyVisibleKey(Candidates), Now) then
@@ -1798,7 +1946,13 @@ return function(Config)
 		end
 
 		if State then
-			self:RegisterRemoteCapture()
+			if hasExplicitRemoteSupport(self.SelectedType) then
+				self.RemoteCapture = nil
+				self.RemoteHookAvailable = false
+			else
+				self:RegisterRemoteCapture()
+			end
+
 			self.Elapsed = self.LoopInterval
 			self.Connection = RunService.Heartbeat:Connect(function(DeltaTime)
 				self.Elapsed = self.Elapsed + DeltaTime
@@ -1814,7 +1968,9 @@ return function(Config)
 			if Notification then
 				local EnableMessage
 
-				if self.RemoteCapture and self.RemoteCapture.RequiresRejoin then
+				if hasExplicitRemoteSupport(self.SelectedType) then
+					EnableMessage = string.format("Enabled (%s) - direct remote active", self.SelectedType)
+				elseif self.RemoteCapture and self.RemoteCapture.RequiresRejoin then
 					EnableMessage = string.format("Enabled (%s) - rejoin required to clear old remote hook", self.SelectedType)
 				elseif self.RemoteHookAvailable then
 					EnableMessage = string.format("Enabled (%s) - remote learn active", self.SelectedType)
@@ -1834,6 +1990,14 @@ return function(Config)
 				Content = "Disabled",
 				Icon = "x-circle"
 			})
+		end
+
+		if not State then
+			local TrainingState = getTrainingState(self.SelectedType)
+
+			if TrainingState.IsTraining and hasExplicitRemoteSupport(self.SelectedType) then
+				self:TryDirectLeaveRemote(os.clock())
+			end
 		end
 
 		return State
