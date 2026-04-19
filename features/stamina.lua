@@ -32,15 +32,19 @@ return function(Config)
 
 		if Stamina and Stamina:IsA("NumberValue") and MaxStamina then
 			table.insert(StaminaFeature.ValueConnections, Stamina:GetPropertyChangedSignal("Value"):Connect(function()
+				warn("DEBUG Stamina Changed to:", Stamina.Value) -- DEBUG
 				if StaminaFeature.Enabled and Stamina.Value < MaxStamina.Value then
 					Stamina.Value = MaxStamina.Value
+					warn("DEBUG Restore Stamina from Changed signal") -- DEBUG
 				end
 			end))
 		end
 		if NoStaminaCost and NoStaminaCost:IsA("BoolValue") then
 			table.insert(StaminaFeature.ValueConnections, NoStaminaCost:GetPropertyChangedSignal("Value"):Connect(function()
+				warn("DEBUG NoStaminaCost Changed to:", NoStaminaCost.Value) -- DEBUG
 				if StaminaFeature.Enabled then
 					NoStaminaCost.Value = true
+					warn("DEBUG Set NoStaminaCost true from Changed") -- DEBUG
 				end
 			end))
 		end
@@ -57,13 +61,18 @@ return function(Config)
 				local Stamina = Stats:FindFirstChild("Stamina")
 				local MaxStamina = Stats:FindFirstChild("MaxStamina")
 				local NoStaminaCost = Stats:FindFirstChild("NoStaminaCost")
+				warn("DEBUG Enforce: Stats found - Stamina=", Stamina and Stamina.Value or "nil", "Max=", MaxStamina and MaxStamina.Value or "nil", "NoCost=", NoStaminaCost and NoStaminaCost.Value or "nil") -- DEBUG
 				-- NoStaminaCost prevents drain at source
 				if NoStaminaCost then
 					NoStaminaCost.Value = true
+					warn("DEBUG Set NoStaminaCost true in enforce") -- DEBUG
 				end
 				if Stamina and MaxStamina and Stamina.Value < MaxStamina.Value then
 					Stamina.Value = MaxStamina.Value
+					warn("DEBUG Restored Stamina in enforce") -- DEBUG
 				end
+			else
+				warn("DEBUG Enforce: Stats not found") -- DEBUG
 			end
 		end)
 	end
@@ -98,8 +107,11 @@ return function(Config)
 					elseif self == InputRemote then
 						local args = {...}
 						if args[1] and args[1].KeyInfo and args[1].KeyInfo.Name == "Q" and not args[1].KeyInfo.Airborne then
+							warn("DEBUG Block Q skill Input") -- DEBUG
 							return -- Block skill Q
 						end
+						warn("DEBUG InputRemote pass:", args[1] and args[1].KeyInfo and args[1].KeyInfo.Name or "unknown") -- DEBUG
+						return oldNamecall(self, unpack(args))
 					end
 				end
 			end
@@ -116,10 +128,13 @@ return function(Config)
 			if StaminaFeature.Enabled and self:IsA("ValueBase") and self.Parent and self.Parent.Name == "Stats" then
 				local MainScript = findMainScript()
 				if MainScript and self:IsDescendantOf(MainScript) then
+					warn("DEBUG __newindex Stats:", self.Name, "old:", self.Value, "new:", value) -- DEBUG
 					if self.Name == "Stamina" and value < self.Value then
+						warn("DEBUG BLOCK Stamina drain in __newindex") -- DEBUG
 						return -- Block drain
 					elseif self.Name == "NoStaminaCost" then
 						value = true
+						warn("DEBUG Set NoStaminaCost true in __newindex") -- DEBUG
 					end
 				end
 			end
