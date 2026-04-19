@@ -4656,7 +4656,19 @@ return function(Config)
 					return false
 				end
 
-				return writeEntryValue(Entry, Target)
+				local ActiveProfile = CaptureProfiles[StaminaFeature.LastActionProfile]
+					and StaminaFeature.LastActionProfile
+					or "Free"
+				local FailureReason = ActiveProfile ~= "Free"
+					and (string.lower(ActiveProfile) .. "_canonical_drop")
+					or "canonical_drop"
+
+				if StaminaFeature.RemoteRuntime
+					and type(StaminaFeature.RemoteRuntime.noteProfileFailure) == "function" then
+					StaminaFeature.RemoteRuntime.noteProfileFailure(ActiveProfile, FailureReason, 2)
+				end
+
+				return false
 			end)
 
 			return Success and Result == true
