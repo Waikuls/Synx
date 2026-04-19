@@ -62,4 +62,11 @@ return function(Config)
 		Name = "Enabled",
 		Flag = "AutoTrain"
 	})
+
+	AutoTrain:AddDropdown({
+		Name = "Type",
+		Default = "Squat machine",
+		Values = {"Squat machine", "Bench", "Bar", "Bag", "Bike", "Treadmill"},
+		Flag = "AutoTrainType"
+	})
 end
