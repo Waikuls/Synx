@@ -527,6 +527,13 @@ return function(Config)
 	end
 
 	local function getFamily(NameLower)
+		if string.find(NameLower, "currentm1", 1, true)
+			or string.find(NameLower, "currentm2", 1, true)
+			or string.find(NameLower, "m1", 1, true)
+			or string.find(NameLower, "m2", 1, true) then
+			return "attack"
+		end
+
 		if string.find(NameLower, "dash", 1, true) then
 			return "dash"
 		end
@@ -1767,6 +1774,25 @@ return function(Config)
 		}
 	end
 
+	local function hasRunMotion(Metrics)
+		return Metrics ~= nil
+			and (
+				(Metrics.MoveMagnitude or 0) > 0.35
+				or (Metrics.VelocityMagnitude or 0) > math.max((Metrics.WalkSpeed or 0) * 0.65, 7)
+			)
+	end
+
+	local function hasDashMotion(Metrics)
+		return Metrics ~= nil
+			and (
+				(Metrics.VelocityMagnitude or 0) > math.max((Metrics.WalkSpeed or 0) * 1.6, 20)
+				or (
+					(Metrics.MoveMagnitude or 0) > 0.45
+					and (Metrics.VelocityMagnitude or 0) > math.max((Metrics.WalkSpeed or 0), 12)
+				)
+			)
+	end
+
 	local function getProfileConfig(Profile)
 		return CaptureProfiles[Profile] or CaptureProfiles.Run
 	end
@@ -2863,14 +2889,11 @@ return function(Config)
 			return Session.Profile
 		end
 
-		if Metrics and Metrics.VelocityMagnitude > math.max((Metrics.WalkSpeed or 0) * 1.6, 20) then
+		if hasDashMotion(Metrics) then
 			return "Dash"
 		end
 
-		if Metrics and (
-			Metrics.MoveMagnitude > 0.35
-			or Metrics.VelocityMagnitude > math.max((Metrics.WalkSpeed or 0) * 0.65, 7)
-		) then
+		if hasRunMotion(Metrics) then
 			return "Run"
 		end
 
@@ -2897,11 +2920,11 @@ return function(Config)
 			return Session.Profile, Session.Profile ~= "Free", nil
 		end
 
-		if Metrics and Metrics.IsBoostedSprinting then
+		if Metrics and Metrics.IsBoostedSprinting and hasDashMotion(Metrics) then
 			return "Dash", true, nil
 		end
 
-		if Metrics and Metrics.IsSprinting then
+		if Metrics and Metrics.IsSprinting and hasRunMotion(Metrics) then
 			return "Run", true, nil
 		end
 
@@ -5192,7 +5215,8 @@ return function(Config)
 		AppliedDisplay,
 		Profile,
 		ActionPressure,
-		ActionHintReason
+		ActionHintReason,
+		Metrics
 	)
 		local DropDetected = false
 		local FailureReason = nil
@@ -5228,6 +5252,14 @@ return function(Config)
 
 		if Profile == "Attack" and ActionHintReason == "attack_signal_missing" then
 			return "logic_unverified", "attack_signal_missing", Profile, true
+		end
+
+		if Profile == "Dash" and not hasDashMotion(Metrics) then
+			return "logic_unverified", "awaiting_dash_motion", Profile, false
+		end
+
+		if Profile == "Run" and not hasRunMotion(Metrics) then
+			return "logic_unverified", "awaiting_run_motion", Profile, false
 		end
 
 		if ActionPressure
@@ -5804,7 +5836,8 @@ return function(Config)
 				AppliedDisplay,
 				ActionProfile,
 				ActionPressure,
-				ActionHintReason
+				ActionHintReason,
+				Metrics
 			)
 
 			setVerificationState(VerificationState, FailureReason, ActionProfile)
