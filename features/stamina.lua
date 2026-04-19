@@ -113,7 +113,9 @@ return function(Config)
 		}
 	}
 
-	local function createLookup(Aliases)
+	local LocalUtils = {}
+
+	function LocalUtils.createLookup(Aliases)
 		local Lookup = {}
 
 		for _, Name in ipairs(Aliases) do
@@ -123,7 +125,7 @@ return function(Config)
 		return Lookup
 	end
 
-	local function mergeAliases(...)
+	function LocalUtils.mergeAliases(...)
 		local Merged = {}
 
 		for Index = 1, select("#", ...) do
@@ -140,84 +142,84 @@ return function(Config)
 	end
 
 	local Lookups = {
-		Current = createLookup(ExactAliases.Current),
-		Max = createLookup(ExactAliases.Max),
-		Flags = createLookup(ExactAliases.Flags),
-		Spend = createLookup(ExactAliases.Spend)
+		Current = LocalUtils.createLookup(ExactAliases.Current),
+		Max = LocalUtils.createLookup(ExactAliases.Max),
+		Flags = LocalUtils.createLookup(ExactAliases.Flags),
+		Spend = LocalUtils.createLookup(ExactAliases.Spend)
 	}
 
 	local ObservedLookups = {
-		Current = createLookup(ObservedAliases.Current),
-		Max = createLookup(ObservedAliases.Max or {}),
-		Flags = createLookup(ObservedAliases.Flags),
-		Spend = createLookup(ObservedAliases.Spend)
+		Current = LocalUtils.createLookup(ObservedAliases.Current),
+		Max = LocalUtils.createLookup(ObservedAliases.Max or {}),
+		Flags = LocalUtils.createLookup(ObservedAliases.Flags),
+		Spend = LocalUtils.createLookup(ObservedAliases.Spend)
 	}
 
 	local StatOnlyLookups = {
-		Current = createLookup(StatOnlyAliases.Current or {}),
-		Max = createLookup(StatOnlyAliases.Max or {}),
-		Flags = createLookup(StatOnlyAliases.Flags or {}),
-		Spend = createLookup(StatOnlyAliases.Spend or {})
+		Current = LocalUtils.createLookup(StatOnlyAliases.Current or {}),
+		Max = LocalUtils.createLookup(StatOnlyAliases.Max or {}),
+		Flags = LocalUtils.createLookup(StatOnlyAliases.Flags or {}),
+		Spend = LocalUtils.createLookup(StatOnlyAliases.Spend or {})
 	}
 
-	local function hasLookupValue(Lookup, NameLower)
+	function LocalUtils.hasLookupValue(Lookup, NameLower)
 		return type(NameLower) == "string"
 			and type(Lookup) == "table"
 			and Lookup[NameLower] == true
 	end
 
-	local function isTrustedAliasName(GroupName, NameLower)
-		return hasLookupValue(Lookups[GroupName], NameLower)
+	function LocalUtils.isTrustedAliasName(GroupName, NameLower)
+		return LocalUtils.hasLookupValue(Lookups[GroupName], NameLower)
 	end
 
-	local function isObservedAliasName(GroupName, NameLower)
-		return hasLookupValue(ObservedLookups[GroupName], NameLower)
+	function LocalUtils.isObservedAliasName(GroupName, NameLower)
+		return LocalUtils.hasLookupValue(ObservedLookups[GroupName], NameLower)
 	end
 
-	local function isStatOnlyAliasName(GroupName, NameLower)
-		return hasLookupValue(StatOnlyLookups[GroupName], NameLower)
+	function LocalUtils.isStatOnlyAliasName(GroupName, NameLower)
+		return LocalUtils.hasLookupValue(StatOnlyLookups[GroupName], NameLower)
 	end
 
-	local function isKnownAliasName(GroupName, NameLower)
-		return isTrustedAliasName(GroupName, NameLower)
-			or isObservedAliasName(GroupName, NameLower)
-			or isStatOnlyAliasName(GroupName, NameLower)
+	function LocalUtils.isKnownAliasName(GroupName, NameLower)
+		return LocalUtils.isTrustedAliasName(GroupName, NameLower)
+			or LocalUtils.isObservedAliasName(GroupName, NameLower)
+			or LocalUtils.isStatOnlyAliasName(GroupName, NameLower)
 	end
 
-	local function isCanonicalCurrentName(NameLower)
+	function LocalUtils.isCanonicalCurrentName(NameLower)
 		return NameLower == "stamina"
 	end
 
-	local function isCanonicalMaxName(NameLower)
+	function LocalUtils.isCanonicalMaxName(NameLower)
 		return NameLower == "maxstamina"
 			or NameLower == "maximumstamina"
 			or NameLower == "staminamax"
 	end
 
-	local function isCanonicalPrimaryName(GroupName, NameLower)
+	function LocalUtils.isCanonicalPrimaryName(GroupName, NameLower)
 		if GroupName == "Current" then
-			return isCanonicalCurrentName(NameLower)
+			return LocalUtils.isCanonicalCurrentName(NameLower)
 		end
 
 		if GroupName == "Max" then
-			return isCanonicalMaxName(NameLower)
+			return LocalUtils.isCanonicalMaxName(NameLower)
 		end
 
 		return false
 	end
 
-	local function isRejectedSupportName(GroupName, NameLower)
+	function LocalUtils.isRejectedSupportName(GroupName, NameLower)
 		if type(NameLower) ~= "string" or NameLower == "" then
 			return false
 		end
 
 		if GroupName == "Flags" then
-			return isObservedAliasName("Flags", NameLower)
+			return LocalUtils.isObservedAliasName("Flags", NameLower)
 				or string.find(NameLower, "eevee", 1, true) ~= nil
 		end
 
 		if GroupName == "Spend" then
-			return isObservedAliasName("Spend", NameLower)
+			return LocalUtils.isObservedAliasName("Spend", NameLower)
 				or string.find(NameLower, "exhaust", 1, true) ~= nil
 				or string.find(NameLower, "fatigue", 1, true) ~= nil
 				or string.find(NameLower, "breath", 1, true) ~= nil
@@ -227,19 +229,19 @@ return function(Config)
 		return false
 	end
 
-	local function isObservedExhaustionSpendName(NameLower)
+	function LocalUtils.isObservedExhaustionSpendName(NameLower)
 		if type(NameLower) ~= "string" or NameLower == "" then
 			return false
 		end
 
-		return isObservedAliasName("Spend", NameLower)
+		return LocalUtils.isObservedAliasName("Spend", NameLower)
 			or string.find(NameLower, "exhaust", 1, true) ~= nil
 			or string.find(NameLower, "fatigue", 1, true) ~= nil
 			or string.find(NameLower, "breath", 1, true) ~= nil
 			or string.find(NameLower, "eevee", 1, true) ~= nil
 	end
 
-	local function isObservedExhaustionCurrentName(NameLower)
+	function LocalUtils.isObservedExhaustionCurrentName(NameLower)
 		if type(NameLower) ~= "string" or NameLower == "" then
 			return false
 		end
@@ -253,7 +255,7 @@ return function(Config)
 			or string.find(NameLower, "eevee", 1, true) ~= nil
 	end
 
-	local function isObservedExhaustionFlagName(NameLower)
+	function LocalUtils.isObservedExhaustionFlagName(NameLower)
 		if type(NameLower) ~= "string" or NameLower == "" then
 			return false
 		end
@@ -341,7 +343,7 @@ return function(Config)
 		end
 	end
 
-	local function toNumber(Value)
+	function LocalUtils.toNumber(Value)
 		if typeof(Value) == "number" then
 			return Value
 		end
@@ -353,7 +355,7 @@ return function(Config)
 		return nil
 	end
 
-	local function formatNumber(Value)
+	function LocalUtils.formatNumber(Value)
 		if typeof(Value) ~= "number" then
 			return tostring(Value)
 		end
@@ -365,7 +367,7 @@ return function(Config)
 		return string.format("%.2f", Value)
 	end
 
-	local function summarizeValue(Value)
+	function LocalUtils.summarizeValue(Value)
 		local ValueType = typeof(Value)
 
 		if Value == nil then
@@ -373,7 +375,7 @@ return function(Config)
 		end
 
 		if ValueType == "number" then
-			return formatNumber(Value)
+			return LocalUtils.formatNumber(Value)
 		end
 
 		if ValueType == "boolean" then
@@ -393,7 +395,7 @@ return function(Config)
 		return Result
 	end
 
-	local function valuesEquivalent(Left, Right)
+	function LocalUtils.valuesEquivalent(Left, Right)
 		if Left == Right then
 			return true
 		end
@@ -602,7 +604,7 @@ return function(Config)
 		return Roots
 	end
 
-	local function getFamily(NameLower)
+	function LocalUtils.getFamily(NameLower)
 		if string.find(NameLower, "currentm1", 1, true)
 			or string.find(NameLower, "currentm2", 1, true)
 			or string.find(NameLower, "m1", 1, true)
@@ -633,14 +635,14 @@ return function(Config)
 		return "base"
 	end
 
-	local function containsFlag(NameLower)
+	function LocalUtils.containsFlag(NameLower)
 		return string.sub(NameLower, 1, 2) == "no"
 			or string.sub(NameLower, 1, 3) == "can"
 			or string.sub(NameLower, 1, 3) == "has"
 			or string.sub(NameLower, 1, 6) == "enough"
 	end
 
-	local function containsSpend(NameLower)
+	function LocalUtils.containsSpend(NameLower)
 		return string.find(NameLower, "cost", 1, true) ~= nil
 			or string.find(NameLower, "drain", 1, true) ~= nil
 			or string.find(NameLower, "deplete", 1, true) ~= nil
@@ -652,7 +654,7 @@ return function(Config)
 			or string.find(NameLower, "eevee", 1, true) ~= nil
 	end
 
-	local function classifyName(Name)
+	function LocalUtils.classifyName(Name)
 		if typeof(Name) ~= "string" or Name == "" then
 			return nil, nil
 		end
@@ -681,11 +683,11 @@ return function(Config)
 			return nil, NameLower
 		end
 
-		if containsFlag(NameLower) then
+		if LocalUtils.containsFlag(NameLower) then
 			return "Flags", NameLower
 		end
 
-		if containsSpend(NameLower) then
+		if LocalUtils.containsSpend(NameLower) then
 			return "Spend", NameLower
 		end
 
@@ -951,7 +953,7 @@ return function(Config)
 			return Value
 		end
 
-		local NumericValue = toNumber(Value)
+		local NumericValue = LocalUtils.toNumber(Value)
 
 		if NumericValue ~= nil then
 			return NumericValue ~= 0
@@ -961,7 +963,7 @@ return function(Config)
 	end
 
 	local function normalizeNumberLike(Value, RoundToInt)
-		local NumericValue = toNumber(Value)
+		local NumericValue = LocalUtils.toNumber(Value)
 
 		if NumericValue == nil then
 			return nil
@@ -1080,7 +1082,7 @@ return function(Config)
 			return ValueType == "boolean" or ValueType == "number" or ValueType == "string"
 		end
 
-		return toNumber(Value) ~= nil
+		return LocalUtils.toNumber(Value) ~= nil
 	end
 
 	local function tableBelongsToLocalPlayer(TableValue)
@@ -1182,8 +1184,8 @@ return function(Config)
 				if type(InnerKey) == "string" then
 					local InnerKeyLower = string.lower(InnerKey)
 
-					if isTrustedAliasName("Spend", InnerKeyLower)
-						or isStatOnlyAliasName("Current", InnerKeyLower) then
+					if LocalUtils.isTrustedAliasName("Spend", InnerKeyLower)
+						or LocalUtils.isStatOnlyAliasName("Current", InnerKeyLower) then
 						Hits = Hits + 1
 					end
 				end
@@ -1202,8 +1204,8 @@ return function(Config)
 			if type(Key) == "string" then
 				local KeyLower = string.lower(Key)
 
-				if isTrustedAliasName("Spend", KeyLower)
-					or isStatOnlyAliasName("Current", KeyLower) then
+				if LocalUtils.isTrustedAliasName("Spend", KeyLower)
+					or LocalUtils.isStatOnlyAliasName("Current", KeyLower) then
 					ExactHits = ExactHits + 1
 				end
 			end
@@ -1393,7 +1395,7 @@ return function(Config)
 
 		if isMainScriptStatsHandle(Handle) then
 			return TrustedAlias == true
-				and isCanonicalPrimaryName(GroupName, NameLower)
+				and LocalUtils.isCanonicalPrimaryName(GroupName, NameLower)
 				and ConfidenceValue >= 105
 		end
 
@@ -1417,7 +1419,7 @@ return function(Config)
 		local Count = math.min(Arguments.n or #Arguments, 3)
 
 		for Index = 1, Count do
-			table.insert(Parts, summarizeValue(Arguments[Index]))
+			table.insert(Parts, LocalUtils.summarizeValue(Arguments[Index]))
 		end
 
 		if (Arguments.n or #Arguments) > Count then
@@ -1451,7 +1453,7 @@ return function(Config)
 
 	do
 		local RemoteRuntime = StaminaFeature.RemoteRuntime
-		local MovementKeywordLookup = createLookup({
+		local MovementKeywordLookup = LocalUtils.createLookup({
 			"stamina",
 			"sprint",
 			"run",
@@ -1465,18 +1467,18 @@ return function(Config)
 			"energy",
 			"cost"
 		})
-		local RunKeywordLookup = createLookup({
+		local RunKeywordLookup = LocalUtils.createLookup({
 			"sprint",
 			"run",
 			"movement"
 		})
-		local DashKeywordLookup = createLookup({
+		local DashKeywordLookup = LocalUtils.createLookup({
 			"dash",
 			"evade",
 			"dodge",
 			"slide"
 		})
-		local AttackKeywordLookup = createLookup({
+		local AttackKeywordLookup = LocalUtils.createLookup({
 			"attack",
 			"combat",
 			"m1",
@@ -1487,7 +1489,7 @@ return function(Config)
 			"heavy",
 			"hit"
 		})
-		local NoiseKeywordLookup = createLookup({
+		local NoiseKeywordLookup = LocalUtils.createLookup({
 			"emit",
 			"effect",
 			"particle",
@@ -1907,7 +1909,7 @@ return function(Config)
 			return false
 		end
 
-		return isCanonicalCurrentName(NameLower) or isCanonicalMaxName(NameLower)
+		return LocalUtils.isCanonicalCurrentName(NameLower) or LocalUtils.isCanonicalMaxName(NameLower)
 	end
 
 	local function isCanonicalStatsCurrentCandidate(Candidate)
@@ -1916,7 +1918,7 @@ return function(Config)
 			and Candidate.SourceKind == "instance"
 			and Candidate.TrustedAlias == true
 			and isMainScriptStatsHandle(Candidate.Handle)
-			and isCanonicalCurrentName(Candidate.NameLower or "")
+			and LocalUtils.isCanonicalCurrentName(Candidate.NameLower or "")
 	end
 
 	local function isCanonicalStatsMaxCandidate(Candidate)
@@ -1925,7 +1927,7 @@ return function(Config)
 			and Candidate.SourceKind == "instance"
 			and Candidate.TrustedAlias == true
 			and isMainScriptStatsHandle(Candidate.Handle)
-			and isCanonicalMaxName(Candidate.NameLower or "")
+			and LocalUtils.isCanonicalMaxName(Candidate.NameLower or "")
 	end
 
 	local function isCanonicalStatsPrimaryCandidate(Candidate)
@@ -1945,7 +1947,7 @@ return function(Config)
 		return type(Candidate) == "table"
 			and Candidate.Group == "Current"
 			and Candidate.SourceKind == "instance"
-			and isObservedExhaustionCurrentName(Candidate.NameLower or "")
+			and LocalUtils.isObservedExhaustionCurrentName(Candidate.NameLower or "")
 			and (
 				isMainScriptStatsHandle(Candidate.Handle)
 				or StaminaFeature.HasStrongPrimarySiblingHandle(Candidate)
@@ -2034,10 +2036,10 @@ return function(Config)
 	local function upsertLocalCandidate(GroupName, Name, NameLower, Handle, InitialValue, Confidence, SourceKind)
 		local RegistryKey = getCandidateRegistryKey(GroupName, Handle)
 		local Candidate = StaminaFeature.CandidateRegistry[RegistryKey]
-		local ExactAlias = isKnownAliasName(GroupName, NameLower)
-		local TrustedAlias = isTrustedAliasName(GroupName, NameLower)
-		local ObservedAlias = isObservedAliasName(GroupName, NameLower)
-		local StatOnlyAlias = isStatOnlyAliasName(GroupName, NameLower)
+		local ExactAlias = LocalUtils.isKnownAliasName(GroupName, NameLower)
+		local TrustedAlias = LocalUtils.isTrustedAliasName(GroupName, NameLower)
+		local ObservedAlias = LocalUtils.isObservedAliasName(GroupName, NameLower)
+		local StatOnlyAlias = LocalUtils.isStatOnlyAliasName(GroupName, NameLower)
 		local Now = os.clock()
 
 		if not Candidate then
@@ -2049,7 +2051,7 @@ return function(Config)
 				DisplayName = Name,
 				Handle = Handle,
 				HandleKey = getHandleKey(Handle),
-				Family = getFamily(NameLower),
+				Family = LocalUtils.getFamily(NameLower),
 				SourceKind = SourceKind or "instance",
 				Confidence = Confidence or 0,
 				ExactAlias = ExactAlias,
@@ -2064,7 +2066,7 @@ return function(Config)
 				ExternalWriteCount = 0,
 				LastWriteResult = nil,
 				LastValue = InitialValue,
-				BestObservedNumber = toNumber(InitialValue),
+				BestObservedNumber = LocalUtils.toNumber(InitialValue),
 				PreviousValue = nil,
 				LastChangeTime = 0,
 				LastObservedAt = Now,
@@ -2098,7 +2100,7 @@ return function(Config)
 		Candidate.DisplayName = Name
 		Candidate.Handle = Handle
 		Candidate.HandleKey = getHandleKey(Handle)
-		Candidate.Family = getFamily(NameLower)
+		Candidate.Family = LocalUtils.getFamily(NameLower)
 		Candidate.SourceKind = SourceKind or Candidate.SourceKind
 		Candidate.Confidence = math.max(Candidate.Confidence or 0, Confidence or 0)
 		Candidate.ExactAlias = ExactAlias
@@ -2239,13 +2241,13 @@ return function(Config)
 
 		local NameLower = Candidate.NameLower or ""
 		local AllowObservedExhaustionFlag = GroupName == "Flags"
-			and isObservedExhaustionFlagName(NameLower)
+			and LocalUtils.isObservedExhaustionFlagName(NameLower)
 			and StaminaFeature.HasStrongPrimarySiblingHandle(Candidate)
 		local AllowObservedExhaustionSpend = GroupName == "Spend"
-			and isObservedExhaustionSpendName(NameLower)
+			and LocalUtils.isObservedExhaustionSpendName(NameLower)
 			and StaminaFeature.HasStrongPrimarySiblingHandle(Candidate)
 
-		if isRejectedSupportName(GroupName, NameLower)
+		if LocalUtils.isRejectedSupportName(GroupName, NameLower)
 			and not AllowObservedExhaustionFlag
 			and not AllowObservedExhaustionSpend then
 			return false
@@ -2319,21 +2321,21 @@ return function(Config)
 		return false
 	end
 
-	local DirectStatsFlagTruthLookup = createLookup(mergeAliases(
+	local DirectStatsFlagTruthLookup = LocalUtils.createLookup(LocalUtils.mergeAliases(
 		ExactAliases.Flags,
 		ObservedAliases.Flags
 	))
 
-	local DirectStatsFlagFalseLookup = createLookup({})
+	local DirectStatsFlagFalseLookup = LocalUtils.createLookup({})
 
-	local DirectStatsSpendZeroLookup = createLookup(mergeAliases(
+	local DirectStatsSpendZeroLookup = LocalUtils.createLookup(LocalUtils.mergeAliases(
 		ExactAliases.Spend,
 		ObservedAliases.Spend
 	))
 
-	local DirectStatsFillToMaxLookup = createLookup({})
+	local DirectStatsFillToMaxLookup = LocalUtils.createLookup({})
 
-	local DirectStatsHighWaterLookup = createLookup(mergeAliases(
+	local DirectStatsHighWaterLookup = LocalUtils.createLookup(LocalUtils.mergeAliases(
 		ExactAliases.Current,
 		StatOnlyAliases.Current
 	))
@@ -2476,7 +2478,7 @@ return function(Config)
 		end
 
 		local Observation = Session.Observations[Candidate.RegistryKey]
-		local NumberValue = toNumber(Value)
+		local NumberValue = LocalUtils.toNumber(Value)
 
 		if not Observation then
 			Observation = {
@@ -2511,7 +2513,7 @@ return function(Config)
 			return
 		end
 
-		if not valuesEquivalent(Value, Observation.LastValue) then
+		if not LocalUtils.valuesEquivalent(Value, Observation.LastValue) then
 			Observation.TotalChanges = Observation.TotalChanges + 1
 		end
 
@@ -2530,7 +2532,7 @@ return function(Config)
 				Observation.MaxValue = NumberValue
 			end
 
-			local BaselineNumber = toNumber(Observation.BaselineValue)
+			local BaselineNumber = LocalUtils.toNumber(Observation.BaselineValue)
 
 			if BaselineNumber ~= nil then
 				local DeltaMagnitude = math.abs(NumberValue - BaselineNumber)
@@ -2584,13 +2586,13 @@ return function(Config)
 		end
 
 		local Now = os.clock()
-		local NumberValue = toNumber(Value)
+		local NumberValue = LocalUtils.toNumber(Value)
 
 		if Candidate.LastValue == nil and Value ~= nil then
 			Candidate.LastValue = Value
 		end
 
-		if not valuesEquivalent(Value, Candidate.LastValue) then
+		if not LocalUtils.valuesEquivalent(Value, Candidate.LastValue) then
 			Candidate.PreviousValue = Candidate.LastValue
 			Candidate.LastValue = Value
 			Candidate.LastChangeTime = Now
@@ -3137,12 +3139,12 @@ return function(Config)
 		end
 
 		local NameLower = Candidate.NameLower or ""
-		local AllowObservedExhaustionFlag = isObservedExhaustionFlagName(NameLower)
+		local AllowObservedExhaustionFlag = LocalUtils.isObservedExhaustionFlagName(NameLower)
 			and StaminaFeature.HasStrongPrimarySiblingHandle(Candidate)
 
 		if NameLower == "nocooldown"
 			or (
-				isRejectedSupportName("Flags", NameLower)
+				LocalUtils.isRejectedSupportName("Flags", NameLower)
 				and not AllowObservedExhaustionFlag
 			) then
 			return false
@@ -3176,8 +3178,8 @@ return function(Config)
 			and (Candidate.Confidence or 0) >= 130
 			and (
 				Candidate.TrustedAlias == true
-				or containsFlag(CandidateNameLower)
-				or containsSpend(CandidateNameLower)
+				or LocalUtils.containsFlag(CandidateNameLower)
+				or LocalUtils.containsSpend(CandidateNameLower)
 				or string.find(CandidateNameLower, "stamina", 1, true) ~= nil
 				or string.find(CandidateNameLower, "dash", 1, true) ~= nil
 				or string.find(CandidateNameLower, "sprint", 1, true) ~= nil
@@ -3219,16 +3221,16 @@ return function(Config)
 		local FamilyRank = getActionFamilyRank(Profile, Candidate.Family)
 		local Score = 0
 		local AllowObservedExhaustionFlag = GroupName == "Flags"
-			and isObservedExhaustionFlagName(NameLower)
+			and LocalUtils.isObservedExhaustionFlagName(NameLower)
 			and StaminaFeature.HasStrongPrimarySiblingHandle(Candidate)
 		local AllowObservedExhaustionSpend = GroupName == "Spend"
-			and isObservedExhaustionSpendName(NameLower)
+			and LocalUtils.isObservedExhaustionSpendName(NameLower)
 			and StaminaFeature.HasStrongPrimarySiblingHandle(Candidate)
 
 		if NameLower == "issprinting"
 			or NameLower == "offensive"
 			or (
-				isRejectedSupportName(GroupName, NameLower)
+				LocalUtils.isRejectedSupportName(GroupName, NameLower)
 				and not AllowObservedExhaustionFlag
 				and not AllowObservedExhaustionSpend
 			)
@@ -3447,8 +3449,8 @@ return function(Config)
 			"%s:%s obs=%s want=%s ctx=%s",
 			tostring(GroupName or "?"),
 			Label,
-			summarizeValue(ObservedValue),
-			summarizeValue(DesiredValue),
+			LocalUtils.summarizeValue(ObservedValue),
+			LocalUtils.summarizeValue(DesiredValue),
 			tostring(Context or "none")
 		)
 	end
@@ -3463,10 +3465,10 @@ return function(Config)
 		end
 
 		local NameLower = Candidate.NameLower or ""
-		local AllowObservedExhaustionSpend = isObservedExhaustionSpendName(NameLower)
+		local AllowObservedExhaustionSpend = LocalUtils.isObservedExhaustionSpendName(NameLower)
 			and StaminaFeature.HasStrongPrimarySiblingHandle(Candidate)
 
-		if isRejectedSupportName("Spend", NameLower)
+		if LocalUtils.isRejectedSupportName("Spend", NameLower)
 			and not AllowObservedExhaustionSpend then
 			return false
 		end
@@ -3861,7 +3863,7 @@ return function(Config)
 			Candidate.Score or 0,
 			Observation.TotalChanges or 0,
 			Observation.ExternalWrites or 0,
-			formatNumber(Observation.DeltaMagnitude or 0)
+			LocalUtils.formatNumber(Observation.DeltaMagnitude or 0)
 		)
 	end
 
@@ -3928,19 +3930,19 @@ return function(Config)
 
 					if SiblingObservation then
 						if Sibling.Group == "Spend" then
-							local IsRejectedSpend = isRejectedSupportName("Spend", Sibling.NameLower or "")
+							local IsRejectedSpend = LocalUtils.isRejectedSupportName("Spend", Sibling.NameLower or "")
 
 							if not IsRejectedSpend
 								and (
 									Sibling.TrustedAlias == true
-									or containsSpend(Sibling.NameLower or "")
+									or LocalUtils.containsSpend(Sibling.NameLower or "")
 									or (SiblingObservation.TotalChanges or 0) >= 1
 									or (SiblingObservation.DeltaMagnitude or 0) > 0.25
 								) then
 								SupportWeight = SupportWeight + 2
 							end
 						elseif Sibling.Group == "Flags" then
-							local IsRejectedFlag = isRejectedSupportName("Flags", Sibling.NameLower or "")
+							local IsRejectedFlag = LocalUtils.isRejectedSupportName("Flags", Sibling.NameLower or "")
 
 							if not IsRejectedFlag
 								and (
@@ -4054,12 +4056,12 @@ return function(Config)
 
 				if Candidate.Group == "Flags" then
 					local NameLower = Candidate.NameLower or ""
-					local AllowObservedExhaustionFlag = isObservedExhaustionFlagName(NameLower)
+					local AllowObservedExhaustionFlag = LocalUtils.isObservedExhaustionFlagName(NameLower)
 						and StaminaFeature.HasStrongPrimarySiblingHandle(Candidate)
 
 					if Score >= 4
 						and (
-							not isRejectedSupportName("Flags", NameLower)
+							not LocalUtils.isRejectedSupportName("Flags", NameLower)
 							or AllowObservedExhaustionFlag
 						) then
 						promoteCandidate(Candidate, "flags", Score, "capture_flags")
@@ -4071,12 +4073,12 @@ return function(Config)
 					end
 				elseif Candidate.Group == "Spend" then
 					local NameLower = Candidate.NameLower or ""
-					local AllowObservedExhaustionSpend = isObservedExhaustionSpendName(NameLower)
+					local AllowObservedExhaustionSpend = LocalUtils.isObservedExhaustionSpendName(NameLower)
 						and StaminaFeature.HasStrongPrimarySiblingHandle(Candidate)
 
 					if Score >= 4
 						and (
-							not isRejectedSupportName("Spend", NameLower)
+							not LocalUtils.isRejectedSupportName("Spend", NameLower)
 							or AllowObservedExhaustionSpend
 						) then
 						promoteCandidate(Candidate, "spend", Score, "capture_spend")
@@ -4253,7 +4255,7 @@ return function(Config)
 
 		table.insert(Lines, string.format("LastProfile: %s", Session.Profile))
 		table.insert(Lines, string.format("ActionValid: %s", tostring(Session.ActionValid)))
-		table.insert(Lines, string.format("MaxSpeed: %s", formatNumber(Session.MaxSpeed or 0)))
+		table.insert(Lines, string.format("MaxSpeed: %s", LocalUtils.formatNumber(Session.MaxSpeed or 0)))
 		table.insert(Lines, string.format("PromotedPrimary: %d", PrimaryLogicCount))
 		table.insert(Lines, string.format("PromotedSupport: %d", SupportLogicCount))
 
@@ -4469,7 +4471,7 @@ return function(Config)
 				end
 
 				local Target = getCurrentTargetForEntry and getCurrentTargetForEntry(Entry) or nil
-				local CurrentValue = toNumber(readEntryValue(Entry))
+				local CurrentValue = LocalUtils.toNumber(readEntryValue(Entry))
 
 				if not hasCanonicalTargetDrop
 					or not hasCanonicalTargetDrop(Target, CurrentValue) then
@@ -4591,7 +4593,7 @@ return function(Config)
 				return
 			end
 
-			local IsExactAlias = isKnownAliasName(GroupName, NameLower)
+			local IsExactAlias = LocalUtils.isKnownAliasName(GroupName, NameLower)
 			local AllowHiddenTablePrimary = SourceKind == "table"
 				and (GroupName == "Current" or GroupName == "Max")
 				and (Confidence or 0) >= 110
@@ -4623,7 +4625,7 @@ return function(Config)
 				Key = Key,
 				Name = Name,
 				NameLower = NameLower,
-				Family = getFamily(NameLower),
+				Family = LocalUtils.getFamily(NameLower),
 				Handle = Handle,
 				Candidate = Candidate,
 				Confidence = Confidence or 0,
@@ -4727,7 +4729,7 @@ return function(Config)
 				end
 			end
 
-			for _, FlagName in ipairs(mergeAliases(ExactAliases.Flags, ObservedAliases.Flags)) do
+			for _, FlagName in ipairs(LocalUtils.mergeAliases(ExactAliases.Flags, ObservedAliases.Flags)) do
 				local FlagObject = Stats:FindFirstChild(FlagName)
 
 				if FlagObject and FlagObject:IsA("ValueBase") then
@@ -4757,7 +4759,7 @@ return function(Config)
 				end
 			end
 
-			for _, SpendName in ipairs(mergeAliases(ExactAliases.Spend, ObservedAliases.Spend)) do
+			for _, SpendName in ipairs(LocalUtils.mergeAliases(ExactAliases.Spend, ObservedAliases.Spend)) do
 				local SpendObject = Stats:FindFirstChild(SpendName)
 
 				if SpendObject and SpendObject:IsA("ValueBase") then
@@ -4796,7 +4798,7 @@ return function(Config)
 			local Confidence = getInstanceConfidence(Instance)
 
 			if Instance:IsA("ValueBase") then
-				local GroupName, NameLower = classifyName(Instance.Name)
+				local GroupName, NameLower = LocalUtils.classifyName(Instance.Name)
 
 				if GroupName then
 					recordHandle(GroupName, Instance.Name, NameLower, createValueHandle(Instance), Instance.Value, Confidence, "instance")
@@ -4804,7 +4806,7 @@ return function(Config)
 			end
 
 			for AttributeName, Value in pairs(Instance:GetAttributes()) do
-				local GroupName, NameLower = classifyName(AttributeName)
+				local GroupName, NameLower = LocalUtils.classifyName(AttributeName)
 
 				if GroupName then
 					recordHandle(GroupName, AttributeName, NameLower, createAttributeHandle(Instance, AttributeName), Value, Confidence, "instance")
@@ -4824,7 +4826,7 @@ return function(Config)
 			local Success = pcall(function()
 				for Key, Value in pairs(TableValue) do
 					if type(Key) == "string" then
-						local GroupName, NameLower = classifyName(Key)
+						local GroupName, NameLower = LocalUtils.classifyName(Key)
 
 						if GroupName then
 							recordHandle(
@@ -4871,7 +4873,7 @@ return function(Config)
 
 					if type(InnerKey) == "string" then
 						local InnerKeyLower = string.lower(InnerKey)
-						local GroupName = classifyName(InnerKey)
+						local GroupName = LocalUtils.classifyName(InnerKey)
 
 						if GroupName ~= nil or isInterestingLogicName(InnerKeyLower) then
 							Hits = Hits + 1
@@ -5237,7 +5239,7 @@ return function(Config)
 		end
 
 		inferContextGroup = function(Name, Value, ScopeTextLower)
-			local GroupName, NameLower = classifyName(Name)
+			local GroupName, NameLower = LocalUtils.classifyName(Name)
 
 			if GroupName then
 				return GroupName, NameLower
@@ -5263,7 +5265,7 @@ return function(Config)
 				return nil, NameLower
 			end
 
-			local NumericValue = toNumber(Value)
+			local NumericValue = LocalUtils.toNumber(Value)
 			local ValueType = typeof(Value)
 
 			if NumericValue == nil and ValueType ~= "boolean" then
@@ -5290,7 +5292,7 @@ return function(Config)
 				return "Max", NameLower
 			end
 
-			if containsSpend(NameLower) then
+			if LocalUtils.containsSpend(NameLower) then
 				return "Spend", NameLower
 			end
 
@@ -5325,7 +5327,7 @@ return function(Config)
 				and string.find(NameLower, "percent", 1, true) == nil
 				and string.find(NameLower, "ratio", 1, true) == nil
 				and string.find(NameLower, "cool", 1, true) == nil
-				and not containsSpend(NameLower) then
+				and not LocalUtils.containsSpend(NameLower) then
 				return "Current", NameLower
 			end
 
@@ -5753,7 +5755,7 @@ return function(Config)
 		local MaxTargets = {}
 
 		local function considerEntry(Entry)
-			local Value = toNumber(readEntryValue(Entry))
+			local Value = LocalUtils.toNumber(readEntryValue(Entry))
 
 			if Value ~= nil then
 				local Current = CurrentTargets[Entry.Family]
@@ -5765,7 +5767,7 @@ return function(Config)
 		end
 
 		local function considerMaxEntry(Entry)
-			local Value = toNumber(readEntryValue(Entry))
+			local Value = LocalUtils.toNumber(readEntryValue(Entry))
 
 			if Value ~= nil then
 				local Current = MaxTargets[Entry.Family]
@@ -5855,11 +5857,11 @@ return function(Config)
 					return math.max(Target, BestObservedNumber)
 				end
 
-				return Target or BestObservedNumber or toNumber(FallbackValue)
+				return Target or BestObservedNumber or LocalUtils.toNumber(FallbackValue)
 			end
 
 			if GroupName == "Max" then
-				return Target or toNumber(FallbackValue)
+				return Target or LocalUtils.toNumber(FallbackValue)
 			end
 		end
 
@@ -5871,7 +5873,7 @@ return function(Config)
 			and Entry.Candidate
 			and isExhaustionCurrentCandidate(Entry.Candidate) then
 			local RawValue = readEntryValue(Entry)
-			local NumericValue = toNumber(RawValue)
+			local NumericValue = LocalUtils.toNumber(RawValue)
 
 			if NumericValue ~= nil then
 				return 0
@@ -5915,13 +5917,13 @@ return function(Config)
 
 			if CanRewrite
 				and DesiredValue ~= nil
-				and not valuesEquivalent(CurrentValue, DesiredValue) then
+				and not LocalUtils.valuesEquivalent(CurrentValue, DesiredValue) then
 				local WriteSuccess = writeEntryValue(Entry, DesiredValue)
 				local ReadBackValue = readEntryValue(Entry)
 
 				if not WriteSuccess then
 					setSupportIssue("flag", Entry, CurrentValue, DesiredValue, "write_failed")
-				elseif not valuesEquivalent(ReadBackValue, DesiredValue) then
+				elseif not LocalUtils.valuesEquivalent(ReadBackValue, DesiredValue) then
 					setSupportIssue("flag", Entry, ReadBackValue, DesiredValue, "write_reverted")
 				end
 			end
@@ -5942,13 +5944,13 @@ return function(Config)
 
 			if CanRewrite
 				and DesiredValue ~= nil
-				and not valuesEquivalent(CurrentValue, DesiredValue) then
+				and not LocalUtils.valuesEquivalent(CurrentValue, DesiredValue) then
 				local WriteSuccess = writeEntryValue(Entry, DesiredValue)
 				local ReadBackValue = readEntryValue(Entry)
 
 				if not WriteSuccess then
 					setSupportIssue("spend", Entry, CurrentValue, DesiredValue, "write_failed")
-				elseif not valuesEquivalent(ReadBackValue, DesiredValue) then
+				elseif not LocalUtils.valuesEquivalent(ReadBackValue, DesiredValue) then
 					setSupportIssue("spend", Entry, ReadBackValue, DesiredValue, "write_reverted")
 				end
 			end
@@ -5975,8 +5977,8 @@ return function(Config)
 				NamedValues[NameLower] = Value
 
 				if DirectStatsHighWaterLookup[NameLower] then
-					local NumericValue = toNumber(Value)
-					local Existing = toNumber(StaminaFeature.DirectStatsHighWater[NameLower])
+					local NumericValue = LocalUtils.toNumber(Value)
+					local Existing = LocalUtils.toNumber(StaminaFeature.DirectStatsHighWater[NameLower])
 
 					if NumericValue ~= nil and (Existing == nil or NumericValue > Existing) then
 						StaminaFeature.DirectStatsHighWater[NameLower] = NumericValue
@@ -5998,14 +6000,14 @@ return function(Config)
 				SourceKind = "instance",
 				Handle = Handle,
 				NameLower = NameLower,
-				TrustedAlias = isTrustedAliasName("Current", NameLower)
+				TrustedAlias = LocalUtils.isTrustedAliasName("Current", NameLower)
 			}
 
 			if DirectStatsFlagTruthLookup[NameLower] then
 				OverrideGroup = "Flags"
 				OverrideCandidate.Group = "Flags"
-				OverrideCandidate.TrustedAlias = isTrustedAliasName("Flags", NameLower)
-				OverrideCandidate.ObservedAlias = isObservedAliasName("Flags", NameLower)
+				OverrideCandidate.TrustedAlias = LocalUtils.isTrustedAliasName("Flags", NameLower)
+				OverrideCandidate.ObservedAlias = LocalUtils.isObservedAliasName("Flags", NameLower)
 
 				if not supportsSafeRuntimeRewrite(OverrideGroup, Value, OverrideCandidate) then
 					return
@@ -6015,15 +6017,15 @@ return function(Config)
 			elseif DirectStatsFlagFalseLookup[NameLower] then
 				OverrideGroup = "Flags"
 				OverrideCandidate.Group = "Flags"
-				OverrideCandidate.TrustedAlias = isTrustedAliasName("Flags", NameLower)
-				OverrideCandidate.ObservedAlias = isObservedAliasName("Flags", NameLower)
+				OverrideCandidate.TrustedAlias = LocalUtils.isTrustedAliasName("Flags", NameLower)
+				OverrideCandidate.ObservedAlias = LocalUtils.isObservedAliasName("Flags", NameLower)
 
 				if not supportsSafeRuntimeRewrite(OverrideGroup, Value, OverrideCandidate) then
 					return
 				end
 
 				DesiredValue = getZeroLikeValue(Value)
-			elseif isObservedExhaustionCurrentName(NameLower) then
+			elseif LocalUtils.isObservedExhaustionCurrentName(NameLower) then
 				OverrideGroup = "Current"
 
 				if not supportsSafeRuntimeRewrite(OverrideGroup, Value, OverrideCandidate) then
@@ -6034,8 +6036,8 @@ return function(Config)
 			elseif DirectStatsSpendZeroLookup[NameLower] then
 				OverrideGroup = "Spend"
 				OverrideCandidate.Group = "Spend"
-				OverrideCandidate.TrustedAlias = isTrustedAliasName("Spend", NameLower)
-				OverrideCandidate.ObservedAlias = isObservedAliasName("Spend", NameLower)
+				OverrideCandidate.TrustedAlias = LocalUtils.isTrustedAliasName("Spend", NameLower)
+				OverrideCandidate.ObservedAlias = LocalUtils.isObservedAliasName("Spend", NameLower)
 
 				if not supportsSafeRuntimeRewrite(OverrideGroup, Value, OverrideCandidate) then
 					return
@@ -6044,20 +6046,20 @@ return function(Config)
 				DesiredValue = getZeroLikeValue(Value)
 			elseif DirectStatsFillToMaxLookup[NameLower] then
 				local MaxValue = NamedValues.maxdownedhealth
-				local NumericMax = toNumber(MaxValue)
+				local NumericMax = LocalUtils.toNumber(MaxValue)
 
 				if NumericMax ~= nil then
 					DesiredValue = coerceLike(Value, NumericMax)
 				end
 			elseif DirectStatsHighWaterLookup[NameLower] then
-				local HighWater = toNumber(StaminaFeature.DirectStatsHighWater[NameLower])
+				local HighWater = LocalUtils.toNumber(StaminaFeature.DirectStatsHighWater[NameLower])
 
 				if HighWater ~= nil then
 					DesiredValue = coerceLike(Value, HighWater)
 				end
 			end
 
-			if DesiredValue == nil or valuesEquivalent(Value, DesiredValue) then
+			if DesiredValue == nil or LocalUtils.valuesEquivalent(Value, DesiredValue) then
 				return
 			end
 
@@ -6130,7 +6132,7 @@ return function(Config)
 		for _, Entry in ipairs(StaminaFeature.Handles.Max) do
 			local Target = getMaxTargetForEntry(Entry)
 			local RawValue = readEntryValue(Entry)
-			local CurrentValue = toNumber(RawValue)
+			local CurrentValue = LocalUtils.toNumber(RawValue)
 			local CanRewrite = supportsSafeRuntimeRewrite("Max", RawValue, Entry.Candidate)
 
 			if Target ~= nil
@@ -6148,7 +6150,7 @@ return function(Config)
 		for _, Entry in ipairs(StaminaFeature.Handles.Max) do
 			local Target = getMaxTargetForEntry(Entry)
 			local RawValue = readEntryValue(Entry)
-			local CurrentValue = toNumber(RawValue)
+			local CurrentValue = LocalUtils.toNumber(RawValue)
 			local CanRewrite = supportsSafeRuntimeRewrite("Max", RawValue, Entry.Candidate)
 
 			if Target ~= nil
@@ -6171,7 +6173,7 @@ return function(Config)
 		for _, Entry in ipairs(StaminaFeature.Handles.Current) do
 			local Target = getCurrentTargetForEntry(Entry)
 			local RawValue = readEntryValue(Entry)
-			local CurrentValue = toNumber(RawValue)
+			local CurrentValue = LocalUtils.toNumber(RawValue)
 			local CanRewrite = supportsSafeRuntimeRewrite("Current", RawValue, Entry.Candidate)
 
 			if Target ~= nil
@@ -6193,7 +6195,7 @@ return function(Config)
 		for _, Entry in ipairs(StaminaFeature.Handles.Current) do
 			local Target = getCurrentTargetForEntry(Entry)
 			local RawValue = readEntryValue(Entry)
-			local CurrentValue = toNumber(RawValue)
+			local CurrentValue = LocalUtils.toNumber(RawValue)
 			local CanRewrite = supportsSafeRuntimeRewrite("Current", RawValue, Entry.Candidate)
 
 			if Target ~= nil
@@ -6236,7 +6238,7 @@ return function(Config)
 				and isCanonicalStatsCurrentCandidate(Entry.Candidate)
 				and candidateMatchesActionProfile(Entry.Candidate, Profile) then
 				local Target = getCurrentTargetForEntry(Entry)
-				local CurrentValue = toNumber(readEntryValue(Entry))
+				local CurrentValue = LocalUtils.toNumber(readEntryValue(Entry))
 
 				if hasCanonicalTargetDrop(Target, CurrentValue) then
 					return true
@@ -6312,7 +6314,7 @@ return function(Config)
 				and isCanonicalStatsCurrentCandidate(Entry.Candidate)
 				and candidateMatchesActionProfile(Entry.Candidate, Profile) then
 				local Target = getCurrentTargetForEntry(Entry)
-				local CurrentValue = toNumber(readEntryValue(Entry))
+				local CurrentValue = LocalUtils.toNumber(readEntryValue(Entry))
 
 				if hasCanonicalTargetDrop(Target, CurrentValue) then
 					DropDetected = true
@@ -6330,7 +6332,7 @@ return function(Config)
 					and (
 						isMainScriptStatsHandle(Candidate.Handle)
 						or (
-							isObservedExhaustionSpendName(Candidate.NameLower or "")
+							LocalUtils.isObservedExhaustionSpendName(Candidate.NameLower or "")
 							and StaminaFeature.HasStrongPrimarySiblingHandle(Candidate)
 						)
 					)
@@ -6345,7 +6347,7 @@ return function(Config)
 				local CurrentValue = readEntryValue(Entry)
 				local DesiredValue = CurrentValue ~= nil and getTruthyValue(CurrentValue) or nil
 
-				if DesiredValue ~= nil and not valuesEquivalent(CurrentValue, DesiredValue) then
+				if DesiredValue ~= nil and not LocalUtils.valuesEquivalent(CurrentValue, DesiredValue) then
 					setSupportIssue("flag", Entry, CurrentValue, DesiredValue, "verify")
 					FailureReason = string.lower(Profile) .. "_flag_blocked"
 					break
@@ -6357,7 +6359,7 @@ return function(Config)
 					local CurrentValue = readEntryValue(Entry)
 					local DesiredValue = CurrentValue ~= nil and getZeroLikeValue(CurrentValue) or nil
 
-					if DesiredValue ~= nil and not valuesEquivalent(CurrentValue, DesiredValue) then
+					if DesiredValue ~= nil and not LocalUtils.valuesEquivalent(CurrentValue, DesiredValue) then
 						setSupportIssue("spend", Entry, CurrentValue, DesiredValue, "verify")
 						FailureReason = string.lower(Profile) .. "_spend_locked"
 						break
@@ -6419,7 +6421,7 @@ return function(Config)
 		for _, Entry in ipairs(StaminaFeature.Handles.Current) do
 			if isCanonicalStatsCurrentCandidate(Entry.Candidate) then
 				local Target = getCurrentTargetForEntry(Entry)
-				local CurrentValue = toNumber(readEntryValue(Entry))
+				local CurrentValue = LocalUtils.toNumber(readEntryValue(Entry))
 
 				if isLogicLocalCandidate(Entry.Candidate) then
 					HasPromotedLogic = true
@@ -6556,14 +6558,14 @@ return function(Config)
 			-- freezing at whatever value it had when the feature was enabled.
 			return readFamilyTarget(MaxTargets)
 				or readFamilyTarget(CurrentTargets)
-				or toNumber(FallbackValue)
+				or LocalUtils.toNumber(FallbackValue)
 		end
 
 		if GroupName == "Max" then
-			return readFamilyTarget(MaxTargets) or toNumber(FallbackValue)
+			return readFamilyTarget(MaxTargets) or LocalUtils.toNumber(FallbackValue)
 		end
 
-		return readFamilyTarget(CurrentTargets) or toNumber(FallbackValue)
+		return readFamilyTarget(CurrentTargets) or LocalUtils.toNumber(FallbackValue)
 	end
 
 	local function getInterceptTarget(Candidate, IncomingValue)
@@ -6658,7 +6660,7 @@ return function(Config)
 			and typeof(Self) == "Instance"
 			and Self:IsA("ValueBase")
 			and shouldHookInstance(Self) then
-			local GroupName, NameLower = classifyName(Self.Name)
+			local GroupName, NameLower = LocalUtils.classifyName(Self.Name)
 
 			if GroupName then
 				local Replacement, ShouldReplace = inspectIncomingLocalChange(
@@ -6699,7 +6701,7 @@ return function(Config)
 			return nil, false
 		end
 
-		local GroupName, NameLower = classifyName(AttributeName)
+		local GroupName, NameLower = LocalUtils.classifyName(AttributeName)
 
 		if not GroupName then
 			return nil, false
@@ -6926,7 +6928,7 @@ return function(Config)
 		if Session then
 			table.insert(Lines, string.format("CaptureState: %s", Session.State))
 			table.insert(Lines, string.format("ActionValid: %s", tostring(Session.ActionValid)))
-			table.insert(Lines, string.format("CaptureSpeed: %s", formatNumber(Session.MaxSpeed or 0)))
+			table.insert(Lines, string.format("CaptureSpeed: %s", LocalUtils.formatNumber(Session.MaxSpeed or 0)))
 		else
 			table.insert(Lines, "CaptureState: idle")
 		end
