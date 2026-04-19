@@ -2,6 +2,7 @@ return function(Config)
 	local Main = Config.Main
 	local FoodFeature = Config.FoodFeature
 	local StaminaFeature = Config.StaminaFeature
+	local AutoTrainFeature = Config.AutoTrainFeature
 
 	local Food = Main:AddSection({
 		Name = "FOOD",
@@ -60,13 +61,23 @@ return function(Config)
 
 	AutoTrain:AddToggle({
 		Name = "Enabled",
+		Callback = function(Value)
+			if AutoTrainFeature then
+				AutoTrainFeature:SetEnabled(Value)
+			end
+		end,
 		Flag = "AutoTrain"
 	})
 
 	AutoTrain:AddDropdown({
 		Name = "Type",
-		Default = "Squat machine",
-		Values = {"Bag", "Bar", "Bench", "Bike", "Squat machine", "Treadmill"},
+		Default = AutoTrainFeature and AutoTrainFeature:GetSelectedType() or "Bike",
+		Values = AutoTrainFeature and AutoTrainFeature:GetAvailableTypes() or {"Bag", "Bar", "Bench", "Bike", "Squat machine", "Treadmill"},
+		Callback = function(Value)
+			if AutoTrainFeature then
+				AutoTrainFeature:SetSelectedType(Value)
+			end
+		end,
 		Flag = "AutoTrainType"
 	})
 end

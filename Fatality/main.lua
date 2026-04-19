@@ -314,6 +314,27 @@ local function createFallbackFoodFeature(ErrorMessage)
 	}
 end
 
+local function createFallbackAutoTrainFeature(ErrorMessage)
+	notifyModuleFailure("features/autotrain.lua", ErrorMessage)
+
+	return {
+		SetEnabled = function()
+			return false
+		end,
+		GetAvailableTypes = function()
+			return {"Bag", "Bar", "Bench", "Bike", "Squat machine", "Treadmill"}
+		end,
+		GetSelectedType = function()
+			return "Bike"
+		end,
+		SetSelectedType = function()
+			return false
+		end,
+		Destroy = function()
+		end
+	}
+end
+
 local function createFallbackStatsFeature(ErrorMessage)
 	notifyModuleFailure("features/stats.lua", ErrorMessage)
 
@@ -474,6 +495,7 @@ local Skins = Window:AddMenu({
 
 local CreateESP = safeLoadModule("features/esp.lua", createFallbackESP)
 local CreateFoodFeature = safeLoadModule("features/food.lua", createFallbackFoodFeature)
+local CreateAutoTrainFeature = safeLoadModule("features/autotrain.lua", createFallbackAutoTrainFeature)
 local CreateStaminaFeature = safeLoadModule("features/stamina.lua", createFallbackStaminaFeature)
 local CreateStatsFeature = safeLoadModule("features/stats.lua", createFallbackStatsFeature)
 local CreateMainUI = safeLoadModule("ui/main.lua", function(ErrorMessage)
@@ -494,6 +516,9 @@ local ESP = safeCreateModule("features/esp.lua", CreateESP, {
 local FoodFeature = safeCreateModule("features/food.lua", CreateFoodFeature, {
 	Notification = Notification
 }, createFallbackFoodFeature)
+local AutoTrainFeature = safeCreateModule("features/autotrain.lua", CreateAutoTrainFeature, {
+	Notification = Notification
+}, createFallbackAutoTrainFeature)
 local StaminaFeature = safeCreateModule("features/stamina.lua", CreateStaminaFeature, {
 	Notification = Notification
 }, createFallbackStaminaFeature)
@@ -509,7 +534,8 @@ local StatsUI = safeCreateModule("ui/stats.lua", CreateStatsUI, {
 safeRunModule("ui/main.lua", CreateMainUI, {
 	Main = Main,
 	FoodFeature = FoodFeature,
-	StaminaFeature = StaminaFeature
+	StaminaFeature = StaminaFeature,
+	AutoTrainFeature = AutoTrainFeature
 })
 
 safeRunModule("ui/visual.lua", CreateVisualUI, {
@@ -694,6 +720,7 @@ safeBuildBlock("Fatality/main.lua:MISC_STATIC", function()
 		Callback = function()
 			ESP:Destroy()
 			FoodFeature:Destroy()
+			AutoTrainFeature:Destroy()
 			StaminaFeature:Destroy()
 			StatsUI:Destroy()
 			table.clear(Fatality.DragBlacklist)
