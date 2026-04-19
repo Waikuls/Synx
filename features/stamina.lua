@@ -422,7 +422,7 @@ return function(Config)
 	end
 
 	local function isInstanceInHierarchy(Instance, Root)
-		if not Instance or not Root then
+		if typeof(Instance) ~= "Instance" or typeof(Root) ~= "Instance" then
 			return false
 		end
 
@@ -728,6 +728,10 @@ return function(Config)
 			return "nil"
 		end
 
+		if typeof(Instance) ~= "Instance" then
+			return string.format("invalid:%s", typeof(Instance))
+		end
+
 		local Cached = InstanceKeyCache[Instance]
 
 		if Cached then
@@ -764,7 +768,7 @@ return function(Config)
 			return tostring(Handle.Function) .. "@uv:" .. tostring(Handle.UpvalueIndex) .. ":" .. tostring(Handle.UpvalueName)
 		end
 
-		if not Handle.Instance then
+		if typeof(Handle.Instance) ~= "Instance" then
 			return "nil"
 		end
 
@@ -788,7 +792,7 @@ return function(Config)
 			return type(Handle.Function) == "function" and type(Handle.UpvalueIndex) == "number"
 		end
 
-		if not Handle.Instance then
+		if typeof(Handle.Instance) ~= "Instance" then
 			return false
 		end
 
@@ -1086,7 +1090,7 @@ return function(Config)
 	end
 
 	local function isMainScriptStatsHandle(Handle)
-		if not Handle or not Handle.Instance then
+		if not Handle or typeof(Handle.Instance) ~= "Instance" then
 			return false
 		end
 
@@ -1097,7 +1101,7 @@ return function(Config)
 	end
 
 	local function isMainScriptLogicHandle(Handle)
-		if not Handle or not Handle.Instance then
+		if not Handle or typeof(Handle.Instance) ~= "Instance" then
 			return false
 		end
 
@@ -1295,7 +1299,7 @@ return function(Config)
 	end
 
 	local function getCompactParentPath(Instance, Depth)
-		if not Instance then
+		if typeof(Instance) ~= "Instance" then
 			return ""
 		end
 
@@ -1318,7 +1322,7 @@ return function(Config)
 			return ""
 		end
 
-		if Handle.Kind == "attribute" and Handle.Instance then
+		if Handle.Kind == "attribute" and typeof(Handle.Instance) == "Instance" then
 			local ParentPath = getCompactParentPath(Handle.Instance, 2)
 			local ScopeName = ParentPath ~= ""
 				and string.format("%s/%s", ParentPath, Handle.Instance.Name)
@@ -1327,7 +1331,7 @@ return function(Config)
 			return string.format("@%s.%s", ScopeName, tostring(Handle.Attribute))
 		end
 
-		if Handle.Kind == "value" and Handle.Instance then
+		if Handle.Kind == "value" and typeof(Handle.Instance) == "Instance" then
 			local ParentPath = getCompactParentPath(Handle.Instance, 2)
 
 			if ParentPath ~= "" then
@@ -1434,7 +1438,7 @@ return function(Config)
 	end
 
 	local function getHandleScopeInstance(Handle)
-		if not Handle or not Handle.Instance then
+		if not Handle or typeof(Handle.Instance) ~= "Instance" then
 			return nil
 		end
 
