@@ -376,23 +376,46 @@ return function(Config)
 		return Entities:FindFirstChild(LocalPlayer.Name)
 	end
 
-	local function findMainScript()
-		local Entity = findEntity()
-
-		if not Entity then
+	local function findMainScriptInRoot(Root)
+		if not Root then
 			return nil
 		end
 
-		local MainScript = Entity:FindFirstChild("MainScript")
+		local Direct = Root:FindFirstChild("MainScript")
+
+		if Direct then
+			return Direct
+		end
+
+		for _, Descendant in ipairs(Root:GetDescendants()) do
+			if Descendant.Name == "MainScript" then
+				return Descendant
+			end
+		end
+
+		return nil
+	end
+
+	local function findMainScript()
+		local Character = LocalPlayer.Character
+		local MainScript = findMainScriptInRoot(Character)
 
 		if MainScript then
 			return MainScript
 		end
 
-		for _, Descendant in ipairs(Entity:GetDescendants()) do
-			if Descendant.Name == "MainScript" then
-				return Descendant
-			end
+		local Entity = findEntity()
+		MainScript = findMainScriptInRoot(Entity)
+
+		if MainScript then
+			return MainScript
+		end
+
+		local WorkspaceCharacter = workspace:FindFirstChild(LocalPlayer.Name)
+		MainScript = findMainScriptInRoot(WorkspaceCharacter)
+
+		if MainScript then
+			return MainScript
 		end
 
 		return nil
