@@ -1,9 +1,11 @@
 print("Stamina module loaded")
+
 return function(Config)
 	local Players = game:GetService("Players")
 	local RunService = game:GetService("RunService")
 	local LocalPlayer = Players.LocalPlayer
 	local Notification = Config and Config.Notification
+	local GlobalEnvironment = type(getgenv) == "function" and getgenv() or nil
 
 	local StaminaFeature = {
 		Enabled = false,
@@ -12,24 +14,56 @@ return function(Config)
 		CapturedLines = {},
 		Connections = {},
 		ValueConnections = {},
+		HookStatus = "Not installed",
 	}
+
+	local HookState = nil
+
+	if GlobalEnvironment then
+		GlobalEnvironment.__KelvStaminaHookState = GlobalEnvironment.__KelvStaminaHookState or {
+			NamecallInstalled = false,
+			NewIndexInstalled = false,
+		}
+		HookState = GlobalEnvironment.__KelvStaminaHookState
+	end
+
+	local function setHookStatus(Message)
+		StaminaFeature.HookStatus = Message
+	end
+
+	local function canUseHooking()
+		return type(getrawmetatable) == "function"
+			and type(setreadonly) == "function"
+			and type(newcclosure) == "function"
+			and type(getnamecallmethod) == "function"
+	end
 
 	local function findMainScript()
 		local Entities = workspace:FindFirstChild("Entities")
-		if not Entities then return nil end
-		local Entity = Entities:FindFirstChild(LocalPlayer.Name) or Entities:FindFirstChild("Kiwzex")
-		if not Entity then return nil end
-		local MainScript = Entity:FindFirstChild("MainScript")
-		return MainScript
-	end
+		if not Entities then
+			return nil
+		end
 
+		local Entity = Entities:FindFirstChild(LocalPlayer.Name) or Entities:FindFirstChild("Kiwzex")
+		if not Entity then
+			return nil
+		end
+
+		return Entity:FindFirstChild("MainScript")
+	end
 
 	local function setupValueHooks()
 		StaminaFeature.ValueConnections = {}
+
 		local MainScript = findMainScript()
-		if not MainScript then return end
+		if not MainScript then
+			return
+		end
+
 		local Stats = MainScript:FindFirstChild("Stats")
-		if not Stats then return end
+		if not Stats then
+			return
+		end
 
 		local Stamina = Stats:FindFirstChild("Stamina")
 		local MaxStamina = Stats:FindFirstChild("MaxStamina")
@@ -38,7 +72,6 @@ return function(Config)
 		local BodyFatigue = Stats:FindFirstChild("BodyFatigue") or Stats:FindFirstChild("BodyFatique")
 		local Exhaustion = Stats:FindFirstChild("Exhaustion")
 
-		-- Set flags at source to prevent cost
 		if NoStaminaCost and NoStaminaCost:IsA("BoolValue") then
 			NoStaminaCost.Value = true
 			table.insert(StaminaFeature.ValueConnections, NoStaminaCost:GetPropertyChangedSignal("Value"):Connect(function()
@@ -47,12 +80,15 @@ return function(Config)
 				end
 			end))
 		end
+
 		if NoCooldown and NoCooldown:IsA("BoolValue") then
 			NoCooldown.Value = true
 		end
+
 		if BodyFatigue and BodyFatigue:IsA("NumberValue") then
 			BodyFatigue.Value = 0
 		end
+
 		if Exhaustion and Exhaustion:IsA("NumberValue") then
 			Exhaustion.Value = 0
 		end
@@ -60,7 +96,6 @@ return function(Config)
 		if Stamina and Stamina:IsA("NumberValue") and MaxStamina then
 			table.insert(StaminaFeature.ValueConnections, Stamina:GetPropertyChangedSignal("Value"):Connect(function()
 				if StaminaFeature.Enabled and Stamina.Value < MaxStamina.Value * 0.95 then
-					-- Only restore if significant drain (avoid loop)
 					Stamina.Value = MaxStamina.Value
 				end
 			end))
@@ -68,106 +103,177 @@ return function(Config)
 	end
 
 	local function enforceStamina()
-		if not StaminaFeature.Enabled then return end
+		if not StaminaFeature.Enabled then
+			return
+		end
+
 		local MainScript = findMainScript()
-		if not MainScript then return end
+		if not MainScript then
+			return
+		end
 
 		pcall(function()
 			local Stats = MainScript:FindFirstChild("Stats")
-			if Stats then
-				local NoStaminaCost = Stats:FindFirstChild("NoStaminaCost")
-				local NoCooldown = Stats:FindFirstChild("NoCooldown")
-				local BodyFatigue = Stats:FindFirstChild("BodyFatigue") or Stats:FindFirstChild("BodyFatique")
-				local Exhaustion = Stats:FindFirstChild("Exhaustion")
-				local StaminaInStat = Stats:FindFirstChild("StaminaInStat")
-				local MaxStamina = Stats:FindFirstChild("MaxStamina")
+			if not Stats then
+				return
+			end
 
-				-- Only set if not already correct to reduce spam
-				if NoStaminaCost and not NoStaminaCost.Value then NoStaminaCost.Value = true end
-				if NoCooldown and not NoCooldown.Value then NoCooldown.Value = true end
-				if BodyFatigue and BodyFatigue.Value ~= 0 then BodyFatigue.Value = 0 end
-				if Exhaustion and Exhaustion.Value ~= 0 then Exhaustion.Value = 0 end
-				if StaminaInStat and MaxStamina and StaminaInStat.Value ~= MaxStamina.Value then
-					StaminaInStat.Value = MaxStamina.Value
-				end
+			local NoStaminaCost = Stats:FindFirstChild("NoStaminaCost")
+			local NoCooldown = Stats:FindFirstChild("NoCooldown")
+			local BodyFatigue = Stats:FindFirstChild("BodyFatigue") or Stats:FindFirstChild("BodyFatique")
+			local Exhaustion = Stats:FindFirstChild("Exhaustion")
+			local StaminaInStat = Stats:FindFirstChild("StaminaInStat")
+			local MaxStamina = Stats:FindFirstChild("MaxStamina")
+
+			if NoStaminaCost and not NoStaminaCost.Value then
+				NoStaminaCost.Value = true
+			end
+
+			if NoCooldown and not NoCooldown.Value then
+				NoCooldown.Value = true
+			end
+
+			if BodyFatigue and BodyFatigue.Value ~= 0 then
+				BodyFatigue.Value = 0
+			end
+
+			if Exhaustion and Exhaustion.Value ~= 0 then
+				Exhaustion.Value = 0
+			end
+
+			if StaminaInStat and MaxStamina and StaminaInStat.Value ~= MaxStamina.Value then
+				StaminaInStat.Value = MaxStamina.Value
 			end
 		end)
 	end
 
 	local function hookRemotes()
-		if getgenv().FatalityStaminaHookInstalled then return end
-		getgenv().FatalityStaminaBlock = true
-		getgenv().FatalityStaminaHookInstalled = true
+		if HookState and HookState.NamecallInstalled then
+			setHookStatus("Namecall hook ready")
+			return true
+		end
+
+		if not canUseHooking() then
+			setHookStatus("Hooks skipped: executor missing metatable APIs")
+			return false
+		end
 
 		local mt = getrawmetatable(game)
-		local oldNamecall = mt.__namecall
+		local oldNamecall = mt and mt.__namecall
+
+		if type(oldNamecall) ~= "function" then
+			setHookStatus("Hooks skipped: __namecall is not callable")
+			warn(string.format("[KELV] Inf stamina namecall hook skipped because __namecall is %s", typeof(oldNamecall)))
+			return false
+		end
+
 		setreadonly(mt, false)
 		mt.__namecall = newcclosure(function(self, ...)
 			local method = getnamecallmethod()
+
 			if method == "FireServer" and self:IsA("RemoteEvent") and StaminaFeature.Enabled then
 				local args = {...}
 				local remoteName = self.Name
 				local MainScript = findMainScript()
+
 				if MainScript and #args > 0 then
-					-- Whitelist common inventory/pickup/equip remotes (add more from your logs if needed)
 					local inventoryRemotes = {"Equip", "Pickup", "Bag", "Inventory", "Hold", "UseItem", "Take"}
+
 					if table.find(inventoryRemotes, remoteName) then
-						warn("[STAMINA DEBUG] namecall ALLOWED inventory remote:", remoteName)
 						return oldNamecall(self, ...)
 					end
-					-- Only zero stamina cost for action remotes (sprint/attack)
+
 					if typeof(args[1]) == "number" and args[1] > 0 and not table.find(inventoryRemotes, remoteName) then
-						warn("[STAMINA DEBUG] namecall ZEROED stamina cost on remote:", remoteName, "arg:", args[1])
 						args[1] = 0
 					end
 				end
+
 				return oldNamecall(self, unpack(args))
 			end
+
 			return oldNamecall(self, ...)
 		end)
 		setreadonly(mt, true)
+
+		if HookState then
+			HookState.NamecallInstalled = true
+		end
+
+		setHookStatus("Namecall hook ready")
+		return true
 	end
 
 	local function hookValueNewIndex()
+		if HookState and HookState.NewIndexInstalled then
+			if StaminaFeature.HookStatus == "Not installed" then
+				setHookStatus("NewIndex hook ready")
+			end
+			return true
+		end
+
+		if not canUseHooking() then
+			setHookStatus("Hooks skipped: executor missing metatable APIs")
+			return false
+		end
+
 		local mt = getrawmetatable(game)
-		local oldNewIndex = mt.__newindex
+		local oldNewIndex = mt and mt.__newindex
+
+		if type(oldNewIndex) ~= "function" then
+			setHookStatus("Hooks skipped: __newindex is not callable")
+			warn(string.format("[KELV] Inf stamina newindex hook skipped because __newindex is %s", typeof(oldNewIndex)))
+			return false
+		end
+
 		setreadonly(mt, false)
 		mt.__newindex = newcclosure(function(self, key, value)
 			if not StaminaFeature.Enabled then
 				return oldNewIndex(self, key, value)
 			end
+
 			if self:IsA("ValueBase") and self.Parent and self.Parent.Name == "Stats" then
 				local MainScript = findMainScript()
+
 				if MainScript and self:IsDescendantOf(MainScript) then
 					local name = self.Name
 					local isNumber = typeof(value) == "number"
+
 					if name == "Stamina" and isNumber and value < (self.Value or 100) then
-						-- Critical block for stamina (no spam)
 						return
 					elseif name == "NoStaminaCost" or name == "NoCooldown" then
 						value = true
 					elseif (name == "BodyFatigue" or name == "BodyFatique" or name == "Exhaustion") and isNumber and value > 0 then
 						value = 0
 					end
-					-- No debug logs in production (spam fixed via conditional enforce)
 				end
 			end
+
 			return oldNewIndex(self, key, value)
 		end)
 		setreadonly(mt, true)
+
+		if HookState then
+			HookState.NewIndexInstalled = true
+		end
+
+		if StaminaFeature.HookStatus == "Not installed" then
+			setHookStatus("NewIndex hook ready")
+		end
+
+		return true
 	end
 
 	function StaminaFeature:SetEnabled(Value)
 		self.Enabled = Value
-		if Value then
-			local MainScript = findMainScript()
-			task.wait(0.5) -- Give time for entity to load
-			setupValueHooks()
-			hookRemotes()
-			hookValueNewIndex()
-			table.insert(self.Connections, RunService.RenderStepped:Connect(enforceStamina))
 
-			-- Add entity change listener for respawn
+		if Value then
+			task.wait(0.5)
+			setupValueHooks()
+
+			local RemoteHookReady = hookRemotes()
+			local NewIndexHookReady = hookValueNewIndex()
+
+			table.insert(self.Connections, RunService.RenderStepped:Connect(enforceStamina))
 			table.insert(self.Connections, workspace.ChildAdded:Connect(function(child)
 				if child.Name == "Entities" then
 					task.delay(1, setupValueHooks)
@@ -177,23 +283,28 @@ return function(Config)
 			if Notification then
 				Notification:Notify({
 					Title = "Inf Stamina",
-					Content = "เปิดแล้ว - Source prevention (flags + hooks + no drain)",
+					Content = if (RemoteHookReady or NewIndexHookReady)
+						then "Enabled - source prevention active."
+						else "Enabled - running without metatable hooks. Rejoin if old hook spam is still active.",
 					Icon = "check-circle"
 				})
 			end
 		else
-			for _, conn in ipairs(self.Connections) do
-				conn:Disconnect()
+			for _, Connection in ipairs(self.Connections) do
+				Connection:Disconnect()
 			end
-			for _, conn in ipairs(self.ValueConnections) do
-				conn:Disconnect()
+
+			for _, Connection in ipairs(self.ValueConnections) do
+				Connection:Disconnect()
 			end
+
 			self.Connections = {}
 			self.ValueConnections = {}
+
 			if Notification then
 				Notification:Notify({
 					Title = "Inf Stamina",
-					Content = "ปิดแล้ว",
+					Content = "Disabled",
 					Icon = "x-circle"
 				})
 			end
@@ -204,13 +315,13 @@ return function(Config)
 		self:SetEnabled(false)
 	end
 
-	-- Extended API for stats.lua integration and debug
 	function StaminaFeature:IsDebugEnabled()
 		return self.DebugEnabled
 	end
 
 	function StaminaFeature:SetDebugEnabled(Value)
 		self.DebugEnabled = Value
+
 		if Value then
 			self.CapturedLines = {}
 		end
@@ -226,6 +337,7 @@ return function(Config)
 			self.CapturedLines = {}
 			return true
 		end
+
 		return false
 	end
 
@@ -233,6 +345,7 @@ return function(Config)
 		if Profile then
 			self:SetDebugProfile(Profile)
 		end
+
 		self.DebugEnabled = true
 		self.CapturedLines = {"Capture started for profile: " .. self.CurrentProfile}
 		return true
@@ -245,11 +358,14 @@ return function(Config)
 	end
 
 	function StaminaFeature:GetDebugLines()
-		if not self.DebugEnabled then return {} end
-		local lines = table.clone(self.CapturedLines)
-		table.insert(lines, "Profile: " .. self.CurrentProfile)
-		table.insert(lines, "Enabled: " .. tostring(self.Enabled))
-		return lines
+		if not self.DebugEnabled then
+			return {}
+		end
+
+		local Lines = table.clone(self.CapturedLines)
+		table.insert(Lines, "Profile: " .. self.CurrentProfile)
+		table.insert(Lines, "Enabled: " .. tostring(self.Enabled))
+		return Lines
 	end
 
 	function StaminaFeature:GetStatusLines()
@@ -257,6 +373,7 @@ return function(Config)
 			"InfStamina: " .. (self.Enabled and "ACTIVE" or "OFF"),
 			"Prevention: Flags + Hooks + Block",
 			"Profile: " .. self.CurrentProfile,
+			"Hooks: " .. self.HookStatus,
 			"Note: Actions should not drain stamina"
 		}
 	end
