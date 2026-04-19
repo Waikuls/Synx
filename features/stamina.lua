@@ -6647,6 +6647,122 @@ return function(Config)
 			and StaminaFeature.RemoteRuntime.blocksProfile(RemoteCandidate, Profile)
 	end
 
+	local function runValueNewIndexHook(OriginalNewIndex, Self, Key, Value)
+		if Key == "Value"
+			and typeof(Self) == "Instance"
+			and Self:IsA("ValueBase")
+			and shouldHookInstance(Self) then
+			local GroupName, NameLower = classifyName(Self.Name)
+
+			if GroupName then
+				local Replacement, ShouldReplace = inspectIncomingLocalChange(
+					GroupName,
+					Self.Name,
+					NameLower,
+					createValueHandle(Self),
+					Value,
+					getInstanceConfidence(Self),
+					"instance"
+				)
+
+				if ShouldReplace then
+					if typeof(Replacement) == "number" and Self:IsA("IntValue") then
+						Replacement = math.floor(Replacement + 0.5)
+					end
+
+					return OriginalNewIndex(Self, Key, Replacement)
+				end
+			end
+		end
+
+		return OriginalNewIndex(Self, Key, Value)
+	end
+
+	local function tryInterceptAttributeNamecall(OriginalNamecall, Self, Method, ...)
+		if StaminaFeature.AttributeNamecallHookEnabled ~= true
+			or Method ~= "SetAttribute"
+			or typeof(Self) ~= "Instance"
+			or not shouldHookInstance(Self) then
+			return nil, false
+		end
+
+		local Arguments = table.pack(...)
+		local AttributeName = Arguments[1]
+
+		if type(AttributeName) ~= "string" then
+			return nil, false
+		end
+
+		local GroupName, NameLower = classifyName(AttributeName)
+
+		if not GroupName then
+			return nil, false
+		end
+
+		local Replacement, ShouldReplace = inspectIncomingLocalChange(
+			GroupName,
+			AttributeName,
+			NameLower,
+			createAttributeHandle(Self, AttributeName),
+			Arguments[2],
+			getInstanceConfidence(Self),
+			"instance"
+		)
+
+		if not ShouldReplace then
+			return nil, false
+		end
+
+		Arguments[2] = Replacement
+
+		return OriginalNamecall(Self, table.unpack(Arguments, 1, Arguments.n)), true
+	end
+
+	local function tryInterceptRemoteNamecall(Self, Method, ...)
+		if StaminaFeature.RemoteNamecallHookEnabled ~= true
+			or (Method ~= "FireServer" and Method ~= "InvokeServer")
+			or typeof(Self) ~= "Instance"
+			or (not Self:IsA("RemoteEvent") and not Self:IsA("RemoteFunction")) then
+			return false
+		end
+
+		local Controller = StaminaFeature.GetActiveControllerInternal()
+
+		if not Controller then
+			return false
+		end
+
+		local Arguments = table.pack(...)
+		local ActiveProfile = StaminaFeature.RemoteRuntime.getActiveProfile(Controller)
+		local RemoteCandidate = upsertRemoteCandidate(Self, Method, Arguments, ActiveProfile)
+
+		if RemoteCandidate.Ignored ~= true then
+			recordCaptureRemoteValue(RemoteCandidate, ActiveProfile)
+		end
+
+		if shouldBlockRemote(Controller, RemoteCandidate, ActiveProfile) then
+			RemoteCandidate.BlockedCount = RemoteCandidate.BlockedCount + 1
+			return true
+		end
+
+		return false
+	end
+
+	local function runNamecallHook(OriginalNamecall, Self, ...)
+		local Method = type(getnamecallmethod) == "function" and getnamecallmethod() or nil
+		local Result, Handled = tryInterceptAttributeNamecall(OriginalNamecall, Self, Method, ...)
+
+		if Handled then
+			return Result
+		end
+
+		if tryInterceptRemoteNamecall(Self, Method, ...) then
+			return nil
+		end
+
+		return OriginalNamecall(Self, ...)
+	end
+
 	local function installHooks()
 		local HookState = StaminaFeature.GetHookStateInternal()
 		StaminaFeature.HookState = HookState
@@ -6662,34 +6778,7 @@ return function(Config)
 		local OriginalNewIndex
 		local SuccessNewIndex = pcall(function()
 			OriginalNewIndex = hookmetamethod(game, "__newindex", Wrap(function(Self, Key, Value)
-				if Key == "Value"
-					and typeof(Self) == "Instance"
-					and Self:IsA("ValueBase")
-					and shouldHookInstance(Self) then
-					local GroupName, NameLower = classifyName(Self.Name)
-
-					if GroupName then
-						local Replacement, ShouldReplace = inspectIncomingLocalChange(
-							GroupName,
-							Self.Name,
-							NameLower,
-							createValueHandle(Self),
-							Value,
-							getInstanceConfidence(Self),
-							"instance"
-						)
-
-						if ShouldReplace then
-							if typeof(Replacement) == "number" and Self:IsA("IntValue") then
-								Replacement = math.floor(Replacement + 0.5)
-							end
-
-							return OriginalNewIndex(Self, Key, Replacement)
-						end
-					end
-				end
-
-				return OriginalNewIndex(Self, Key, Value)
+				return runValueNewIndexHook(OriginalNewIndex, Self, Key, Value)
 			end))
 		end)
 
@@ -6699,58 +6788,7 @@ return function(Config)
 			local OriginalNamecall
 			SuccessNamecall = pcall(function()
 				OriginalNamecall = hookmetamethod(game, "__namecall", Wrap(function(Self, ...)
-					local Method = type(getnamecallmethod) == "function" and getnamecallmethod() or nil
-
-					if StaminaFeature.AttributeNamecallHookEnabled == true
-						and Method == "SetAttribute"
-						and typeof(Self) == "Instance"
-						and shouldHookInstance(Self) then
-						local Arguments = table.pack(...)
-						local AttributeName = Arguments[1]
-
-						if type(AttributeName) == "string" then
-							local GroupName, NameLower = classifyName(AttributeName)
-
-							if GroupName then
-								local Replacement, ShouldReplace = inspectIncomingLocalChange(
-									GroupName,
-									AttributeName,
-									NameLower,
-									createAttributeHandle(Self, AttributeName),
-									Arguments[2],
-									getInstanceConfidence(Self),
-									"instance"
-								)
-
-								if ShouldReplace then
-									Arguments[2] = Replacement
-									return OriginalNamecall(Self, table.unpack(Arguments, 1, Arguments.n))
-								end
-							end
-						end
-					elseif StaminaFeature.RemoteNamecallHookEnabled == true
-						and (Method == "FireServer" or Method == "InvokeServer")
-						and typeof(Self) == "Instance"
-						and (Self:IsA("RemoteEvent") or Self:IsA("RemoteFunction")) then
-						local Controller = StaminaFeature.GetActiveControllerInternal()
-
-						if Controller then
-							local Arguments = table.pack(...)
-							local ActiveProfile = StaminaFeature.RemoteRuntime.getActiveProfile(Controller)
-							local RemoteCandidate = upsertRemoteCandidate(Self, Method, Arguments, ActiveProfile)
-
-							if RemoteCandidate.Ignored ~= true then
-								recordCaptureRemoteValue(RemoteCandidate, ActiveProfile)
-							end
-
-							if shouldBlockRemote(Controller, RemoteCandidate, ActiveProfile) then
-								RemoteCandidate.BlockedCount = RemoteCandidate.BlockedCount + 1
-								return nil
-							end
-						end
-					end
-
-					return OriginalNamecall(Self, ...)
+					return runNamecallHook(OriginalNamecall, Self, ...)
 				end))
 			end)
 		end
