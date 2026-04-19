@@ -115,17 +115,15 @@ return function(Config)
 
 	function StaminaFeature:SetEnabled(Value)
 		self.Enabled = Value
-		getgenv().FatalityStaminaBlock = Value
 		if Value then
 			task.wait(0.1)
 			setupValueHooks()
 			hookValueNewIndex()
 			table.insert(self.Connections, RunService.RenderStepped:Connect(enforceStamina))
-			hookRemotes()
 			if Notification then
 				Notification:Notify({
 					Title = "No Drain Stamina",
-					Content = "เปิดแล้ว - No Stamina Drain + NoStaminaCost (block + restore)",
+					Content = "เปิดแล้ว - No Stamina Drain (value hooks + enforce)",
 					Icon = "check-circle"
 				})
 			end
@@ -138,7 +136,6 @@ return function(Config)
 			end
 			self.Connections = {}
 			self.ValueConnections = {}
-			getgenv().FatalityStaminaBlock = false
 			if Notification then
 				Notification:Notify({
 					Title = "No Drain Stamina",
