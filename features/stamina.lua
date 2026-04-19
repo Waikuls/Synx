@@ -28,11 +28,19 @@ return function(Config)
 
 		local Stamina = Stats:FindFirstChild("Stamina")
 		local MaxStamina = Stats:FindFirstChild("MaxStamina")
+		local NoStaminaCost = Stats:FindFirstChild("NoStaminaCost")
 
 		if Stamina and Stamina:IsA("NumberValue") and MaxStamina then
 			table.insert(StaminaFeature.ValueConnections, Stamina:GetPropertyChangedSignal("Value"):Connect(function()
 				if StaminaFeature.Enabled and Stamina.Value < MaxStamina.Value then
 					Stamina.Value = MaxStamina.Value
+				end
+			end))
+		end
+		if NoStaminaCost and NoStaminaCost:IsA("BoolValue") then
+			table.insert(StaminaFeature.ValueConnections, NoStaminaCost:GetPropertyChangedSignal("Value"):Connect(function()
+				if StaminaFeature.Enabled then
+					NoStaminaCost.Value = true
 				end
 			end))
 		end
@@ -48,6 +56,11 @@ return function(Config)
 			if Stats then
 				local Stamina = Stats:FindFirstChild("Stamina")
 				local MaxStamina = Stats:FindFirstChild("MaxStamina")
+				local NoStaminaCost = Stats:FindFirstChild("NoStaminaCost")
+				-- NoStaminaCost prevents drain at source
+				if NoStaminaCost then
+					NoStaminaCost.Value = true
+				end
 				if Stamina and MaxStamina and Stamina.Value < MaxStamina.Value then
 					Stamina.Value = MaxStamina.Value
 				end
@@ -105,6 +118,8 @@ return function(Config)
 				if MainScript and self:IsDescendantOf(MainScript) then
 					if self.Name == "Stamina" and value < self.Value then
 						return -- Block drain
+					elseif self.Name == "NoStaminaCost" then
+						value = true
 					end
 				end
 			end
@@ -124,8 +139,8 @@ return function(Config)
 			hookRemotes()
 			if Notification then
 				Notification:Notify({
-					Title = "Inf Stamina",
-					Content = "เปิดใช้งานแล้ว - Combat unlock + No drop M1/skill Q (__newindex + hooks)",
+					Title = "No Drain Stamina",
+					Content = "เปิดแล้ว - No Stamina Drain + NoStaminaCost (block + restore)",
 					Icon = "check-circle"
 				})
 			end
@@ -141,8 +156,8 @@ return function(Config)
 			getgenv().FatalityStaminaBlock = false
 			if Notification then
 				Notification:Notify({
-					Title = "Inf Stamina",
-					Content = "ปิดใช้งานแล้ว",
+					Title = "No Drain Stamina",
+					Content = "ปิดแล้ว",
 					Icon = "x-circle"
 				})
 			end
