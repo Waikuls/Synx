@@ -123,6 +123,22 @@ return function(Config)
 		return Lookup
 	end
 
+	local function mergeAliases(...)
+		local Merged = {}
+
+		for Index = 1, select("#", ...) do
+			local Aliases = select(Index, ...)
+
+			if type(Aliases) == "table" then
+				for _, Name in ipairs(Aliases) do
+					table.insert(Merged, Name)
+				end
+			end
+		end
+
+		return Merged
+	end
+
 	local Lookups = {
 		Current = createLookup(ExactAliases.Current),
 		Max = createLookup(ExactAliases.Max),
@@ -1739,15 +1755,18 @@ return function(Config)
 		return false
 	end
 
-	local DirectStatsFlagTruthLookup = createLookup({})
+	local DirectStatsFlagTruthLookup = createLookup(ExactAliases.Flags)
 
 	local DirectStatsFlagFalseLookup = createLookup({})
 
-	local DirectStatsSpendZeroLookup = createLookup({})
+	local DirectStatsSpendZeroLookup = createLookup(ExactAliases.Spend)
 
 	local DirectStatsFillToMaxLookup = createLookup({})
 
-	local DirectStatsHighWaterLookup = createLookup(ExactAliases.Current)
+	local DirectStatsHighWaterLookup = createLookup(mergeAliases(
+		ExactAliases.Current,
+		StatOnlyAliases.Current
+	))
 
 	local function getCharacterMetrics()
 		local Character = LocalPlayer.Character
@@ -3911,6 +3930,96 @@ return function(Config)
 						createAttributeHandle(Stats, MaxName),
 						MaxAttributeValue,
 						146,
+						"instance"
+					)
+				end
+			end
+
+			for _, CurrentName in ipairs(StatOnlyAliases.Current) do
+				local CurrentStatObject = Stats:FindFirstChild(CurrentName)
+
+				if CurrentStatObject and CurrentStatObject:IsA("ValueBase") then
+					recordHandle(
+						"Current",
+						CurrentStatObject.Name,
+						string.lower(CurrentStatObject.Name),
+						createValueHandle(CurrentStatObject),
+						CurrentStatObject.Value,
+						144,
+						"instance"
+					)
+				end
+
+				local CurrentStatAttributeValue = Stats:GetAttribute(CurrentName)
+
+				if CurrentStatAttributeValue ~= nil then
+					recordHandle(
+						"Current",
+						CurrentName,
+						string.lower(CurrentName),
+						createAttributeHandle(Stats, CurrentName),
+						CurrentStatAttributeValue,
+						142,
+						"instance"
+					)
+				end
+			end
+
+			for _, FlagName in ipairs(ExactAliases.Flags) do
+				local FlagObject = Stats:FindFirstChild(FlagName)
+
+				if FlagObject and FlagObject:IsA("ValueBase") then
+					recordHandle(
+						"Flags",
+						FlagObject.Name,
+						string.lower(FlagObject.Name),
+						createValueHandle(FlagObject),
+						FlagObject.Value,
+						138,
+						"instance"
+					)
+				end
+
+				local FlagAttributeValue = Stats:GetAttribute(FlagName)
+
+				if FlagAttributeValue ~= nil then
+					recordHandle(
+						"Flags",
+						FlagName,
+						string.lower(FlagName),
+						createAttributeHandle(Stats, FlagName),
+						FlagAttributeValue,
+						136,
+						"instance"
+					)
+				end
+			end
+
+			for _, SpendName in ipairs(ExactAliases.Spend) do
+				local SpendObject = Stats:FindFirstChild(SpendName)
+
+				if SpendObject and SpendObject:IsA("ValueBase") then
+					recordHandle(
+						"Spend",
+						SpendObject.Name,
+						string.lower(SpendObject.Name),
+						createValueHandle(SpendObject),
+						SpendObject.Value,
+						138,
+						"instance"
+					)
+				end
+
+				local SpendAttributeValue = Stats:GetAttribute(SpendName)
+
+				if SpendAttributeValue ~= nil then
+					recordHandle(
+						"Spend",
+						SpendName,
+						string.lower(SpendName),
+						createAttributeHandle(Stats, SpendName),
+						SpendAttributeValue,
+						136,
 						"instance"
 					)
 				end
