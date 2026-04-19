@@ -4,58 +4,48 @@ return function(Config)
 	local LocalPlayer = Players.LocalPlayer
 	local Notification = Config and Config.Notification
 
-	local AvailableTypes = {"Bag", "Bar", "Bench", "Bike", "Squat machine", "Treadmill"}
-	local KeyAliases = {
-		W = true,
-		A = true,
-		S = true,
-		D = true
-	}
-	local MachineDefinitions = {
-		["Bag"] = {
-			Aliases = {"bag", "punching bag"}
-		},
-		["Bar"] = {
-			Aliases = {"bar", "barbell"}
-		},
-		["Bench"] = {
-			Aliases = {"bench", "bench press"}
-		},
-		["Bike"] = {
-			Aliases = {"bike", "cycling", "cycle"},
-			RemotePath = {"TrainingSpots", "Bike", "Radio", "Remote"}
-		},
-		["Squat machine"] = {
-			Aliases = {"squat machine", "squat", "leg press"}
-		},
-		["Treadmill"] = {
-			Aliases = {"treadmill", "running machine"}
-		}
+	local AvailableTypes = {
+		"Bag",
+		"Bar",
+		"Bench",
+		"Bike",
+		"Squat machine",
+		"Treadmill"
 	}
 
-	local AutoTrainFeature = {
-		Enabled = false,
-		SelectedType = "Bike",
-		Connection = nil,
-		Elapsed = 0,
-		LoopInterval = 0.12,
-		PromptCooldown = 0.75,
-		StartCooldown = 0.35,
-		KeyCooldown = 0.08,
-		RepeatKeyCooldown = 0.3,
-		DesiredStandDistance = 4,
-		VerticalOffset = 2.5,
-		MaxRemoteStartDistance = 18,
-		LastPromptAt = 0,
-		LastStartAt = 0,
-		LastKeyAt = 0,
-		LastKeySignature = nil,
-		LastKeySignatureAt = 0,
-		CachedPrompt = nil,
-		CachedPromptType = nil,
-		LastPromptRefreshAt = 0,
-		PromptRefreshInterval = 2
-	}
+	local MachineAliases = {}
+	MachineAliases["Bag"] = {"bag", "punching bag"}
+	MachineAliases["Bar"] = {"bar", "barbell"}
+	MachineAliases["Bench"] = {"bench", "bench press"}
+	MachineAliases["Bike"] = {"bike", "cycling", "cycle"}
+	MachineAliases["Squat machine"] = {"squat machine", "squat", "leg press"}
+	MachineAliases["Treadmill"] = {"treadmill", "running machine"}
+
+	local BikeRemotePath = {"TrainingSpots", "Bike", "Radio", "Remote"}
+	local BikeKeys = {"W", "A", "S", "D"}
+
+	local AutoTrainFeature = {}
+	AutoTrainFeature.Enabled = false
+	AutoTrainFeature.SelectedType = "Bike"
+	AutoTrainFeature.Connection = nil
+	AutoTrainFeature.Elapsed = 0
+	AutoTrainFeature.LoopInterval = 0.12
+	AutoTrainFeature.PromptCooldown = 0.75
+	AutoTrainFeature.StartCooldown = 0.35
+	AutoTrainFeature.KeyCooldown = 0.08
+	AutoTrainFeature.RepeatKeyCooldown = 0.3
+	AutoTrainFeature.DesiredStandDistance = 4
+	AutoTrainFeature.VerticalOffset = 2.5
+	AutoTrainFeature.MaxRemoteStartDistance = 18
+	AutoTrainFeature.LastPromptAt = 0
+	AutoTrainFeature.LastStartAt = 0
+	AutoTrainFeature.LastKeyAt = 0
+	AutoTrainFeature.LastKeySignature = nil
+	AutoTrainFeature.LastKeySignatureAt = 0
+	AutoTrainFeature.CachedPrompt = nil
+	AutoTrainFeature.CachedPromptType = nil
+	AutoTrainFeature.LastPromptRefreshAt = 0
+	AutoTrainFeature.PromptRefreshInterval = 2
 
 	local function trimString(Value)
 		if typeof(Value) ~= "string" then
@@ -68,11 +58,39 @@ return function(Config)
 	local function normalizeText(Value)
 		local Trimmed = trimString(Value)
 
-		if not Trimmed or Trimmed == "" then
+		if not Trimmed then
 			return ""
 		end
 
-		return string.lower((string.gsub(Trimmed, "%s+", " ")))
+		if Trimmed == "" then
+			return ""
+		end
+
+		return string.lower(string.gsub(Trimmed, "%s+", " "))
+	end
+
+	local function copyArray(Source)
+		local Result = {}
+
+		if type(Source) ~= "table" then
+			return Result
+		end
+
+		for Index = 1, #Source do
+			Result[Index] = Source[Index]
+		end
+
+		return Result
+	end
+
+	local function getAliases(SelectedType)
+		local Aliases = MachineAliases[SelectedType]
+
+		if type(Aliases) == "table" then
+			return Aliases
+		end
+
+		return {normalizeText(SelectedType)}
 	end
 
 	local function containsAlias(Text, Aliases)
@@ -82,27 +100,13 @@ return function(Config)
 			return false
 		end
 
-		for _, Alias in ipairs(Aliases) do
-			if string.find(Normalized, Alias, 1, true) then
+		for Index = 1, #Aliases do
+			if string.find(Normalized, Aliases[Index], 1, true) then
 				return true
 			end
 		end
 
 		return false
-	end
-
-	local function getMachineDefinition(SelectedType)
-		return MachineDefinitions[SelectedType]
-	end
-
-	local function getSelectedAliases(SelectedType)
-		local Definition = getMachineDefinition(SelectedType)
-
-		if Definition and type(Definition.Aliases) == "table" then
-			return Definition.Aliases
-		end
-
-		return {normalizeText(SelectedType)}
 	end
 
 	local function getCharacter()
@@ -116,9 +120,19 @@ return function(Config)
 			return nil
 		end
 
-		return Character:FindFirstChild("HumanoidRootPart")
-			or Character:FindFirstChild("UpperTorso")
-			or Character:FindFirstChild("Torso")
+		local RootPart = Character:FindFirstChild("HumanoidRootPart")
+
+		if RootPart then
+			return RootPart
+		end
+
+		RootPart = Character:FindFirstChild("UpperTorso")
+
+		if RootPart then
+			return RootPart
+		end
+
+		return Character:FindFirstChild("Torso")
 	end
 
 	local function getPlayerGui()
@@ -126,11 +140,15 @@ return function(Config)
 	end
 
 	local function isVisibleGuiObject(Instance)
-		if not Instance or not Instance:IsA("GuiObject") then
+		local Current = Instance
+
+		if not Current then
 			return false
 		end
 
-		local Current = Instance
+		if not Current:IsA("GuiObject") then
+			return false
+		end
 
 		while Current and Current ~= game do
 			if Current:IsA("GuiObject") then
@@ -168,7 +186,11 @@ return function(Config)
 	end
 
 	local function getGuiCenter(Instance)
-		if not Instance or not Instance:IsA("GuiObject") then
+		if not Instance then
+			return nil, nil
+		end
+
+		if not Instance:IsA("GuiObject") then
 			return nil, nil
 		end
 
@@ -176,7 +198,11 @@ return function(Config)
 			return Instance.AbsolutePosition, Instance.AbsoluteSize
 		end)
 
-		if not Success or not Position or not Size then
+		if not Success then
+			return nil, nil
+		end
+
+		if not Position or not Size then
 			return nil, nil
 		end
 
@@ -185,7 +211,11 @@ return function(Config)
 
 	local function getScreenCenter()
 		local Camera = workspace.CurrentCamera
-		local ViewportSize = Camera and Camera.ViewportSize or Vector2.new(1280, 720)
+		local ViewportSize = Vector2.new(1280, 720)
+
+		if Camera then
+			ViewportSize = Camera.ViewportSize
+		end
 
 		return ViewportSize * 0.5, ViewportSize
 	end
@@ -209,7 +239,11 @@ return function(Config)
 			return MainScript
 		end
 
-		for _, Descendant in ipairs(Entity:GetDescendants()) do
+		local Descendants = Entity:GetDescendants()
+
+		for Index = 1, #Descendants do
+			local Descendant = Descendants[Index]
+
 			if Descendant.Name == "MainScript" then
 				return Descendant
 			end
@@ -225,7 +259,13 @@ return function(Config)
 			return nil
 		end
 
-		return MainScript:FindFirstChild("Stats") or MainScript:FindFirstChild("Stats", true)
+		local Stats = MainScript:FindFirstChild("Stats")
+
+		if Stats then
+			return Stats
+		end
+
+		return MainScript:FindFirstChild("Stats", true)
 	end
 
 	local function readStatsValue(Stats, Name)
@@ -255,17 +295,30 @@ return function(Config)
 	end
 
 	local function valueToBool(Value)
-		if typeof(Value) == "boolean" then
+		local ValueType = typeof(Value)
+
+		if ValueType == "boolean" then
 			return Value
 		end
 
-		if typeof(Value) == "number" then
+		if ValueType == "number" then
 			return Value ~= 0
 		end
 
-		if typeof(Value) == "string" then
+		if ValueType == "string" then
 			local Lower = normalizeText(Value)
-			return Lower == "true" or Lower == "yes" or Lower == "active"
+
+			if Lower == "true" then
+				return true
+			end
+
+			if Lower == "yes" then
+				return true
+			end
+
+			if Lower == "active" then
+				return true
+			end
 		end
 
 		return false
@@ -273,10 +326,17 @@ return function(Config)
 
 	local function getTrainingState(SelectedType)
 		local Stats = findStatsContainer()
-		local IsTraining = valueToBool(readStatsValue(Stats, "IsTrainingWithMachine"))
-			or valueToBool(readStatsValue(Stats, "Training"))
+		local IsTraining = false
 		local TrainingMachine = tostring(readStatsValue(Stats, "TrainingMachine") or "")
-		local IsSelectedMachine = containsAlias(TrainingMachine, getSelectedAliases(SelectedType))
+		local Aliases = getAliases(SelectedType)
+
+		if valueToBool(readStatsValue(Stats, "IsTrainingWithMachine")) then
+			IsTraining = true
+		end
+
+		if valueToBool(readStatsValue(Stats, "Training")) then
+			IsTraining = true
+		end
 
 		if not IsTraining and normalizeText(TrainingMachine) ~= "" then
 			IsTraining = true
@@ -284,17 +344,19 @@ return function(Config)
 
 		return {
 			IsTraining = IsTraining,
-			IsSelectedMachine = IsSelectedMachine,
+			IsSelectedMachine = containsAlias(TrainingMachine, Aliases),
 			TrainingMachine = TrainingMachine
 		}
 	end
 
 	local function getPromptPart(Prompt)
-		if not Prompt or not Prompt.Parent then
+		local Current
+
+		if not Prompt then
 			return nil
 		end
 
-		local Current = Prompt.Parent
+		Current = Prompt.Parent
 
 		while Current do
 			if Current:IsA("BasePart") then
@@ -302,7 +364,13 @@ return function(Config)
 			end
 
 			if Current:IsA("Model") then
-				return Current.PrimaryPart or Current:FindFirstChildWhichIsA("BasePart", true)
+				local Part = Current.PrimaryPart
+
+				if Part then
+					return Part
+				end
+
+				return Current:FindFirstChildWhichIsA("BasePart", true)
 			end
 
 			Current = Current.Parent
@@ -322,22 +390,24 @@ return function(Config)
 	end
 
 	local function getPromptDescription(Prompt)
+		local Parts = {}
+		local Parent
+
 		if not Prompt then
 			return ""
 		end
 
-		local Parts = {
-			Prompt.Name,
-			Prompt.ActionText,
-			Prompt.ObjectText
-		}
-		local Parent = Prompt.Parent
+		table.insert(Parts, Prompt.Name or "")
+		table.insert(Parts, Prompt.ActionText or "")
+		table.insert(Parts, Prompt.ObjectText or "")
+
+		Parent = Prompt.Parent
 
 		if Parent then
-			table.insert(Parts, Parent.Name)
+			table.insert(Parts, Parent.Name or "")
 
 			if Parent.Parent then
-				table.insert(Parts, Parent.Parent.Name)
+				table.insert(Parts, Parent.Parent.Name or "")
 			end
 		end
 
@@ -345,23 +415,37 @@ return function(Config)
 	end
 
 	local function promptMatchesSelectedType(Prompt, SelectedType)
-		return containsAlias(getPromptDescription(Prompt), getSelectedAliases(SelectedType))
+		return containsAlias(getPromptDescription(Prompt), getAliases(SelectedType))
 	end
 
 	local function isPromptValid(Prompt)
-		return Prompt and Prompt.Parent and Prompt:IsA("ProximityPrompt")
+		if not Prompt then
+			return false
+		end
+
+		if not Prompt.Parent then
+			return false
+		end
+
+		return Prompt:IsA("ProximityPrompt")
 	end
 
 	local function scanForBestPrompt(SelectedType)
 		local RootPart = getRootPart()
+		local Descendants = workspace:GetDescendants()
 		local BestPrompt = nil
 		local BestScore = math.huge
 
-		for _, Descendant in ipairs(workspace:GetDescendants()) do
+		for Index = 1, #Descendants do
+			local Descendant = Descendants[Index]
+
 			if Descendant:IsA("ProximityPrompt") and promptMatchesSelectedType(Descendant, SelectedType) then
 				local Position = getPromptPosition(Descendant)
-				local Distance = Position and RootPart and (RootPart.Position - Position).Magnitude or 999999
-				local Score = Distance
+				local Score = 999999
+
+				if RootPart and Position then
+					Score = (RootPart.Position - Position).Magnitude
+				end
 
 				if not Descendant.Enabled then
 					Score = Score + 5000
@@ -380,11 +464,14 @@ return function(Config)
 	function AutoTrainFeature:GetTargetPrompt()
 		local Now = os.clock()
 
-		if self.CachedPromptType == self.SelectedType
-			and isPromptValid(self.CachedPrompt)
-			and promptMatchesSelectedType(self.CachedPrompt, self.SelectedType)
-			and (Now - self.LastPromptRefreshAt) < self.PromptRefreshInterval then
-			return self.CachedPrompt
+		if self.CachedPromptType == self.SelectedType then
+			if isPromptValid(self.CachedPrompt) then
+				if promptMatchesSelectedType(self.CachedPrompt, self.SelectedType) then
+					if (Now - self.LastPromptRefreshAt) < self.PromptRefreshInterval then
+						return self.CachedPrompt
+					end
+				end
+			end
 		end
 
 		self.CachedPrompt = scanForBestPrompt(self.SelectedType)
@@ -396,20 +483,26 @@ return function(Config)
 
 	local function moveNearPrompt(Prompt)
 		local Character = getCharacter()
-		local RootPart = getRootPart()
 		local Position, Part = getPromptPosition(Prompt)
+		local LookVector
+		local TargetPosition
 
-		if not Character or not RootPart or not Position or not Part then
+		if not Character then
 			return false
 		end
 
-		local LookVector = Part.CFrame.LookVector
+		if not Position or not Part then
+			return false
+		end
+
+		LookVector = Part.CFrame.LookVector
 
 		if LookVector.Magnitude < 0.1 then
 			LookVector = Vector3.new(0, 0, -1)
 		end
 
-		local TargetPosition = Position + (LookVector * -AutoTrainFeature.DesiredStandDistance) + Vector3.new(0, AutoTrainFeature.VerticalOffset, 0)
+		TargetPosition = Position + (LookVector * -AutoTrainFeature.DesiredStandDistance)
+		TargetPosition = TargetPosition + Vector3.new(0, AutoTrainFeature.VerticalOffset, 0)
 
 		return pcall(function()
 			Character:PivotTo(CFrame.new(TargetPosition, Position))
@@ -421,40 +514,36 @@ return function(Config)
 			return false
 		end
 
-		if type(fireproximityprompt) == "function" then
-			local Success = pcall(function()
-				fireproximityprompt(Prompt, Prompt.HoldDuration)
-			end)
-
-			if Success then
-				return true
-			end
-
-			Success = pcall(function()
-				fireproximityprompt(Prompt)
-			end)
-
-			if Success then
-				return true
-			end
+		if type(fireproximityprompt) ~= "function" then
+			return false
 		end
 
-		return false
+		local Success = pcall(function()
+			fireproximityprompt(Prompt, Prompt.HoldDuration)
+		end)
+
+		if Success then
+			return true
+		end
+
+		return pcall(function()
+			fireproximityprompt(Prompt)
+		end)
 	end
 
 	local function resolvePath(PathParts)
-		if type(PathParts) ~= "table" or #PathParts == 0 then
+		local Current = workspace
+
+		if type(PathParts) ~= "table" then
 			return nil
 		end
 
-		local Current = workspace
-
-		for _, PartName in ipairs(PathParts) do
+		for Index = 1, #PathParts do
 			if typeof(Current) ~= "Instance" then
 				return nil
 			end
 
-			Current = Current:FindFirstChild(PartName)
+			Current = Current:FindFirstChild(PathParts[Index])
 
 			if not Current then
 				return nil
@@ -465,26 +554,32 @@ return function(Config)
 	end
 
 	local function getBikeRemote()
-		local Definition = getMachineDefinition("Bike")
-		local Remote = resolvePath(Definition and Definition.RemotePath)
+		local Remote = resolvePath(BikeRemotePath)
 
-		if Remote
-			and Remote:IsA("RemoteEvent")
-			and Remote.Parent then
-			return Remote
+		if not Remote then
+			return nil
 		end
 
-		return nil
+		if not Remote:IsA("RemoteEvent") then
+			return nil
+		end
+
+		if not Remote.Parent then
+			return nil
+		end
+
+		return Remote
 	end
 
 	local function getBikeRemotePosition()
 		local Remote = getBikeRemote()
+		local Current
 
-		if not Remote or not Remote.Parent then
+		if not Remote then
 			return nil
 		end
 
-		local Current = Remote.Parent
+		Current = Remote.Parent
 
 		while Current do
 			if Current:IsA("BasePart") then
@@ -492,7 +587,13 @@ return function(Config)
 			end
 
 			if Current:IsA("Model") then
-				local Part = Current.PrimaryPart or Current:FindFirstChildWhichIsA("BasePart", true)
+				local Part = Current.PrimaryPart
+
+				if Part then
+					return Part.Position
+				end
+
+				Part = Current:FindFirstChildWhichIsA("BasePart", true)
 
 				if Part then
 					return Part.Position
@@ -513,28 +614,39 @@ return function(Config)
 		end
 
 		return pcall(function()
-			if Payload ~= nil then
-				Remote:FireServer(ActionName, Payload)
-			else
+			if Payload == nil then
 				Remote:FireServer(ActionName)
+			else
+				Remote:FireServer(ActionName, Payload)
 			end
 		end)
 	end
 
 	local function isBikeActionMenuVisible()
 		local PlayerGui = getPlayerGui()
+		local Descendants
 
 		if not PlayerGui then
 			return false
 		end
 
-		for _, Descendant in ipairs(PlayerGui:GetDescendants()) do
+		Descendants = PlayerGui:GetDescendants()
+
+		for Index = 1, #Descendants do
+			local Descendant = Descendants[Index]
+
 			if isVisibleGuiObject(Descendant) then
 				local Text = normalizeText(getInstanceText(Descendant))
 
-				if Text == "start"
-					or string.find(Text, "choose an action", 1, true)
-					or string.find(Text, "start with macro", 1, true) then
+				if Text == "start" then
+					return true
+				end
+
+				if string.find(Text, "choose an action", 1, true) then
+					return true
+				end
+
+				if string.find(Text, "start with macro", 1, true) then
 					return true
 				end
 			end
@@ -545,42 +657,52 @@ return function(Config)
 
 	local function getVisibleBikeKeyCandidate()
 		local PlayerGui = getPlayerGui()
+		local Descendants
+		local ScreenCenter
+		local ViewportSize
+		local MaxDistance
+		local BestKey = nil
+		local BestSignature = nil
+		local BestScore = -math.huge
 
 		if not PlayerGui then
 			return nil, nil
 		end
 
-		local ScreenCenter, ViewportSize = getScreenCenter()
-		local MaxDistance = math.max(ViewportSize.X, ViewportSize.Y) * 0.38
-		local BestKey = nil
-		local BestSignature = nil
-		local BestScore = -math.huge
+		ScreenCenter, ViewportSize = getScreenCenter()
+		MaxDistance = math.max(ViewportSize.X, ViewportSize.Y) * 0.38
+		Descendants = PlayerGui:GetDescendants()
 
-		for _, Descendant in ipairs(PlayerGui:GetDescendants()) do
+		for Index = 1, #Descendants do
+			local Descendant = Descendants[Index]
+
 			if Descendant:IsA("GuiObject") and isVisibleGuiObject(Descendant) then
 				local Text = string.upper(normalizeText(getInstanceText(Descendant)))
+				local IsKey = false
 
-				if KeyAliases[Text] then
+				for KeyIndex = 1, #BikeKeys do
+					if Text == BikeKeys[KeyIndex] then
+						IsKey = true
+						break
+					end
+				end
+
+				if IsKey then
 					local Center, Size = getGuiCenter(Descendant)
 
-					if Center and Size and Size.X >= 18 and Size.Y >= 18 then
-						local Distance = (Center - ScreenCenter).Magnitude
+					if Center and Size then
+						if Size.X >= 18 and Size.Y >= 18 then
+							local Distance = (Center - ScreenCenter).Magnitude
 
-						if Distance <= MaxDistance then
-							local Score = math.min(Size.X * Size.Y, 5000) + math.max(0, 250 - Distance)
-							local Signature = string.format(
-								"%s:%d:%d:%d:%d",
-								Text,
-								math.floor(Center.X + 0.5),
-								math.floor(Center.Y + 0.5),
-								math.floor(Size.X + 0.5),
-								math.floor(Size.Y + 0.5)
-							)
+							if Distance <= MaxDistance then
+								local Score = math.min(Size.X * Size.Y, 5000)
+								Score = Score + math.max(0, 250 - Distance)
 
-							if Score > BestScore then
-								BestScore = Score
-								BestKey = Text
-								BestSignature = Signature
+								if Score > BestScore then
+									BestScore = Score
+									BestKey = Text
+									BestSignature = Text
+								end
 							end
 						end
 					end
@@ -624,6 +746,9 @@ return function(Config)
 	end
 
 	function AutoTrainFeature:TryBikePressKey(Now)
+		local Key
+		local Signature
+
 		if self.SelectedType ~= "Bike" then
 			return false
 		end
@@ -632,20 +757,19 @@ return function(Config)
 			return false
 		end
 
-		local Key, Signature = getVisibleBikeKeyCandidate()
+		Key, Signature = getVisibleBikeKeyCandidate()
 
 		if not Key then
 			return false
 		end
 
-		if Signature == self.LastKeySignature
-			and (Now - self.LastKeySignatureAt) < self.RepeatKeyCooldown then
-			return false
+		if Signature == self.LastKeySignature then
+			if (Now - self.LastKeySignatureAt) < self.RepeatKeyCooldown then
+				return false
+			end
 		end
 
-		if fireBikeRemote("PressKey", {
-			Key = Key
-		}) then
+		if fireBikeRemote("PressKey", {Key = Key}) then
 			self.LastKeyAt = Now
 			self.LastKeySignature = Signature
 			self.LastKeySignatureAt = Now
@@ -660,24 +784,32 @@ return function(Config)
 			return false
 		end
 
-		return fireBikeRemote("Leave", nil)
+		return fireBikeRemote("Leave")
 	end
 
 	function AutoTrainFeature:Step()
+		local Now
+		local TrainingState
+		local Prompt
+		local RootPart
+		local PromptPosition
+
 		if not self.Enabled then
 			return
 		end
 
-		local Now = os.clock()
-		local TrainingState = getTrainingState(self.SelectedType)
+		Now = os.clock()
+		TrainingState = getTrainingState(self.SelectedType)
 
 		if self.SelectedType == "Bike" then
 			if self:TryBikePressKey(Now) then
 				return
 			end
 
-			if not TrainingState.IsTraining and self:TryBikeStart(Now) then
-				return
+			if not TrainingState.IsTraining then
+				if self:TryBikeStart(Now) then
+					return
+				end
 			end
 		end
 
@@ -689,18 +821,20 @@ return function(Config)
 			return
 		end
 
-		local Prompt = self:GetTargetPrompt()
+		Prompt = self:GetTargetPrompt()
 
 		if not Prompt then
 			return
 		end
 
-		local RootPart = getRootPart()
-		local PromptPosition = getPromptPosition(Prompt)
+		RootPart = getRootPart()
+		PromptPosition = getPromptPosition(Prompt)
 
 		if RootPart and PromptPosition then
 			local Distance = (RootPart.Position - PromptPosition).Magnitude
-			local MaxDistance = math.max((Prompt.MaxActivationDistance or 10) - 1, 3)
+			local MaxDistance = Prompt.MaxActivationDistance or 10
+
+			MaxDistance = math.max(MaxDistance - 1, 3)
 
 			if Distance > MaxDistance then
 				if moveNearPrompt(Prompt) then
@@ -720,7 +854,7 @@ return function(Config)
 	end
 
 	function AutoTrainFeature:GetAvailableTypes()
-		return table.clone(AvailableTypes)
+		return copyArray(AvailableTypes)
 	end
 
 	function AutoTrainFeature:GetSelectedType()
@@ -728,21 +862,27 @@ return function(Config)
 	end
 
 	function AutoTrainFeature:SetSelectedType(Value)
-		if not table.find(AvailableTypes, Value) then
-			return false
+		for Index = 1, #AvailableTypes do
+			if AvailableTypes[Index] == Value then
+				self.SelectedType = Value
+				self.CachedPrompt = nil
+				self.CachedPromptType = nil
+				self.LastPromptRefreshAt = 0
+				self.LastKeySignature = nil
+				self.LastKeySignatureAt = 0
+				return true
+			end
 		end
 
-		self.SelectedType = Value
-		self.CachedPrompt = nil
-		self.CachedPromptType = nil
-		self.LastPromptRefreshAt = 0
-		self.LastKeySignature = nil
-		self.LastKeySignatureAt = 0
-		return true
+		return false
 	end
 
 	function AutoTrainFeature:SetEnabled(Value)
-		local State = Value and true or false
+		local State = false
+
+		if Value then
+			State = true
+		end
 
 		if self.Enabled == State then
 			return State
@@ -777,9 +917,11 @@ return function(Config)
 			end)
 
 			if Notification then
-				local Message = self.SelectedType == "Bike"
-					and "Enabled (Bike) - direct remote active"
-					or string.format("Enabled (%s)", self.SelectedType)
+				local Message = "Enabled (" .. tostring(self.SelectedType) .. ")"
+
+				if self.SelectedType == "Bike" then
+					Message = "Enabled (Bike) - direct remote active"
+				end
 
 				Notification:Notify({
 					Title = "Auto Train",
