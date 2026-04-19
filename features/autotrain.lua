@@ -793,6 +793,7 @@ return function(Config)
 		local Prompt
 		local RootPart
 		local PromptPosition
+		local BikeMenuVisible
 
 		if not self.Enabled then
 			return
@@ -802,14 +803,19 @@ return function(Config)
 		TrainingState = getTrainingState(self.SelectedType)
 
 		if self.SelectedType == "Bike" then
+			BikeMenuVisible = isBikeActionMenuVisible()
+
+			if BikeMenuVisible then
+				self:TryBikeStart(Now)
+				return
+			end
+
 			if self:TryBikePressKey(Now) then
 				return
 			end
 
-			if not TrainingState.IsTraining then
-				if self:TryBikeStart(Now) then
-					return
-				end
+			if self:TryBikeStart(Now) then
+				return
 			end
 		end
 
