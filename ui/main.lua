@@ -52,7 +52,13 @@ return function(Config)
 		Flag = "InfStamina"
 	})
 
-	Character:AddToggle({
+	local AutoTrain = Main:AddSection({
+		Name = "AUTO TRAIN",
+		Position = "center",
+		Height = 115
+	})
+
+	AutoTrain:AddToggle({
 		Name = "Auto train",
 		Flag = "AutoTrain"
 	})
