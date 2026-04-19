@@ -227,6 +227,18 @@ return function(Config)
 		return false
 	end
 
+	local function isObservedExhaustionSpendName(NameLower)
+		if type(NameLower) ~= "string" or NameLower == "" then
+			return false
+		end
+
+		return isObservedAliasName("Spend", NameLower)
+			or string.find(NameLower, "exhaust", 1, true) ~= nil
+			or string.find(NameLower, "fatigue", 1, true) ~= nil
+			or string.find(NameLower, "breath", 1, true) ~= nil
+			or string.find(NameLower, "eevee", 1, true) ~= nil
+	end
+
 	local ScopeCache = setmetatable({}, {__mode = "k"})
 	local InstanceKeyCache = setmetatable({}, {__mode = "k"})
 	local NextInstanceKeyId = 0
@@ -603,6 +615,10 @@ return function(Config)
 			or string.find(NameLower, "deplete", 1, true) ~= nil
 			or string.find(NameLower, "cooldown", 1, true) ~= nil
 			or string.find(NameLower, "locked", 1, true) ~= nil
+			or string.find(NameLower, "exhaust", 1, true) ~= nil
+			or string.find(NameLower, "fatigue", 1, true) ~= nil
+			or string.find(NameLower, "breath", 1, true) ~= nil
+			or string.find(NameLower, "eevee", 1, true) ~= nil
 	end
 
 	local function classifyName(Name)
@@ -2071,8 +2087,12 @@ return function(Config)
 		end
 
 		local NameLower = Candidate.NameLower or ""
+		local AllowObservedExhaustionSpend = GroupName == "Spend"
+			and isObservedExhaustionSpendName(NameLower)
+			and StaminaFeature.HasStrongPrimarySiblingHandle(Candidate)
 
-		if isRejectedSupportName(GroupName, NameLower) then
+		if isRejectedSupportName(GroupName, NameLower)
+			and not AllowObservedExhaustionSpend then
 			return false
 		end
 
@@ -2087,6 +2107,7 @@ return function(Config)
 
 		if GroupName == "Spend" then
 			return Candidate.TrustedAlias == true
+				or AllowObservedExhaustionSpend
 				or string.find(NameLower, "stamina", 1, true) ~= nil
 				or string.find(NameLower, "deplete", 1, true) ~= nil
 				or string.find(NameLower, "cost", 1, true) ~= nil
@@ -2122,11 +2143,17 @@ return function(Config)
 		return false
 	end
 
-	local DirectStatsFlagTruthLookup = createLookup(ExactAliases.Flags)
+	local DirectStatsFlagTruthLookup = createLookup(mergeAliases(
+		ExactAliases.Flags,
+		ObservedAliases.Flags
+	))
 
 	local DirectStatsFlagFalseLookup = createLookup({})
 
-	local DirectStatsSpendZeroLookup = createLookup(ExactAliases.Spend)
+	local DirectStatsSpendZeroLookup = createLookup(mergeAliases(
+		ExactAliases.Spend,
+		ObservedAliases.Spend
+	))
 
 	local DirectStatsFillToMaxLookup = createLookup({})
 
@@ -3008,10 +3035,16 @@ return function(Config)
 		local NameLower = Candidate.NameLower or ""
 		local FamilyRank = getActionFamilyRank(Profile, Candidate.Family)
 		local Score = 0
+		local AllowObservedExhaustionSpend = GroupName == "Spend"
+			and isObservedExhaustionSpendName(NameLower)
+			and StaminaFeature.HasStrongPrimarySiblingHandle(Candidate)
 
 		if NameLower == "issprinting"
 			or NameLower == "offensive"
-			or isRejectedSupportName(GroupName, NameLower)
+			or (
+				isRejectedSupportName(GroupName, NameLower)
+				and not AllowObservedExhaustionSpend
+			)
 			or FamilyRank == nil then
 			return nil
 		end
@@ -3062,6 +3095,8 @@ return function(Config)
 				or NameLower == "combatcooldown"
 				or NameLower == "attackcooldown" then
 				Score = Score + 4
+			elseif AllowObservedExhaustionSpend then
+				Score = Score + 5
 			end
 
 			if string.find(NameLower, "deplete", 1, true) ~= nil
@@ -3070,6 +3105,8 @@ return function(Config)
 				Score = Score + 3
 			elseif string.find(NameLower, "stamina", 1, true) ~= nil then
 				Score = Score + 2
+			elseif AllowObservedExhaustionSpend then
+				Score = Score + 3
 			end
 		end
 
@@ -3154,6 +3191,10 @@ return function(Config)
 							or string.find(NameLower, "combat", 1, true) ~= nil
 							or string.find(NameLower, "cost", 1, true) ~= nil
 							or string.find(NameLower, "cooldown", 1, true) ~= nil
+							or string.find(NameLower, "exhaust", 1, true) ~= nil
+							or string.find(NameLower, "fatigue", 1, true) ~= nil
+							or string.find(NameLower, "breath", 1, true) ~= nil
+							or string.find(NameLower, "eevee", 1, true) ~= nil
 					end
 
 					if Item.Score >= ScoreFloor
@@ -3233,12 +3274,16 @@ return function(Config)
 		end
 
 		local NameLower = Candidate.NameLower or ""
+		local AllowObservedExhaustionSpend = isObservedExhaustionSpendName(NameLower)
+			and StaminaFeature.HasStrongPrimarySiblingHandle(Candidate)
 
-		if isRejectedSupportName("Spend", NameLower) then
+		if isRejectedSupportName("Spend", NameLower)
+			and not AllowObservedExhaustionSpend then
 			return false
 		end
 
 		return Candidate.TrustedAlias == true
+			or AllowObservedExhaustionSpend
 			or string.find(NameLower, "stamina", 1, true) ~= nil
 			or string.find(NameLower, "sprint", 1, true) ~= nil
 			or string.find(NameLower, "run", 1, true) ~= nil
@@ -3779,7 +3824,15 @@ return function(Config)
 						SupportLogicCount = SupportLogicCount + 1
 					end
 				elseif Candidate.Group == "Spend" then
-					if Score >= 4 and not isRejectedSupportName("Spend", Candidate.NameLower or "") then
+					local NameLower = Candidate.NameLower or ""
+					local AllowObservedExhaustionSpend = isObservedExhaustionSpendName(NameLower)
+						and StaminaFeature.HasStrongPrimarySiblingHandle(Candidate)
+
+					if Score >= 4
+						and (
+							not isRejectedSupportName("Spend", NameLower)
+							or AllowObservedExhaustionSpend
+						) then
 						promoteCandidate(Candidate, "spend", Score, "capture_spend")
 						table.insert(PromotedLogic, {
 							Candidate = Candidate,
@@ -4426,7 +4479,7 @@ return function(Config)
 				end
 			end
 
-			for _, FlagName in ipairs(ExactAliases.Flags) do
+			for _, FlagName in ipairs(mergeAliases(ExactAliases.Flags, ObservedAliases.Flags)) do
 				local FlagObject = Stats:FindFirstChild(FlagName)
 
 				if FlagObject and FlagObject:IsA("ValueBase") then
@@ -4456,7 +4509,7 @@ return function(Config)
 				end
 			end
 
-			for _, SpendName in ipairs(ExactAliases.Spend) do
+			for _, SpendName in ipairs(mergeAliases(ExactAliases.Spend, ObservedAliases.Spend)) do
 				local SpendObject = Stats:FindFirstChild(SpendName)
 
 				if SpendObject and SpendObject:IsA("ValueBase") then
@@ -5908,6 +5961,7 @@ return function(Config)
 		local PreferredSpendEntries = getPreferredRuntimeSpendEntries(Profile)
 		local HasRemoteSuppression = StaminaFeature.RemoteRuntime.hasActiveSuppression(Profile)
 		local HasRemotePending = StaminaFeature.RemoteRuntime.hasPendingSupport(Profile)
+		local HasAuthoritativeSpendSupport = false
 
 		StaminaFeature.LastActionProfile = Profile
 
@@ -5974,6 +6028,25 @@ return function(Config)
 		end
 
 		if ActionPressure then
+			for _, Entry in ipairs(PreferredSpendEntries) do
+				local Candidate = Entry and Entry.Candidate
+				local IsAuthoritativeRuntimeSpend = Candidate
+					and isRuntimeSpendCandidate(Candidate)
+					and Candidate.SourceKind == "instance"
+					and (
+						isMainScriptStatsHandle(Candidate.Handle)
+						or (
+							isObservedExhaustionSpendName(Candidate.NameLower or "")
+							and StaminaFeature.HasStrongPrimarySiblingHandle(Candidate)
+						)
+					)
+
+				if IsAuthoritativeRuntimeSpend then
+					HasAuthoritativeSpendSupport = true
+					break
+				end
+			end
+
 			for _, Entry in ipairs(PreferredFlagEntries) do
 				local CurrentValue = readEntryValue(Entry)
 				local DesiredValue = CurrentValue ~= nil and getTruthyValue(CurrentValue) or nil
@@ -6010,10 +6083,14 @@ return function(Config)
 				return "logic_unverified", FailureReason, Profile, true
 			end
 
-			if #PreferredSpendEntries == 0 and not HasRemoteSuppression then
+			if not HasAuthoritativeSpendSupport and not HasRemoteSuppression then
 				local RemoteReason = HasRemotePending
 					and (string.lower(Profile) .. "_remote_pending")
-					or (string.lower(Profile) .. "_remote_unhandled")
+					or (
+						#PreferredSpendEntries > 0
+						and (string.lower(Profile) .. "_support_local_only")
+						or (string.lower(Profile) .. "_remote_unhandled")
+					)
 
 				StaminaFeature.RemoteRuntime.noteProfileFailure(Profile, RemoteReason, 1)
 				return "logic_unverified", RemoteReason, Profile, true
