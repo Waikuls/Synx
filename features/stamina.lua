@@ -2139,7 +2139,9 @@ return function(Config)
 		local BestCandidate = nil
 
 		for _, Entry in ipairs(Group) do
-			if Predicate(Entry.Candidate) then
+			local Success, Matches = pcall(Predicate, Entry.Candidate)
+
+			if Success and Matches then
 				local Candidate = Entry.Candidate
 
 				if BestCandidate == nil
@@ -2157,12 +2159,46 @@ return function(Config)
 			return "none", nil
 		end
 
-		return string.format(
-			"%s[%s/%s]",
-			getCandidateConsoleLabel(BestCandidate),
-			tostring(BestCandidate.Category or "unknown"),
-			tostring(BestCandidate.SourceKind or "unknown")
-		), BestCandidate
+		local LabelSuccess, Label = pcall(function()
+			return string.format(
+				"%s[%s/%s]",
+				getCandidateConsoleLabel(BestCandidate),
+				tostring(BestCandidate.Category or "unknown"),
+				tostring(BestCandidate.SourceKind or "unknown")
+			)
+		end)
+
+		return LabelSuccess and Label or "unknown[invalid/invalid]", BestCandidate
+	end
+
+	local function getPreferredSupportLabel(GroupName, Profile)
+		local Entries
+
+		if GroupName == "Flags" then
+			Entries = getPreferredRuntimeFlagEntries(Profile)
+		elseif GroupName == "Spend" then
+			Entries = getPreferredRuntimeSpendEntries(Profile)
+		else
+			return "none", nil
+		end
+
+		local Entry = Entries and Entries[1]
+		local Candidate = Entry and Entry.Candidate
+
+		if not Candidate then
+			return "none", nil
+		end
+
+		local LabelSuccess, Label = pcall(function()
+			return string.format(
+				"%s[%s/%s]",
+				getCandidateConsoleLabel(Candidate),
+				tostring(Candidate.Category or "unknown"),
+				tostring(Candidate.SourceKind or "unknown")
+			)
+		end)
+
+		return LabelSuccess and Label or "unknown[invalid/invalid]", Candidate
 	end
 
 	local function getLastCaptureLabel()
@@ -2199,17 +2235,18 @@ return function(Config)
 
 	local function buildStatusConsoleLine()
 		local Snapshot = StaminaFeature.GetDiagnosticSnapshotInternal()
+		local ActiveProfile = tostring(StaminaFeature.LastActionProfile or "Free")
 		local TrustedPrimaryLabel = getHandleCandidateLabel("Current", isLogicLocalCandidate)
 		local RejectedPrimaryLabel, RejectedPrimaryCandidate = getHandleCandidateLabel("Current", isRejectedPrimaryCandidate)
-		local FlagLabel = getHandleCandidateLabel("Flags", isRuntimeFlagCandidate)
-		local SpendLabel = getHandleCandidateLabel("Spend", isRuntimeSpendCandidate)
+		local FlagLabel = getPreferredSupportLabel("Flags", ActiveProfile)
+		local SpendLabel = getPreferredSupportLabel("Spend", ActiveProfile)
 		local RejectedReason = RejectedPrimaryCandidate and getRejectedPrimaryReason(RejectedPrimaryCandidate) or "none"
 
 		local BaseLine = string.format(
 			"State=%s Reason=%s Profile=%s Logic C=%d M=%d Display C=%d M=%d Handles C=%d M=%d F=%d S=%d TrustedPrimary=%s RejectedPrimary=%s(%s) Flag=%s Spend=%s",
 			tostring(StaminaFeature.VerificationState or "idle"),
 			tostring(StaminaFeature.LastFailureReason or "none"),
-			tostring(StaminaFeature.LastActionProfile or "Free"),
+			ActiveProfile,
 			Snapshot.LogicCurrentCount,
 			Snapshot.LogicMaxCount,
 			Snapshot.DisplayCurrentCount,
@@ -3619,12 +3656,35 @@ return function(Config)
 		clearHandleSignals()
 
 		local Connected = {}
-		local function onTrackedHandleChanged()
+		local function tryRepairTrackedEntry(Entry)
+			if not StaminaFeature.Enabled
+				or not Entry
+				or not isLogicLocalCandidate(Entry.Candidate)
+				or not isCanonicalStatsCurrentCandidate(Entry.Candidate) then
+				return false
+			end
+
+			local Target = getCurrentTargetForEntry(Entry)
+			local CurrentValue = toNumber(readEntryValue(Entry))
+
+			if not hasCanonicalTargetDrop(Target, CurrentValue) then
+				return false
+			end
+
+			return writeEntryValue(Entry, Target)
+		end
+
+		local function onTrackedHandleChanged(Entry)
 			if not shouldRunRuntime() then
 				return
 			end
 
 			if StaminaFeature.Enabled and not StaminaFeature.StepBusy then
+				if tryRepairTrackedEntry(Entry) then
+					scheduleStep()
+					return
+				end
+
 				StaminaFeature:Step(false, false)
 				return
 			end
@@ -3639,7 +3699,9 @@ return function(Config)
 
 			if Entry.Handle.Kind == "value" then
 				local Success, Connection = pcall(function()
-					return Entry.Handle.Instance:GetPropertyChangedSignal("Value"):Connect(onTrackedHandleChanged)
+					return Entry.Handle.Instance:GetPropertyChangedSignal("Value"):Connect(function()
+						onTrackedHandleChanged(Entry)
+					end)
 				end)
 
 				if Success and Connection then
@@ -3652,7 +3714,9 @@ return function(Config)
 
 			if Entry.Handle.Kind == "attribute" then
 				local Success, Connection = pcall(function()
-					return Entry.Handle.Instance:GetAttributeChangedSignal(Entry.Handle.Attribute):Connect(onTrackedHandleChanged)
+					return Entry.Handle.Instance:GetAttributeChangedSignal(Entry.Handle.Attribute):Connect(function()
+						onTrackedHandleChanged(Entry)
+					end)
 				end)
 
 				if Success and Connection then
@@ -5210,13 +5274,31 @@ return function(Config)
 		return Delta > 0.001
 	end
 
+	local function hasCanonicalProfileDrop(Profile)
+		for _, Entry in ipairs(StaminaFeature.Handles.Current) do
+			if isLogicLocalCandidate(Entry.Candidate)
+				and isCanonicalStatsCurrentCandidate(Entry.Candidate)
+				and candidateMatchesActionProfile(Entry.Candidate, Profile) then
+				local Target = getCurrentTargetForEntry(Entry)
+				local CurrentValue = toNumber(readEntryValue(Entry))
+
+				if hasCanonicalTargetDrop(Target, CurrentValue) then
+					return true
+				end
+			end
+		end
+
+		return false
+	end
+
 	local function evaluateRuntimeVerification(
 		AppliedLogic,
 		AppliedDisplay,
 		Profile,
 		ActionPressure,
 		ActionHintReason,
-		Metrics
+		Metrics,
+		HadPreApplyDrop
 	)
 		local DropDetected = false
 		local FailureReason = nil
@@ -5272,6 +5354,10 @@ return function(Config)
 
 		if not AppliedLogic then
 			return "logic_unverified", "logic_not_applied", Profile, true
+		end
+
+		if ActionPressure and HadPreApplyDrop then
+			return "logic_ineffective", string.lower(Profile) .. "_still_drains", Profile, true
 		end
 
 		for _, Entry in ipairs(StaminaFeature.Handles.Current) do
@@ -5825,6 +5911,7 @@ return function(Config)
 			local Metrics = getCharacterMetrics()
 			local RecentExternalPressure = hasRecentExternalPressure()
 			local ActionProfile, ActionPressure, ActionHintReason = resolveActionProfile(Metrics, RecentExternalPressure)
+			local HadPreApplyDrop = ActionPressure and hasCanonicalProfileDrop(ActionProfile)
 			self.LastActionProfile = ActionProfile
 			applyFlags(ActionProfile)
 			applySpend(ActionProfile)
@@ -5837,7 +5924,8 @@ return function(Config)
 				ActionProfile,
 				ActionPressure,
 				ActionHintReason,
-				Metrics
+				Metrics,
+				HadPreApplyDrop
 			)
 
 			setVerificationState(VerificationState, FailureReason, ActionProfile)
