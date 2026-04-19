@@ -75,8 +75,8 @@ end
 local function fetchLatestEntry()
 	local Seed = getRemoteSeed()
 	local Urls = {
-		string.format("https://raw.githubusercontent.com/Waikuls/Synx/main/Fatality/main.lua?v=%s", Seed),
-		string.format("https://cdn.jsdelivr.net/gh/Waikuls/Synx@main/Fatality/main.lua?v=%s", Seed)
+		string.format("https://cdn.jsdelivr.net/gh/Waikuls/Synx@main/Fatality/main.lua?v=%s", Seed),
+		string.format("https://raw.githubusercontent.com/Waikuls/Synx/main/Fatality/main.lua?v=%s", Seed)
 	}
 	local Errors = {}
 

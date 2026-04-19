@@ -59,7 +59,7 @@ return function(Config)
 	})
 
 	AutoTrain:AddToggle({
-		Name = "Auto train",
+		Name = "Enabled",
 		Flag = "AutoTrain"
 	})
 end
