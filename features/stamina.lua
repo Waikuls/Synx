@@ -979,6 +979,69 @@ return function(Config)
 		return false
 	end
 
+	local function isStrongSupportTable(TableValue)
+		if type(TableValue) ~= "table" then
+			return false
+		end
+
+		local ExactHits = 0
+		local NestedHits = 0
+		local Scanned = 0
+
+		local function hasStrongSupportKeys(InnerTable)
+			if type(InnerTable) ~= "table" then
+				return false
+			end
+
+			local Hits = 0
+			local InnerScanned = 0
+
+			for InnerKey in pairs(InnerTable) do
+				InnerScanned = InnerScanned + 1
+
+				if type(InnerKey) == "string" then
+					local InnerKeyLower = string.lower(InnerKey)
+
+					if isTrustedAliasName("Spend", InnerKeyLower)
+						or isStatOnlyAliasName("Current", InnerKeyLower) then
+						Hits = Hits + 1
+					end
+				end
+
+				if InnerScanned >= 24 or Hits >= 2 then
+					break
+				end
+			end
+
+			return Hits >= 2
+		end
+
+		for Key, Value in pairs(TableValue) do
+			Scanned = Scanned + 1
+
+			if type(Key) == "string" then
+				local KeyLower = string.lower(Key)
+
+				if isTrustedAliasName("Spend", KeyLower)
+					or isStatOnlyAliasName("Current", KeyLower) then
+					ExactHits = ExactHits + 1
+				end
+			end
+
+			if type(Value) == "table" and hasStrongSupportKeys(Value) then
+				NestedHits = NestedHits + 1
+			end
+
+			if Scanned >= 32 or ExactHits >= 2 or NestedHits >= 2 then
+				break
+			end
+		end
+
+		return ExactHits >= 2
+			or NestedHits >= 2
+			or (ExactHits >= 1 and NestedHits >= 1)
+	end
+
 	local function getInstanceConfidence(Instance)
 		local Character = LocalPlayer.Character
 		local Entity = findEntity()
@@ -2405,9 +2468,30 @@ return function(Config)
 	end
 
 	local function hasStrongPrimarySiblingHandle(Candidate)
-		if not Candidate or not Candidate.Handle then
+		if not Candidate then
 			return false
 		end
+
+		local CandidateHandle = Candidate.Handle
+		local CandidateNameLower = Candidate.NameLower or ""
+		local MainScript = findMainScript()
+		local CandidateInMainScript = CandidateHandle
+			and CandidateHandle.Instance
+			and MainScript
+			and isInstanceInHierarchy(CandidateHandle.Instance, MainScript)
+		local CandidateDetachedSupport = Candidate.SourceKind ~= "instance"
+			and (Candidate.Confidence or 0) >= 130
+			and (
+				Candidate.TrustedAlias == true
+				or containsFlag(CandidateNameLower)
+				or containsSpend(CandidateNameLower)
+				or string.find(CandidateNameLower, "stamina", 1, true) ~= nil
+				or string.find(CandidateNameLower, "dash", 1, true) ~= nil
+				or string.find(CandidateNameLower, "sprint", 1, true) ~= nil
+				or string.find(CandidateNameLower, "run", 1, true) ~= nil
+				or string.find(CandidateNameLower, "attack", 1, true) ~= nil
+				or string.find(CandidateNameLower, "combat", 1, true) ~= nil
+			)
 
 		for _, GroupName in ipairs({"Current", "Max"}) do
 			for _, Entry in ipairs(StaminaFeature.Handles[GroupName]) do
@@ -2416,9 +2500,16 @@ return function(Config)
 				if PrimaryCandidate
 					and PrimaryCandidate ~= Candidate
 					and isLogicLocalCandidate(PrimaryCandidate)
-					and isStrongMainScriptStatsPrimaryAlias(PrimaryCandidate)
-					and handlesShareScope(Candidate.Handle, PrimaryCandidate.Handle) then
-					return true
+					and isStrongMainScriptStatsPrimaryAlias(PrimaryCandidate) then
+					if CandidateHandle
+						and PrimaryCandidate.Handle
+						and handlesShareScope(CandidateHandle, PrimaryCandidate.Handle) then
+						return true
+					end
+
+					if CandidateInMainScript or CandidateDetachedSupport then
+						return true
+					end
 				end
 			end
 		end
@@ -3588,6 +3679,10 @@ return function(Config)
 			return false
 		end
 
+		local function hasRecordedSupport()
+			return next(EntryMaps.Flags) ~= nil or next(EntryMaps.Spend) ~= nil
+		end
+
 		local function recordHandle(GroupName, Name, NameLower, Handle, Value, Confidence, SourceKind)
 			if not GroupName or not isUsefulValue(GroupName, Value) then
 				return
@@ -3633,6 +3728,73 @@ return function(Config)
 			}
 		end
 
+		local function seedCanonicalStatsHandles()
+			local MainScript = findMainScript()
+			local Stats = MainScript and MainScript:FindFirstChild("Stats")
+
+			if not Stats then
+				return
+			end
+
+			local CurrentObject = Stats:FindFirstChild("Stamina")
+
+			if CurrentObject and CurrentObject:IsA("ValueBase") then
+				recordHandle(
+					"Current",
+					CurrentObject.Name,
+					"stamina",
+					createValueHandle(CurrentObject),
+					CurrentObject.Value,
+					150,
+					"instance"
+				)
+			end
+
+			local CurrentAttributeValue = Stats:GetAttribute("Stamina")
+
+			if CurrentAttributeValue ~= nil then
+				recordHandle(
+					"Current",
+					"Stamina",
+					"stamina",
+					createAttributeHandle(Stats, "Stamina"),
+					CurrentAttributeValue,
+					148,
+					"instance"
+				)
+			end
+
+			for _, MaxName in ipairs(ExactAliases.Max) do
+				local MaxObject = Stats:FindFirstChild(MaxName)
+
+				if MaxObject and MaxObject:IsA("ValueBase") then
+					recordHandle(
+						"Max",
+						MaxObject.Name,
+						string.lower(MaxObject.Name),
+						createValueHandle(MaxObject),
+						MaxObject.Value,
+						148,
+						"instance"
+					)
+				end
+
+				local MaxAttributeValue = Stats:GetAttribute(MaxName)
+
+				if MaxAttributeValue ~= nil then
+					recordHandle(
+						"Max",
+						MaxName,
+						string.lower(MaxName),
+						createAttributeHandle(Stats, MaxName),
+						MaxAttributeValue,
+						146,
+						"instance"
+					)
+				end
+			end
+		end
+
 		local function visitInstance(Instance)
 			if not isLocalRelatedInstance(Instance) then
 				return
@@ -3658,7 +3820,11 @@ return function(Config)
 		end
 
 		local function visitTable(TableValue)
-			if not tableBelongsToLocalPlayer(TableValue) then
+			local BelongsToLocalPlayer = tableBelongsToLocalPlayer(TableValue)
+			local HasStrongSupportShape = isStrongSupportTable(TableValue)
+			local TableConfidence = HasStrongSupportShape and 138 or 15
+
+			if not BelongsToLocalPlayer and not HasStrongSupportShape then
 				return
 			end
 
@@ -3668,7 +3834,15 @@ return function(Config)
 						local GroupName, NameLower = classifyName(Key)
 
 						if GroupName then
-							recordHandle(GroupName, Key, NameLower, createTableHandle(TableValue, Key), Value, 15, "table")
+							recordHandle(
+								GroupName,
+								Key,
+								NameLower,
+								createTableHandle(TableValue, Key),
+								Value,
+								TableConfidence,
+								"table"
+							)
 						end
 					end
 				end
@@ -3682,6 +3856,10 @@ return function(Config)
 		local function shouldRecurseEnvTable(KeyName, TableValue, Depth)
 			if type(TableValue) ~= "table" or Depth >= 2 then
 				return false
+			end
+
+			if isStrongSupportTable(TableValue) then
+				return true
 			end
 
 			if tableBelongsToLocalPlayer(TableValue) then
@@ -3789,6 +3967,8 @@ return function(Config)
 			end
 		end
 
+		local visitFunctionUpvalues
+
 		local function visitScriptEnvironments()
 			if type(getsenv) ~= "function" then
 				return
@@ -3848,6 +4028,65 @@ return function(Config)
 			end
 		end
 
+		local function visitLoadedMainScriptModules()
+			local MainScript = findMainScript()
+
+			if not MainScript or type(require) ~= "function" then
+				return
+			end
+
+			local LoadedModules = {}
+
+			if type(getloadedmodules) == "function" then
+				local Success, Modules = pcall(getloadedmodules)
+
+				if Success and type(Modules) == "table" then
+					for _, Module in ipairs(Modules) do
+						if typeof(Module) == "Instance"
+							and Module:IsA("ModuleScript")
+							and isInstanceInHierarchy(Module, MainScript) then
+							LoadedModules[Module] = true
+						end
+					end
+				end
+			end
+
+			for _, Descendant in ipairs(MainScript:GetDescendants()) do
+				if Descendant:IsA("ModuleScript") then
+					local NameLower = string.lower(Descendant.Name)
+					local AllowDirectRequire = NameLower == "var001"
+
+					if LoadedModules[Descendant] or AllowDirectRequire then
+						local Success, Result = pcall(require, Descendant)
+
+						if Success then
+							local ScopeTextLower = string.lower(table.concat({
+								tostring(Descendant.Name or ""),
+								tostring(Descendant.Parent and Descendant.Parent.Name or ""),
+								tostring(MainScript.Name or "")
+							}, " "))
+
+							if type(Result) == "table" then
+								if tableBelongsToLocalPlayer(Result)
+									or isStrongSupportTable(Result)
+									or isInterestingLogicName(ScopeTextLower) then
+									visitEnvTable(
+										Result,
+										AllowDirectRequire and 155 or 145,
+										0,
+										{},
+										ScopeTextLower
+									)
+								end
+							elseif type(Result) == "function" then
+								visitFunctionUpvalues(Result, AllowDirectRequire and 150 or 142, {})
+							end
+						end
+					end
+				end
+			end
+		end
+
 		local function enumerateFunctionUpvalues(FunctionValue)
 			local Entries = {}
 
@@ -3892,7 +4131,7 @@ return function(Config)
 			return Entries
 		end
 
-		local function visitFunctionUpvalues(FunctionValue, Confidence, VisitedTables)
+		visitFunctionUpvalues = function(FunctionValue, Confidence, VisitedTables)
 			local Upvalues = enumerateFunctionUpvalues(FunctionValue)
 			local Info = getFunctionInfo(FunctionValue)
 			local FunctionScopeTextLower = string.lower(table.concat({
@@ -3922,6 +4161,7 @@ return function(Config)
 					and (
 						tableBelongsToLocalPlayer(UpvalueValue)
 						or isInterestingLogicName(string.lower(tostring(UpvalueName)))
+						or isStrongSupportTable(UpvalueValue)
 					) then
 					visitEnvTable(
 						UpvalueValue,
@@ -3965,6 +4205,30 @@ return function(Config)
 							visitFunctionUpvalues(Object, Confidence, VisitedTables)
 						end
 					end
+				end
+			end
+		end
+
+		local function visitGcTables()
+			if type(getgc) ~= "function" then
+				return
+			end
+
+			local Success, Objects = pcall(function()
+				return getgc(true)
+			end)
+
+			if not Success or type(Objects) ~= "table" then
+				Success, Objects = pcall(getgc)
+			end
+
+			if not Success or type(Objects) ~= "table" then
+				return
+			end
+
+			for _, Object in ipairs(Objects) do
+				if type(Object) == "table" then
+					visitTable(Object)
 				end
 			end
 		end
@@ -4398,6 +4662,7 @@ return function(Config)
 			end
 		end
 
+		seedCanonicalStatsHandles()
 		visitRoots(buildSearchRoots(false))
 
 		if ForceRefresh and not hasRecordedPrimary() then
@@ -4413,36 +4678,27 @@ return function(Config)
 			visitScriptEnvironments()
 		end
 
-		if not hasRecordedLogicPrimary() or RefreshSupportSearch then
+		if ForceRefresh
+			or RefreshSupportSearch
+			or not hasRecordedSupport() then
+			visitLoadedMainScriptModules()
+		end
+
+		if not hasRecordedLogicPrimary() or RefreshSupportSearch or not hasRecordedSupport() then
 			visitSupportContexts()
 		end
 
-		if IncludeGc or ((ForceRefresh or StaminaFeature.DebugEnabled) and not hasRecordedLogicPrimary()) then
+		if IncludeGc
+			or ((ForceRefresh or StaminaFeature.DebugEnabled) and (not hasRecordedLogicPrimary() or not hasRecordedSupport())) then
 			visitGcFunctions()
 		end
 
 		bootstrapSupportedStatsPrimaries()
 		bootstrapHiddenRuntimePrimaries()
 
-		if IncludeGc
-			and type(getgc) == "function"
+		if (IncludeGc or ((ForceRefresh or RefreshSupportSearch) and not hasRecordedSupport()))
 			and (ForceRefresh or (Now - StaminaFeature.LastGcResolveAt) >= StaminaFeature.GcResolveInterval) then
-			local Success, Objects = pcall(function()
-				return getgc(true)
-			end)
-
-			if not Success or type(Objects) ~= "table" then
-				Success, Objects = pcall(getgc)
-			end
-
-			if Success and type(Objects) == "table" then
-				for _, Object in ipairs(Objects) do
-					if type(Object) == "table" then
-						visitTable(Object)
-					end
-				end
-			end
-
+			visitGcTables()
 			StaminaFeature.LastGcResolveAt = Now
 		end
 
