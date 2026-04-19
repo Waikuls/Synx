@@ -2790,6 +2790,8 @@ return function(Config)
 		return LabelSuccess and Label or "unknown[invalid/invalid]", BestCandidate
 	end
 
+	local collectAuthoritativeRuntimeSupportEntries
+
 	local function getPreferredSupportLabel(GroupName, Profile)
 		local Entries
 
@@ -2799,6 +2801,12 @@ return function(Config)
 			Entries = getPreferredRuntimeSpendEntries(Profile)
 		else
 			return "none", nil
+		end
+
+		local AuthoritativeEntries = collectAuthoritativeRuntimeSupportEntries(GroupName, Profile, Entries)
+
+		if #AuthoritativeEntries > 0 then
+			Entries = AuthoritativeEntries
 		end
 
 		local Entry = Entries and Entries[1]
@@ -3639,6 +3647,30 @@ return function(Config)
 		end
 
 		return false
+	end
+
+	collectAuthoritativeRuntimeSupportEntries = function(GroupName, Profile, Entries)
+		local PreferredEntries = Entries
+
+		if PreferredEntries == nil then
+			if GroupName == "Flags" then
+				PreferredEntries = getPreferredRuntimeFlagEntries(Profile)
+			elseif GroupName == "Spend" then
+				PreferredEntries = getPreferredRuntimeSpendEntries(Profile)
+			else
+				return {}
+			end
+		end
+
+		local AuthoritativeEntries = {}
+
+		for _, Entry in ipairs(PreferredEntries) do
+			if isAuthoritativeRuntimeSupportCandidate(Entry.Candidate, GroupName, Profile) then
+				table.insert(AuthoritativeEntries, Entry)
+			end
+		end
+
+		return AuthoritativeEntries
 	end
 
 	local function shouldMirrorDisplayCandidate(Candidate)
@@ -6033,16 +6065,20 @@ return function(Config)
 		return getPreferredCandidateTarget(Entry.Candidate, "Max", Entry.Family, readEntryValue(Entry))
 	end
 
-	local function rememberOriginalFlags(Profile)
-		for _, Entry in ipairs(getPreferredRuntimeFlagEntries(Profile)) do
+	local function rememberOriginalFlags(Profile, Entries)
+		local PreferredEntries = Entries or collectAuthoritativeRuntimeSupportEntries("Flags", Profile)
+
+		for _, Entry in ipairs(PreferredEntries) do
 			if StaminaFeature.OriginalFlagValues[Entry.Key] == nil then
 				StaminaFeature.OriginalFlagValues[Entry.Key] = readEntryValue(Entry)
 			end
 		end
 	end
 
-	local function rememberOriginalSpends(Profile)
-		for _, Entry in ipairs(getPreferredRuntimeSpendEntries(Profile)) do
+	local function rememberOriginalSpends(Profile, Entries)
+		local PreferredEntries = Entries or collectAuthoritativeRuntimeSupportEntries("Spend", Profile)
+
+		for _, Entry in ipairs(PreferredEntries) do
 			if StaminaFeature.OriginalSpendValues[Entry.Key] == nil then
 				StaminaFeature.OriginalSpendValues[Entry.Key] = readEntryValue(Entry)
 			end
@@ -6051,10 +6087,15 @@ return function(Config)
 
 	local function applyFlags(Profile)
 		local Applied = false
+		local PreferredEntries = collectAuthoritativeRuntimeSupportEntries("Flags", Profile)
 
-		rememberOriginalFlags(Profile)
+		if #PreferredEntries == 0 then
+			return false
+		end
 
-		for _, Entry in ipairs(getPreferredRuntimeFlagEntries(Profile)) do
+		rememberOriginalFlags(Profile, PreferredEntries)
+
+		for _, Entry in ipairs(PreferredEntries) do
 			local CurrentValue = LocalUtils.getRuntimeObservedValue(Entry)
 			local CanRewrite = supportsSafeRuntimeRewrite("Flags", CurrentValue, Entry.Candidate)
 			local DesiredValue = CurrentValue ~= nil and getTruthyValue(CurrentValue) or nil
@@ -6082,10 +6123,15 @@ return function(Config)
 
 	local function applySpend(Profile)
 		local Applied = false
+		local PreferredEntries = collectAuthoritativeRuntimeSupportEntries("Spend", Profile)
 
-		rememberOriginalSpends(Profile)
+		if #PreferredEntries == 0 then
+			return false
+		end
 
-		for _, Entry in ipairs(getPreferredRuntimeSpendEntries(Profile)) do
+		rememberOriginalSpends(Profile, PreferredEntries)
+
+		for _, Entry in ipairs(PreferredEntries) do
 			local CurrentValue = LocalUtils.getRuntimeObservedValue(Entry)
 			local CanRewrite = supportsSafeRuntimeRewrite("Spend", CurrentValue, Entry.Candidate)
 			local DesiredValue = CurrentValue ~= nil and getZeroLikeValue(CurrentValue) or nil
@@ -6707,11 +6753,19 @@ return function(Config)
 			return nil, false
 		end
 
-		if Candidate.Group == "Flags" and isRuntimeFlagCandidate(Candidate) then
+		local ActiveProfile = CaptureProfiles[StaminaFeature.LastActionProfile]
+			and StaminaFeature.LastActionProfile
+			or "Free"
+
+		if Candidate.Group == "Flags"
+			and isRuntimeFlagCandidate(Candidate)
+			and isAuthoritativeRuntimeSupportCandidate(Candidate, "Flags", ActiveProfile) then
 			return getTruthyValue(IncomingValue), true
 		end
 
-		if Candidate.Group == "Spend" and isRuntimeSpendCandidate(Candidate) then
+		if Candidate.Group == "Spend"
+			and isRuntimeSpendCandidate(Candidate)
+			and isAuthoritativeRuntimeSupportCandidate(Candidate, "Spend", ActiveProfile) then
 			return getZeroLikeValue(IncomingValue), true
 		end
 
