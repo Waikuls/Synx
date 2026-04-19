@@ -3677,36 +3677,13 @@ return function(Config)
 		clearHandleSignals()
 
 		local Connected = {}
-		local function tryRepairTrackedEntry(Entry)
-			if not StaminaFeature.Enabled
-				or not Entry
-				or not isLogicLocalCandidate(Entry.Candidate)
-				or not isCanonicalStatsCurrentCandidate(Entry.Candidate) then
-				return false
-			end
-
-			local Target = getCurrentTargetForEntry(Entry)
-			local CurrentValue = toNumber(readEntryValue(Entry))
-
-			if not hasCanonicalTargetDrop(Target, CurrentValue) then
-				return false
-			end
-
-			return writeEntryValue(Entry, Target)
-		end
 
 		local function onTrackedHandleChanged(Entry)
 			if not shouldRunRuntime() then
 				return
 			end
 
-			if StaminaFeature.Enabled and not StaminaFeature.StepBusy then
-				if tryRepairTrackedEntry(Entry) then
-					scheduleStep()
-					return
-				end
-
-				StaminaFeature:Step(false, false)
+			if Entry == nil then
 				return
 			end
 
