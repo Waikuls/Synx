@@ -25,6 +25,59 @@ return function(Config)
 				PressAction = "PressKey",
 				PressKeyField = "Key",
 				LeaveAction = "Leave"
+			},
+			Invoke = function(ActionName, Key)
+				local TrainingSpots = workspace:FindFirstChild("TrainingSpots") or workspace:WaitForChild("TrainingSpots", 1)
+
+				if not TrainingSpots then
+					return false
+				end
+
+				local BikeSpot = TrainingSpots:FindFirstChild("Bike") or TrainingSpots:WaitForChild("Bike", 1)
+
+				if not BikeSpot then
+					return false
+				end
+
+				local Radio = BikeSpot:FindFirstChild("Radio") or BikeSpot:WaitForChild("Radio", 1)
+
+				if not Radio then
+					return false
+				end
+
+				local Remote = Radio:FindFirstChild("Remote") or Radio:WaitForChild("Remote", 1)
+
+				if typeof(Remote) ~= "Instance"
+					or not Remote.Parent
+					or (
+						not Remote:IsA("RemoteEvent")
+						and not Remote:IsA("RemoteFunction")
+						and not Remote:IsA("UnreliableRemoteEvent")
+					) then
+					return false
+				end
+
+				if ActionName == "start" then
+					Remote:FireServer("Start", {
+						Macro = false
+					})
+					return true
+				end
+
+				if ActionName == "press"
+					and (Key == "W" or Key == "A" or Key == "S" or Key == "D") then
+					Remote:FireServer("PressKey", {
+						Key = Key
+					})
+					return true
+				end
+
+				if ActionName == "leave" then
+					Remote:FireServer("Leave")
+					return true
+				end
+
+				return false
 			}
 		},
 		["Squat machine"] = {
@@ -91,6 +144,7 @@ return function(Config)
 		BlindMashCooldown = 0.55,
 		DesiredStandDistance = 4,
 		VerticalOffset = 2.5,
+		ExplicitStartRange = 18,
 		ObservedContext = {
 			Name = nil,
 			Key = nil,
@@ -1423,6 +1477,52 @@ return function(Config)
 		return nil
 	end
 
+	local function getExplicitRemotePosition(SelectedType)
+		local RemoteConfig = getExplicitRemoteConfig(SelectedType)
+		local Remote = RemoteConfig and resolveRemotePath(RemoteConfig.Path) or nil
+
+		if not Remote or not Remote.Parent then
+			return nil
+		end
+
+		local Current = Remote.Parent
+
+		while Current do
+			if Current:IsA("BasePart") then
+				return Current.Position
+			end
+
+			if Current:IsA("Model") then
+				local Part = Current.PrimaryPart or Current:FindFirstChildWhichIsA("BasePart", true)
+
+				if Part then
+					return Part.Position
+				end
+			end
+
+			Current = Current.Parent
+		end
+
+		return nil
+	end
+
+	local function isExplicitStartReady(SelectedType)
+		local StartButton = findVisibleStartButton()
+
+		if StartButton then
+			return true
+		end
+
+		local RootPart = getRootPart()
+		local RemotePosition = getExplicitRemotePosition(SelectedType)
+
+		if RootPart and RemotePosition then
+			return (RootPart.Position - RemotePosition).Magnitude <= AutoTrainFeature.ExplicitStartRange
+		end
+
+		return false
+	end
+
 	local function buildExplicitRemoteArguments(RemoteConfig, ActionName, Key)
 		if type(RemoteConfig) ~= "table" or type(ActionName) ~= "string" then
 			return nil
@@ -1455,13 +1555,23 @@ return function(Config)
 
 	function AutoTrainFeature:InvokeExplicitRemote(ActionName, Key, Now)
 		local RemoteConfig = getExplicitRemoteConfig(self.SelectedType)
+		local MachineDefinition = getMachineDefinition(self.SelectedType)
 
-		if not RemoteConfig then
+		if not RemoteConfig and not (type(MachineDefinition) == "table" and type(MachineDefinition.Invoke) == "function") then
 			return false
 		end
 
 		if (Now or os.clock()) - self.LastRemoteReplayAt < self.RemoteReplayCooldown then
 			return false
+		end
+
+		if type(MachineDefinition) == "table" and type(MachineDefinition.Invoke) == "function" then
+			local Success, Result = pcall(MachineDefinition.Invoke, ActionName, Key)
+
+			if Success and Result then
+				self.LastRemoteReplayAt = os.clock()
+				return true
+			end
 		end
 
 		local Remote = resolveRemotePath(RemoteConfig.Path)
@@ -1843,6 +1953,13 @@ return function(Config)
 		if TrainingState.IsTraining then
 			self:HandleMinigame(Now)
 			return
+		end
+
+		if hasExplicitRemoteSupport(self.SelectedType) and isExplicitStartReady(self.SelectedType) then
+			if self:TryDirectStartRemote(Now) then
+				self.LastButtonClickAt = Now
+				return
+			end
 		end
 
 		if Now - self.LastInteractionAt < self.InteractionCooldown then
