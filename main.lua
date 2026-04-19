@@ -10,6 +10,8 @@ local function getCompiler()
 	return nil
 end
 
+local RemoteRef = "edb9b16"
+
 local function canReadLocalFile(LocalPath)
 	if type(readfile) ~= "function" then
 		return false
@@ -75,8 +77,8 @@ end
 local function fetchLatestEntry()
 	local Seed = getRemoteSeed()
 	local Urls = {
-		string.format("https://raw.githubusercontent.com/Waikuls/Synx/main/Fatality/main.lua?v=%s", Seed),
-		string.format("https://cdn.jsdelivr.net/gh/Waikuls/Synx@main/Fatality/main.lua?v=%s", Seed)
+		string.format("https://raw.githubusercontent.com/Waikuls/Synx/%s/Fatality/main.lua?v=%s", RemoteRef, Seed),
+		string.format("https://cdn.jsdelivr.net/gh/Waikuls/Synx@%s/Fatality/main.lua?v=%s", RemoteRef, Seed)
 	}
 	local Errors = {}
 
