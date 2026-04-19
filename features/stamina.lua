@@ -5,8 +5,6 @@ return function(Config)
 	local RunService = game:GetService("RunService")
 	local LocalPlayer = Players.LocalPlayer
 	local Notification = Config and Config.Notification
-	local GlobalEnvironment = type(getgenv) == "function" and getgenv() or nil
-
 	local StaminaFeature = {
 		Enabled = false,
 		DebugEnabled = false,
@@ -14,28 +12,11 @@ return function(Config)
 		CapturedLines = {},
 		Connections = {},
 		ValueConnections = {},
-		HookStatus = "Not installed",
+		HookStatus = "Disabled for stability",
 	}
-
-	local HookState = nil
-
-	if GlobalEnvironment then
-		GlobalEnvironment.__KelvStaminaHookState = GlobalEnvironment.__KelvStaminaHookState or {
-			NamecallInstalled = false,
-			NewIndexInstalled = false,
-		}
-		HookState = GlobalEnvironment.__KelvStaminaHookState
-	end
 
 	local function setHookStatus(Message)
 		StaminaFeature.HookStatus = Message
-	end
-
-	local function canUseHooking()
-		return type(getrawmetatable) == "function"
-			and type(setreadonly) == "function"
-			and type(newcclosure) == "function"
-			and type(getnamecallmethod) == "function"
 	end
 
 	local function findMainScript()
@@ -148,119 +129,13 @@ return function(Config)
 	end
 
 	local function hookRemotes()
-		if HookState and HookState.NamecallInstalled then
-			setHookStatus("Namecall hook ready")
-			return true
-		end
-
-		if not canUseHooking() then
-			setHookStatus("Hooks skipped: executor missing metatable APIs")
-			return false
-		end
-
-		local mt = getrawmetatable(game)
-		local oldNamecall = mt and mt.__namecall
-
-		if type(oldNamecall) ~= "function" then
-			setHookStatus("Hooks skipped: __namecall is not callable")
-			warn(string.format("[KELV] Inf stamina namecall hook skipped because __namecall is %s", typeof(oldNamecall)))
-			return false
-		end
-
-		setreadonly(mt, false)
-		mt.__namecall = newcclosure(function(self, ...)
-			local method = getnamecallmethod()
-
-			if method == "FireServer" and self:IsA("RemoteEvent") and StaminaFeature.Enabled then
-				local args = {...}
-				local remoteName = self.Name
-				local MainScript = findMainScript()
-
-				if MainScript and #args > 0 then
-					local inventoryRemotes = {"Equip", "Pickup", "Bag", "Inventory", "Hold", "UseItem", "Take"}
-
-					if table.find(inventoryRemotes, remoteName) then
-						return oldNamecall(self, ...)
-					end
-
-					if typeof(args[1]) == "number" and args[1] > 0 and not table.find(inventoryRemotes, remoteName) then
-						args[1] = 0
-					end
-				end
-
-				return oldNamecall(self, unpack(args))
-			end
-
-			return oldNamecall(self, ...)
-		end)
-		setreadonly(mt, true)
-
-		if HookState then
-			HookState.NamecallInstalled = true
-		end
-
-		setHookStatus("Namecall hook ready")
-		return true
+		setHookStatus("Disabled for stability")
+		return false
 	end
 
 	local function hookValueNewIndex()
-		if HookState and HookState.NewIndexInstalled then
-			if StaminaFeature.HookStatus == "Not installed" then
-				setHookStatus("NewIndex hook ready")
-			end
-			return true
-		end
-
-		if not canUseHooking() then
-			setHookStatus("Hooks skipped: executor missing metatable APIs")
-			return false
-		end
-
-		local mt = getrawmetatable(game)
-		local oldNewIndex = mt and mt.__newindex
-
-		if type(oldNewIndex) ~= "function" then
-			setHookStatus("Hooks skipped: __newindex is not callable")
-			warn(string.format("[KELV] Inf stamina newindex hook skipped because __newindex is %s", typeof(oldNewIndex)))
-			return false
-		end
-
-		setreadonly(mt, false)
-		mt.__newindex = newcclosure(function(self, key, value)
-			if not StaminaFeature.Enabled then
-				return oldNewIndex(self, key, value)
-			end
-
-			if self:IsA("ValueBase") and self.Parent and self.Parent.Name == "Stats" then
-				local MainScript = findMainScript()
-
-				if MainScript and self:IsDescendantOf(MainScript) then
-					local name = self.Name
-					local isNumber = typeof(value) == "number"
-
-					if name == "Stamina" and isNumber and value < (self.Value or 100) then
-						return
-					elseif name == "NoStaminaCost" or name == "NoCooldown" then
-						value = true
-					elseif (name == "BodyFatigue" or name == "BodyFatique" or name == "Exhaustion") and isNumber and value > 0 then
-						value = 0
-					end
-				end
-			end
-
-			return oldNewIndex(self, key, value)
-		end)
-		setreadonly(mt, true)
-
-		if HookState then
-			HookState.NewIndexInstalled = true
-		end
-
-		if StaminaFeature.HookStatus == "Not installed" then
-			setHookStatus("NewIndex hook ready")
-		end
-
-		return true
+		setHookStatus("Disabled for stability")
+		return false
 	end
 
 	function StaminaFeature:SetEnabled(Value)
@@ -270,8 +145,8 @@ return function(Config)
 			task.wait(0.5)
 			setupValueHooks()
 
-			local RemoteHookReady = hookRemotes()
-			local NewIndexHookReady = hookValueNewIndex()
+			hookRemotes()
+			hookValueNewIndex()
 
 			table.insert(self.Connections, RunService.RenderStepped:Connect(enforceStamina))
 			table.insert(self.Connections, workspace.ChildAdded:Connect(function(child)
@@ -283,9 +158,7 @@ return function(Config)
 			if Notification then
 				Notification:Notify({
 					Title = "Inf Stamina",
-					Content = if (RemoteHookReady or NewIndexHookReady)
-						then "Enabled - source prevention active."
-						else "Enabled - running without metatable hooks. Rejoin if old hook spam is still active.",
+					Content = "Enabled - safe mode active. Rejoin once if old hook spam is still active.",
 					Icon = "check-circle"
 				})
 			end
