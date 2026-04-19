@@ -280,10 +280,10 @@ return function(Config)
 		OriginalFlagValues = {},
 		OriginalSpendValues = {},
 		HookControllerId = nil,
-		RemoteBlockingEnabled = false,
+		RemoteBlockingEnabled = true,
 		NamecallHookEnabled = true,
 		AttributeNamecallHookEnabled = true,
-		RemoteNamecallHookEnabled = false,
+		RemoteNamecallHookEnabled = true,
 		CandidateRegistry = {},
 		CandidateOrder = {},
 		RemoteCandidates = {},
@@ -1305,6 +1305,350 @@ return function(Config)
 		return "remote:" .. tostring(Method) .. ":" .. getInstanceKey(Remote)
 	end
 
+	local RemoteMovementKeywordLookup = createLookup({
+		"stamina",
+		"sprint",
+		"run",
+		"dash",
+		"movement",
+		"evade",
+		"dodge",
+		"slide",
+		"deplete",
+		"exhaust",
+		"energy",
+		"cost"
+	})
+
+	local RemoteRunKeywordLookup = createLookup({
+		"sprint",
+		"run",
+		"movement"
+	})
+
+	local RemoteDashKeywordLookup = createLookup({
+		"dash",
+		"evade",
+		"dodge",
+		"slide"
+	})
+
+	local RemoteNoiseKeywordLookup = createLookup({
+		"emit",
+		"effect",
+		"particle",
+		"vfx",
+		"trail",
+		"attachment",
+		"beam",
+		"spark",
+		"smoke",
+		"workspace"
+	})
+
+	local function isMovementProfile(Profile)
+		return Profile == "Run" or Profile == "Dash"
+	end
+
+	local function countLookupHits(Text, Lookup)
+		if type(Text) ~= "string" or Text == "" or type(Lookup) ~= "table" then
+			return 0
+		end
+
+		local Hits = 0
+
+		for Keyword in pairs(Lookup) do
+			if string.find(Text, Keyword, 1, true) ~= nil then
+				Hits = Hits + 1
+			end
+		end
+
+		return Hits
+	end
+
+	local function ensureRemoteProfileTable(Candidate, FieldName)
+		if not Candidate then
+			return {}
+		end
+
+		local Value = Candidate[FieldName]
+
+		if type(Value) ~= "table" then
+			Value = {}
+			Candidate[FieldName] = Value
+		end
+
+		return Value
+	end
+
+	local function addRemoteProfileValue(Candidate, FieldName, Profile, Amount)
+		if not Candidate or type(Profile) ~= "string" or Profile == "" then
+			return 0
+		end
+
+		local ValueMap = ensureRemoteProfileTable(Candidate, FieldName)
+		local NextValue = (ValueMap[Profile] or 0) + (Amount or 1)
+		ValueMap[Profile] = NextValue
+
+		return NextValue
+	end
+
+	local function getRemoteProfileValue(Candidate, FieldName, Profile)
+		local ValueMap = Candidate and Candidate[FieldName]
+
+		if type(ValueMap) ~= "table" or type(Profile) ~= "string" then
+			return 0
+		end
+
+		return ValueMap[Profile] or 0
+	end
+
+	local function getRemoteOtherProfileCount(Candidate, FieldName, Profile)
+		local ValueMap = Candidate and Candidate[FieldName]
+
+		if type(ValueMap) ~= "table" then
+			return 0
+		end
+
+		local Total = 0
+
+		for OtherProfile, Count in pairs(ValueMap) do
+			if OtherProfile ~= Profile then
+				Total = Total + (Count or 0)
+			end
+		end
+
+		return Total
+	end
+
+	local function getRemoteKeywordScore(PathLower, ArgsLower, Profile)
+		local MovementHits = countLookupHits(PathLower, RemoteMovementKeywordLookup)
+			+ countLookupHits(ArgsLower, RemoteMovementKeywordLookup)
+		local ProfileHits = 0
+
+		if Profile == "Run" then
+			ProfileHits = countLookupHits(PathLower, RemoteRunKeywordLookup)
+				+ countLookupHits(ArgsLower, RemoteRunKeywordLookup)
+		elseif Profile == "Dash" then
+			ProfileHits = countLookupHits(PathLower, RemoteDashKeywordLookup)
+				+ countLookupHits(ArgsLower, RemoteDashKeywordLookup)
+		end
+
+		local Score = (MovementHits * 2) + (ProfileHits * 2)
+
+		if string.find(ArgsLower, "stamina", 1, true) ~= nil then
+			Score = Score + 2
+		end
+
+		return Score
+	end
+
+	local function shouldIgnoreRemoteCandidate(PathLower, ArgsLower)
+		local NoiseHits = countLookupHits(PathLower, RemoteNoiseKeywordLookup)
+			+ countLookupHits(ArgsLower, RemoteNoiseKeywordLookup)
+		local MovementHits = countLookupHits(PathLower, RemoteMovementKeywordLookup)
+			+ countLookupHits(ArgsLower, RemoteMovementKeywordLookup)
+
+		if NoiseHits >= 2 and MovementHits == 0 then
+			return true, "effect_noise"
+		end
+
+		return false, nil
+	end
+
+	local function updateRemoteCandidateClassification(Candidate, Profile)
+		if not Candidate then
+			return
+		end
+
+		local PathLower = Candidate.PathLower or ""
+		local ArgsLower = Candidate.LastArgsLower or ""
+		local KeywordScore = getRemoteKeywordScore(PathLower, ArgsLower, Profile)
+		local Ignored, IgnoredReason = shouldIgnoreRemoteCandidate(PathLower, ArgsLower)
+
+		Candidate.KeywordScore = math.max(Candidate.KeywordScore or 0, KeywordScore)
+		Candidate.Ignored = Ignored
+		Candidate.IgnoredReason = IgnoredReason
+		Candidate.LastObservedProfile = Profile or Candidate.LastObservedProfile or "Free"
+	end
+
+	local function remoteCandidateBlocksProfile(Candidate, Profile)
+		return Candidate ~= nil
+			and Candidate.Promoted == true
+			and type(Candidate.PromotedProfiles) == "table"
+			and Candidate.PromotedProfiles[Profile] == true
+	end
+
+	local function isRemoteCandidateRelevantForProfile(Candidate, Profile)
+		if not Candidate
+			or not isMovementProfile(Profile)
+			or Candidate.Ignored == true then
+			return false
+		end
+
+		if remoteCandidateBlocksProfile(Candidate, Profile) then
+			return true
+		end
+
+		local ActionCount = getRemoteProfileValue(Candidate, "ProfileCounts", Profile)
+		local OtherCount = getRemoteOtherProfileCount(Candidate, "ProfileCounts", Profile)
+		local FailureCount = getRemoteProfileValue(Candidate, "FailureCounts", Profile)
+		local CaptureCount = getRemoteProfileValue(Candidate, "CaptureProfileHits", Profile)
+		local KeywordScore = Candidate.KeywordScore or 0
+
+		if ActionCount <= 0 then
+			return false
+		end
+
+		if KeywordScore >= 6 and ActionCount >= 2 then
+			return true
+		end
+
+		if FailureCount >= 1
+			and ActionCount >= 2
+			and ActionCount >= math.max(2, math.floor(OtherCount * 0.5)) then
+			return true
+		end
+
+		if CaptureCount >= 2
+			and ActionCount >= 2
+			and ActionCount >= math.max(2, OtherCount) then
+			return true
+		end
+
+		return ActionCount >= 4 and ActionCount >= (OtherCount + 2)
+	end
+
+	local function promoteRemoteCandidateForProfile(Candidate, Profile, Reason, Score)
+		if not Candidate
+			or not isMovementProfile(Profile)
+			or Candidate.Ignored == true then
+			return false
+		end
+
+		Candidate.Promoted = true
+		Candidate.PromotionReason = Reason or Candidate.PromotionReason
+		ensureRemoteProfileTable(Candidate, "PromotedProfiles")[Profile] = true
+		Candidate.Score = math.max(Candidate.Score or 0, Score or 0)
+
+		return true
+	end
+
+	local function maybePromoteRemoteCandidate(Candidate, Profile, Reason)
+		if not Candidate
+			or not isMovementProfile(Profile)
+			or Candidate.Ignored == true then
+			return false
+		end
+
+		local ActionCount = getRemoteProfileValue(Candidate, "ProfileCounts", Profile)
+		local OtherCount = getRemoteOtherProfileCount(Candidate, "ProfileCounts", Profile)
+		local FailureCount = getRemoteProfileValue(Candidate, "FailureCounts", Profile)
+		local CaptureCount = getRemoteProfileValue(Candidate, "CaptureProfileHits", Profile)
+		local KeywordScore = Candidate.KeywordScore or 0
+		local Score = (ActionCount * 2) + (FailureCount * 5) + (CaptureCount * 3) + KeywordScore - OtherCount
+
+		if (
+			FailureCount >= 2
+			and ActionCount >= 2
+			and ActionCount >= math.max(2, math.floor(OtherCount * 0.5))
+		) or (
+			CaptureCount >= 2
+			and FailureCount >= 1
+			and ActionCount >= 2
+		) or (
+			KeywordScore >= 6
+			and ActionCount >= 3
+		) or (
+			ActionCount >= 5
+			and ActionCount >= (OtherCount + 3)
+			and FailureCount >= 1
+		) then
+			return promoteRemoteCandidateForProfile(Candidate, Profile, Reason, Score)
+		end
+
+		return false
+	end
+
+	local function getRemoteCandidateRank(Candidate, Profile)
+		if not Candidate
+			or not isMovementProfile(Profile)
+			or Candidate.Ignored == true then
+			return -math.huge
+		end
+
+		local ActionCount = getRemoteProfileValue(Candidate, "ProfileCounts", Profile)
+		local FailureCount = getRemoteProfileValue(Candidate, "FailureCounts", Profile)
+		local CaptureCount = getRemoteProfileValue(Candidate, "CaptureProfileHits", Profile)
+		local OtherCount = getRemoteOtherProfileCount(Candidate, "ProfileCounts", Profile)
+		local Score = (Candidate.KeywordScore or 0)
+			+ (ActionCount * 2)
+			+ (FailureCount * 6)
+			+ (CaptureCount * 4)
+			- OtherCount
+
+		if Candidate.Promoted == true then
+			Score = Score + 6
+		end
+
+		if remoteCandidateBlocksProfile(Candidate, Profile) then
+			Score = Score + 12
+		end
+
+		return Score
+	end
+
+	local function getTopRemoteCandidate(Profile, RequirePromotion)
+		if not isMovementProfile(Profile) then
+			return nil
+		end
+
+		local BestCandidate = nil
+		local BestScore = -math.huge
+
+		for _, Candidate in ipairs(StaminaFeature.RemoteCandidateOrder) do
+			if Candidate and Candidate.Ignored ~= true then
+				local Relevant = isRemoteCandidateRelevantForProfile(Candidate, Profile)
+				local IsPromoted = remoteCandidateBlocksProfile(Candidate, Profile)
+					or (Candidate.Promoted == true and Relevant)
+
+				if Relevant and (not RequirePromotion or IsPromoted) then
+					local Rank = getRemoteCandidateRank(Candidate, Profile)
+
+					if Rank > BestScore then
+						BestScore = Rank
+						BestCandidate = Candidate
+					end
+				end
+			end
+		end
+
+		return BestCandidate
+	end
+
+	local function getPreferredRemoteLabel(Profile)
+		local Candidate = getTopRemoteCandidate(Profile, true)
+
+		if not Candidate then
+			Candidate = getTopRemoteCandidate(Profile, false)
+		end
+
+		if not Candidate then
+			return "none", nil
+		end
+
+		local State = remoteCandidateBlocksProfile(Candidate, Profile) and "blocked"
+			or (Candidate.Promoted == true and "promoted")
+			or "pending"
+
+		return string.format(
+			"%s[%s/%s]",
+			tostring(Candidate.Name or "unknown"),
+			tostring(Candidate.Method or "remote"),
+			State
+		), Candidate
+	end
+
 	local function clearCandidateActivity()
 		for _, Candidate in pairs(StaminaFeature.CandidateRegistry) do
 			Candidate.Active = false
@@ -1608,14 +1952,17 @@ return function(Config)
 		return Candidate
 	end
 
-	local function upsertRemoteCandidate(Remote, Method, Arguments)
+	local function upsertRemoteCandidate(Remote, Method, Arguments, Profile)
 		local RegistryKey = getRemoteRegistryKey(Remote, Method)
 		local Candidate = StaminaFeature.RemoteCandidates[RegistryKey]
+		local DisplayName = getRemoteDisplayName(Remote)
+		local ArgsSummary = summarizeArguments(Arguments)
+		local ResolvedProfile = type(Profile) == "string" and Profile or "Free"
 
 		if not Candidate then
 			Candidate = {
 				RegistryKey = RegistryKey,
-				Name = getRemoteDisplayName(Remote),
+				Name = DisplayName,
 				Method = Method,
 				Remote = Remote,
 				Category = "logic-remote",
@@ -1625,16 +1972,34 @@ return function(Config)
 				Score = 0,
 				LastCallTime = 0,
 				LastArgsSummary = "",
-				BlockedCount = 0
+				LastArgsLower = "",
+				PathLower = string.lower(DisplayName),
+				BlockedCount = 0,
+				KeywordScore = 0,
+				ProfileCounts = {},
+				FailureCounts = {},
+				CaptureProfileHits = {},
+				PromotedProfiles = {},
+				FailureMarkAt = {},
+				Ignored = false,
+				IgnoredReason = nil,
+				LastObservedProfile = ResolvedProfile,
+				PromotionReason = nil,
+				LastFailureReason = nil
 			}
 
 			StaminaFeature.RemoteCandidates[RegistryKey] = Candidate
 			table.insert(StaminaFeature.RemoteCandidateOrder, Candidate)
 		end
 
+		Candidate.Name = DisplayName
 		Candidate.Count = Candidate.Count + 1
 		Candidate.LastCallTime = os.clock()
-		Candidate.LastArgsSummary = summarizeArguments(Arguments)
+		Candidate.LastArgsSummary = ArgsSummary
+		Candidate.LastArgsLower = string.lower(ArgsSummary)
+		Candidate.PathLower = string.lower(DisplayName)
+		addRemoteProfileValue(Candidate, "ProfileCounts", ResolvedProfile, 1)
+		updateRemoteCandidateClassification(Candidate, ResolvedProfile)
 
 		return Candidate
 	end
@@ -1978,7 +2343,7 @@ return function(Config)
 		Observation.LastValue = Value
 	end
 
-	local function recordCaptureRemoteValue(RemoteCandidate)
+	local function recordCaptureRemoteValue(RemoteCandidate, Profile)
 		local Session = StaminaFeature.CaptureSession
 
 		if not Session or Session.State ~= "active" then
@@ -1986,13 +2351,15 @@ return function(Config)
 		end
 
 		local Observation = Session.RemoteObservations[RemoteCandidate.RegistryKey]
+		local ResolvedProfile = type(Profile) == "string" and Profile or "Free"
 
 		if not Observation then
 			Observation = {
 				Name = RemoteCandidate.Name,
 				Method = RemoteCandidate.Method,
 				Count = 0,
-				LastArgsSummary = ""
+				LastArgsSummary = "",
+				ProfileCounts = {}
 			}
 
 			Session.RemoteObservations[RemoteCandidate.RegistryKey] = Observation
@@ -2000,6 +2367,8 @@ return function(Config)
 
 		Observation.Count = Observation.Count + 1
 		Observation.LastArgsSummary = RemoteCandidate.LastArgsSummary
+		Observation.ProfileCounts[ResolvedProfile] = (Observation.ProfileCounts[ResolvedProfile] or 0) + 1
+		Observation.LastProfile = ResolvedProfile
 		Session.RemoteCallCount = Session.RemoteCallCount + 1
 	end
 
@@ -2260,15 +2629,18 @@ return function(Config)
 		local TrustedPrimaryLabel = getHandleCandidateLabel("Current", isLogicLocalCandidate)
 		local RejectedPrimaryLabel, RejectedPrimaryCandidate = getHandleCandidateLabel("Current", isRejectedPrimaryCandidate)
 		local RejectedReason = RejectedPrimaryCandidate and getRejectedPrimaryReason(RejectedPrimaryCandidate) or "none"
+		local ActiveProfile = tostring(StaminaFeature.LastActionProfile or "Free")
+		local RemoteLabel = getPreferredRemoteLabel(ActiveProfile)
 
 		return {
 			string.format("State: %s", tostring(StaminaFeature.VerificationState or "idle")),
 			string.format("FailureReason: %s", tostring(StaminaFeature.LastFailureReason or "none")),
-			string.format("Profile: %s", tostring(StaminaFeature.LastActionProfile or "Free")),
+			string.format("Profile: %s", ActiveProfile),
 			string.format("LogicHandles: C=%d M=%d", Snapshot.LogicCurrentCount, Snapshot.LogicMaxCount),
 			string.format("DisplayHandles: C=%d M=%d", Snapshot.DisplayCurrentCount, Snapshot.DisplayMaxCount),
 			string.format("TrustedPrimary: %s", TrustedPrimaryLabel),
 			string.format("RejectedPrimary: %s (%s)", RejectedPrimaryLabel, RejectedReason),
+			string.format("TopRemote: %s", RemoteLabel),
 			string.format("LastCapture: %s", getLastCaptureLabel())
 		}
 	end
@@ -2280,10 +2652,11 @@ return function(Config)
 		local RejectedPrimaryLabel, RejectedPrimaryCandidate = getHandleCandidateLabel("Current", isRejectedPrimaryCandidate)
 		local FlagLabel = getPreferredSupportLabel("Flags", ActiveProfile)
 		local SpendLabel = getPreferredSupportLabel("Spend", ActiveProfile)
+		local RemoteLabel = getPreferredRemoteLabel(ActiveProfile)
 		local RejectedReason = RejectedPrimaryCandidate and getRejectedPrimaryReason(RejectedPrimaryCandidate) or "none"
 
 		local BaseLine = string.format(
-			"State=%s Reason=%s Profile=%s Logic C=%d M=%d Display C=%d M=%d Handles C=%d M=%d F=%d S=%d TrustedPrimary=%s RejectedPrimary=%s(%s) Flag=%s Spend=%s",
+			"State=%s Reason=%s Profile=%s Logic C=%d M=%d Display C=%d M=%d Handles C=%d M=%d F=%d S=%d TrustedPrimary=%s RejectedPrimary=%s(%s) Flag=%s Spend=%s Remote=%s",
 			tostring(StaminaFeature.VerificationState or "idle"),
 			tostring(StaminaFeature.LastFailureReason or "none"),
 			ActiveProfile,
@@ -2299,7 +2672,8 @@ return function(Config)
 			RejectedPrimaryLabel,
 			RejectedReason,
 			FlagLabel,
-			SpendLabel
+			SpendLabel,
+			RemoteLabel
 		)
 
 		if type(StaminaFeature.LastSupportIssue) == "string"
@@ -3039,6 +3413,75 @@ return function(Config)
 		return false
 	end
 
+	local function getActiveRemoteProfile(Controller)
+		if type(Controller) ~= "table" then
+			return "Free"
+		end
+
+		local Session = Controller.CaptureSession
+
+		if Session
+			and Session.State ~= "completed"
+			and Session.ActionValid
+			and isMovementProfile(Session.Profile) then
+			return Session.Profile
+		end
+
+		local LastProfile = Controller.LastActionProfile
+
+		if isMovementProfile(LastProfile)
+			and (os.clock() - (Controller.LastStepAt or 0)) <= 0.65 then
+			return LastProfile
+		end
+
+		local Profile = inferRuntimeProfile(getCharacterMetrics())
+
+		if isMovementProfile(Profile) then
+			return Profile
+		end
+
+		return LastProfile or "Free"
+	end
+
+	local function noteRemoteProfileFailure(Profile, Reason, Weight)
+		if not isMovementProfile(Profile) then
+			return false
+		end
+
+		local Now = os.clock()
+		local Marked = false
+
+		for _, Candidate in ipairs(StaminaFeature.RemoteCandidateOrder) do
+			if Candidate
+				and Candidate.Ignored ~= true
+				and getRemoteProfileValue(Candidate, "ProfileCounts", Profile) > 0
+				and (Now - (Candidate.LastCallTime or 0)) <= 1.25 then
+				local FailureMarkAt = ensureRemoteProfileTable(Candidate, "FailureMarkAt")
+				local LastMarkedAt = FailureMarkAt[Profile] or 0
+
+				if (Now - LastMarkedAt) >= 0.45 then
+					FailureMarkAt[Profile] = Now
+					addRemoteProfileValue(Candidate, "FailureCounts", Profile, Weight or 1)
+					Candidate.LastFailureReason = Reason
+					maybePromoteRemoteCandidate(Candidate, Profile, Reason)
+					Marked = true
+				end
+			end
+		end
+
+		return Marked
+	end
+
+	local function hasActiveRemoteSuppression(Profile)
+		return getTopRemoteCandidate(Profile, true) ~= nil
+	end
+
+	local function hasPendingRemoteSupport(Profile)
+		local Candidate = getTopRemoteCandidate(Profile, false)
+
+		return Candidate ~= nil and not hasActiveRemoteSuppression(Profile)
+	end
+
 	local function noteVerifiedLogic()
 		StaminaFeature.LastEffectiveLogicAt = os.clock()
 
@@ -3441,14 +3884,20 @@ return function(Config)
 			local Observation = Session.RemoteObservations[Candidate.RegistryKey]
 
 			if Observation then
-				Candidate.Score = math.max(Candidate.Score or 0, Observation.Count * 2)
+				Candidate.Score = math.max(
+					Candidate.Score or 0,
+					(Observation.Count or 0) * 2 + (Candidate.KeywordScore or 0)
+				)
+				Candidate.CaptureHits = (Candidate.CaptureHits or 0) + (Observation.Count or 0)
 
-				if PrimaryLogicCount == 0 and Session.ActionValid and Observation.Count >= 2 then
-					Candidate.CaptureHits = (Candidate.CaptureHits or 0) + 1
-
-					if Candidate.CaptureHits >= 2 then
-						Candidate.Promoted = true
-					end
+				if Session.ActionValid and isMovementProfile(Session.Profile) then
+					addRemoteProfileValue(
+						Candidate,
+						"CaptureProfileHits",
+						Session.Profile,
+						Observation.Count or 0
+					)
+					maybePromoteRemoteCandidate(Candidate, Session.Profile, "capture_remote_correlated")
 				end
 
 				table.insert(RemoteSuspects, {
@@ -3486,11 +3935,16 @@ return function(Config)
 		if #RemoteSuspects > 0 then
 			local Observation = RemoteSuspects[1].Observation
 			local Candidate = RemoteSuspects[1].Candidate
+			local RemoteProfile = Observation.LastProfile or Session.Profile or "Free"
+			local RemoteState = remoteCandidateBlocksProfile(Candidate, RemoteProfile) and "blocked"
+				or (Candidate.Promoted == true and "promoted")
+				or "pending"
 
 			table.insert(Lines, string.format(
-				"RemoteCandidate1: %s [%s] count=%d args=%s",
+				"RemoteCandidate1: %s [%s/%s] count=%d args=%s",
 				Candidate.Name,
 				Candidate.Method,
+				RemoteState,
 				Observation.Count or 0,
 				Observation.LastArgsSummary or ""
 			))
@@ -3524,11 +3978,16 @@ return function(Config)
 			for Index = 1, math.min(#RemoteSuspects, 3) do
 				local Observation = RemoteSuspects[Index].Observation
 				local Candidate = RemoteSuspects[Index].Candidate
+				local RemoteProfile = Observation.LastProfile or Session.Profile or "Free"
+				local RemoteState = remoteCandidateBlocksProfile(Candidate, RemoteProfile) and "blocked"
+					or (Candidate.Promoted == true and "promoted")
+					or "pending"
 
 				table.insert(Lines, string.format(
-					"%s [%s] count=%d args=%s",
+					"%s [%s/%s] count=%d args=%s",
 					Candidate.Name,
 					Candidate.Method,
+					RemoteState,
 					Observation.Count or 0,
 					Observation.LastArgsSummary or ""
 				))
@@ -5445,6 +5904,8 @@ return function(Config)
 		local Snapshot = StaminaFeature.GetDiagnosticSnapshotInternal()
 		local PreferredFlagEntries = getPreferredRuntimeFlagEntries(Profile)
 		local PreferredSpendEntries = getPreferredRuntimeSpendEntries(Profile)
+		local HasRemoteSuppression = hasActiveRemoteSuppression(Profile)
+		local HasRemotePending = hasPendingRemoteSupport(Profile)
 
 		StaminaFeature.LastActionProfile = Profile
 
@@ -5537,12 +5998,23 @@ return function(Config)
 		end
 
 		if ActionPressure and DropDetected then
+			noteRemoteProfileFailure(Profile, string.lower(Profile) .. "_still_drains", 2)
 			return "logic_ineffective", string.lower(Profile) .. "_still_drains", Profile, true
 		end
 
 		if ActionPressure then
 			if FailureReason then
+				noteRemoteProfileFailure(Profile, FailureReason, 1)
 				return "logic_unverified", FailureReason, Profile, true
+			end
+
+			if #PreferredSpendEntries == 0 and not HasRemoteSuppression then
+				local RemoteReason = HasRemotePending
+					and (string.lower(Profile) .. "_remote_pending")
+					or (string.lower(Profile) .. "_remote_unhandled")
+
+				noteRemoteProfileFailure(Profile, RemoteReason, 1)
+				return "logic_unverified", RemoteReason, Profile, true
 			end
 
 			noteVerifiedLogic()
@@ -5781,11 +6253,11 @@ return function(Config)
 		return getInterceptTarget(Candidate, IncomingValue)
 	end
 
-	local function shouldBlockRemote(RemoteCandidate)
-		return StaminaFeature.Enabled
-			and StaminaFeature.RemoteBlockingEnabled == true
-			and RemoteCandidate
-			and RemoteCandidate.Promoted
+	local function shouldBlockRemote(Controller, RemoteCandidate, Profile)
+		return type(Controller) == "table"
+			and Controller.Enabled == true
+			and Controller.RemoteBlockingEnabled == true
+			and remoteCandidateBlocksProfile(RemoteCandidate, Profile)
 	end
 
 	local function installHooks()
@@ -5877,11 +6349,14 @@ return function(Config)
 
 						if Controller then
 							local Arguments = table.pack(...)
-							local RemoteCandidate = upsertRemoteCandidate(Self, Method, Arguments)
+							local ActiveProfile = getActiveRemoteProfile(Controller)
+							local RemoteCandidate = upsertRemoteCandidate(Self, Method, Arguments, ActiveProfile)
 
-							recordCaptureRemoteValue(RemoteCandidate)
+							if RemoteCandidate.Ignored ~= true then
+								recordCaptureRemoteValue(RemoteCandidate, ActiveProfile)
+							end
 
-							if shouldBlockRemote(RemoteCandidate) then
+							if shouldBlockRemote(Controller, RemoteCandidate, ActiveProfile) then
 								RemoteCandidate.BlockedCount = RemoteCandidate.BlockedCount + 1
 								return nil
 							end
@@ -5970,6 +6445,8 @@ return function(Config)
 		local TrustedPrimaryLabel = getHandleCandidateLabel("Current", isLogicLocalCandidate)
 		local RejectedPrimaryLabel, RejectedPrimaryCandidate = getHandleCandidateLabel("Current", isRejectedPrimaryCandidate)
 		local RejectedReason = RejectedPrimaryCandidate and getRejectedPrimaryReason(RejectedPrimaryCandidate) or "none"
+		local TopRunRemote = getPreferredRemoteLabel("Run")
+		local TopDashRemote = getPreferredRemoteLabel("Dash")
 
 		local Lines = {
 			string.format("DebugEnabled: %s", tostring(self.DebugEnabled)),
@@ -5988,7 +6465,9 @@ return function(Config)
 			),
 			string.format("LogicHandles: C=%d M=%d", LogicCurrentCount, LogicMaxCount),
 			string.format("TrustedPrimary: %s", TrustedPrimaryLabel),
-			string.format("RejectedPrimary: %s (%s)", RejectedPrimaryLabel, RejectedReason)
+			string.format("RejectedPrimary: %s (%s)", RejectedPrimaryLabel, RejectedReason),
+			string.format("TopRunRemote: %s", TopRunRemote),
+			string.format("TopDashRemote: %s", TopDashRemote)
 		}
 
 		local Session = self.CaptureSession
