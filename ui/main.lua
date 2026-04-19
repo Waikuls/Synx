@@ -51,4 +51,9 @@ return function(Config)
 		end,
 		Flag = "InfStamina"
 	})
+
+	Character:AddToggle({
+		Name = "Auto train",
+		Flag = "AutoTrain"
+	})
 end
