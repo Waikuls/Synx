@@ -1338,7 +1338,7 @@ return function(Config)
 			and not isTrustedPrimaryCandidate(Candidate)
 			and (
 				Candidate.StatOnlyAlias == true
-				Candidate.ObservedAlias == true
+				or Candidate.ObservedAlias == true
 				or isStaminaDisplayName(Candidate.NameLower or "")
 				or string.find(Candidate.NameLower or "", "stamina", 1, true) ~= nil
 				or Candidate.Category == "logic-local"
