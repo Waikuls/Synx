@@ -19,77 +19,84 @@ return function(Config)
 	end
 
 	local function enforceStamina()
+		if not StaminaFeature.Enabled then return end
 		local MainScript = findMainScript()
 		if not MainScript then return end
 
-		local Stats = MainScript:FindFirstChild("Stats")
-		if Stats then
-			local Stamina = Stats:FindFirstChild("Stamina")
-			local MaxStamina = Stats:FindFirstChild("MaxStamina")
-			local NoStaminaCost = Stats:FindFirstChild("NoStaminaCost")
-			local Exhaustion = Stats:FindFirstChild("Exhaustion")
-			local StaminaInStat = Stats:FindFirstChild("StaminaInStat")
+		pcall(function()
+			local Stats = MainScript:FindFirstChild("Stats")
+			if Stats then
+				local Stamina = Stats:FindFirstChild("Stamina")
+				local MaxStamina = Stats:FindFirstChild("MaxStamina")
+				local NoStaminaCost = Stats:FindFirstChild("NoStaminaCost")
+				local Exhaustion = Stats:FindFirstChild("Exhaustion")
+				local StaminaInStat = Stats:FindFirstChild("StaminaInStat")
 
-			if Stamina and MaxStamina then
-				Stamina.Value = MaxStamina.Value
+				if Stamina and MaxStamina then
+					Stamina.Value = MaxStamina.Value
+				end
+				if NoStaminaCost then
+					NoStaminaCost.Value = true
+				end
+				if Exhaustion then
+					Exhaustion.Value = 0
+				end
+				if StaminaInStat then
+					StaminaInStat.Value = MaxStamina and MaxStamina.Value or 100
+				end
 			end
-			if NoStaminaCost then
-				NoStaminaCost.Value = true
-			end
-			if Exhaustion then
-				Exhaustion.Value = 0
-			end
-			if StaminaInStat then
-				StaminaInStat.Value = MaxStamina and MaxStamina.Value or 100
-			end
-		end
+		end)
 
-		local Attributes = MainScript:FindFirstChild("Attributes")
-		if Attributes then
-			Attributes:SetAttribute("Exhausted", false)
-			Attributes:SetAttribute("StaminaRegenPeriod", 0)
-			Attributes:SetAttribute("StaminaRegenPercent", 100)
-			Attributes:SetAttribute("ExhaustionDeplete", 0)
-		end
-
-		local Var001 = MainScript:FindFirstChild("Var001")
-		if Var001 then
-			local module = require(Var001)
-			if module then
-				module.M1StaminaCost = 0
-				module.M2StaminaCost = 0
-				module.currentM1StaminaCost = 0
-				module.currentM2StaminaCost = 0
+		pcall(function()
+			local Attributes = MainScript:FindFirstChild("Attributes")
+			if Attributes then
+				Attributes:SetAttribute("Exhausted", false)
+				Attributes:SetAttribute("StaminaRegenPeriod", 0)
+				Attributes:SetAttribute("StaminaRegenPercent", 100)
+				Attributes:SetAttribute("ExhaustionDeplete", 0)
 			end
-		end
+		end)
+
+		pcall(function()
+			local Var001 = MainScript:FindFirstChild("Var001")
+			if Var001 then
+				local module = require(Var001)
+				if module then
+					module.M1StaminaCost = 0
+					module.M2StaminaCost = 0
+					module.currentM1StaminaCost = 0
+					module.currentM2StaminaCost = 0
+				end
+			end
+		end)
 	end
 
 	local function hookRemotes()
-		local MainScript = findMainScript()
-		if not MainScript then return end
-
-		local ToggleRemote = MainScript:FindFirstChild("Toggle?")
-		local DashRemote = MainScript:FindFirstChild("Dash")
-		local InputRemote = MainScript:FindFirstChild("Input")
+		if getgenv().FatalityStaminaHookInstalled then return end
+		getgenv().FatalityStaminaBlock = false
+		getgenv().FatalityStaminaHookInstalled = true
 
 		local mt = getrawmetatable(game)
 		local oldNamecall = mt.__namecall
 		setreadonly(mt, false)
 		mt.__namecall = newcclosure(function(self, ...)
+			if not getgenv().FatalityStaminaBlock then
+				return oldNamecall(self, ...)
+			end
 			local method = getnamecallmethod()
 			if method == "FireServer" then
-				if self == ToggleRemote then
-					local args = {...}
-					if args[1] and args[1].Action == "Run" then
-						args[1].State = false -- Stop run or no cost
-					end
-					return oldNamecall(self, unpack(args))
-				elseif self == DashRemote then
-					return -- Block dash
-				elseif self == InputRemote then
-					local args = {...}
-					if args[1] and (args[1].KeyInfo.Name == "LMB" or args[1].KeyInfo.Name == "RMB") then
-						return -- Block M1/RMB
+				local MainScript = findMainScript()
+				if MainScript then
+					local ToggleRemote = MainScript:FindFirstChild("Toggle?")
+					local DashRemote = MainScript:FindFirstChild("Dash")
+					if self == ToggleRemote then
+						local args = {...}
+						if args[1] and args[1].Action == "Run" then
+							args[1].State = false
+						end
+						return oldNamecall(self, unpack(args))
+					elseif self == DashRemote then
+						return
 					end
 				end
 			end
@@ -100,13 +107,14 @@ return function(Config)
 
 	function StaminaFeature:SetEnabled(Value)
 		self.Enabled = Value
+		getgenv().FatalityStaminaBlock = Value
 		if Value then
 			table.insert(self.Connections, RunService.Heartbeat:Connect(enforceStamina))
 			hookRemotes()
 			if Notification then
 				Notification:Notify({
 					Title = "Inf Stamina",
-					Content = "เปิดใช้งานแล้ว - Stamina ไม่หมด, No Cost, Block Remotes",
+					Content = "เปิดใช้งานแล้ว - Stamina ไม่หมด, No Cost, Block Run/Dash",
 					Icon = "check-circle"
 				})
 			end
@@ -115,6 +123,7 @@ return function(Config)
 				conn:Disconnect()
 			end
 			self.Connections = {}
+			getgenv().FatalityStaminaBlock = false
 			if Notification then
 				Notification:Notify({
 					Title = "Inf Stamina",
