@@ -946,41 +946,130 @@ return function(Config)
 		return Value
 	end
 
+	local function normalizeBooleanLike(Value)
+		if typeof(Value) == "boolean" then
+			return Value
+		end
+
+		local NumericValue = toNumber(Value)
+
+		if NumericValue ~= nil then
+			return NumericValue ~= 0
+		end
+
+		return nil
+	end
+
+	local function normalizeNumberLike(Value, RoundToInt)
+		local NumericValue = toNumber(Value)
+
+		if NumericValue == nil then
+			return nil
+		end
+
+		if RoundToInt == true then
+			return math.floor(NumericValue + 0.5)
+		end
+
+		return NumericValue
+	end
+
+	local function normalizeValueForHandle(Handle, Value)
+		if not Handle then
+			return nil
+		end
+
+		if Handle.Kind == "value" then
+			local Instance = Handle.Instance
+
+			if typeof(Instance) ~= "Instance" or not Instance:IsA("ValueBase") then
+				return nil
+			end
+
+			if Instance:IsA("BoolValue") then
+				return normalizeBooleanLike(Value)
+			end
+
+			if Instance:IsA("IntValue") then
+				return normalizeNumberLike(Value, true)
+			end
+
+			if Instance:IsA("NumberValue") then
+				return normalizeNumberLike(Value, false)
+			end
+
+			return nil
+		end
+
+		local CurrentValue = readHandle(Handle)
+		local CurrentType = typeof(CurrentValue)
+
+		if CurrentType == "boolean" then
+			return normalizeBooleanLike(Value)
+		end
+
+		if CurrentType == "number" then
+			return normalizeNumberLike(Value, false)
+		end
+
+		if CurrentValue == nil then
+			if typeof(Value) == "boolean" then
+				return Value
+			end
+
+			return normalizeNumberLike(Value, false)
+		end
+
+		return nil
+	end
+
 	local function writeHandle(Handle, Value)
 		if not isHandleValid(Handle) then
 			return false
 		end
 
 		if Handle.Kind == "table" then
+			local NormalizedValue = normalizeValueForHandle(Handle, Value)
+
+			if NormalizedValue == nil then
+				return false
+			end
+
 			return pcall(function()
-				Handle.Table[Handle.Field] = Value
+				Handle.Table[Handle.Field] = NormalizedValue
 			end)
 		end
 
 		if Handle.Kind == "upvalue" then
-			local CurrentValue = readHandle(Handle)
+			local NormalizedValue = normalizeValueForHandle(Handle, Value)
 
-			return writeFunctionUpvalue(Handle.Function, Handle.UpvalueIndex, coerceLike(CurrentValue, Value))
+			if NormalizedValue == nil then
+				return false
+			end
+
+			return writeFunctionUpvalue(Handle.Function, Handle.UpvalueIndex, NormalizedValue)
 		end
 
 		if Handle.Kind == "attribute" then
-			local CurrentValue = readHandle(Handle)
+			local NormalizedValue = normalizeValueForHandle(Handle, Value)
+
+			if NormalizedValue == nil then
+				return false
+			end
 
 			return pcall(function()
-				Handle.Instance:SetAttribute(Handle.Attribute, coerceLike(CurrentValue, Value))
+				Handle.Instance:SetAttribute(Handle.Attribute, NormalizedValue)
 			end)
 		end
 
-		local CurrentValue = readHandle(Handle)
+		local NormalizedValue = normalizeValueForHandle(Handle, Value)
 
-		if typeof(Value) == "number" and Handle.Instance:IsA("IntValue") then
-			Value = math.floor(Value + 0.5)
-		else
-			Value = coerceLike(CurrentValue, Value)
+		if NormalizedValue == nil then
+			return false
 		end
 
 		return pcall(function()
-			Handle.Instance.Value = Value
+			Handle.Instance.Value = NormalizedValue
 		end)
 	end
 
@@ -2179,13 +2268,41 @@ return function(Config)
 	end
 
 	local function supportsSafeRuntimeRewrite(GroupName, Value, Candidate)
-		local ValueType = typeof(Value)
+		local ReferenceValue = Value
 
-		if GroupName == "Flags" then
-			return ValueType == "boolean" or ValueType == "number"
+		if Candidate and Candidate.Handle then
+			local CurrentValue = readHandle(Candidate.Handle)
+
+			if CurrentValue ~= nil then
+				ReferenceValue = CurrentValue
+			elseif Candidate.LastValue ~= nil then
+				ReferenceValue = Candidate.LastValue
+			end
+
+			if Candidate.Handle.Kind == "value" then
+				local Instance = Candidate.Handle.Instance
+
+				if typeof(Instance) ~= "Instance" or not Instance:IsA("ValueBase") then
+					return false
+				end
+
+				if GroupName == "Current" or GroupName == "Max" then
+					return Instance:IsA("IntValue") or Instance:IsA("NumberValue")
+				end
+
+				if GroupName == "Flags" or GroupName == "Spend" then
+					return Instance:IsA("BoolValue")
+						or Instance:IsA("IntValue")
+						or Instance:IsA("NumberValue")
+				end
+
+				return false
+			end
 		end
 
-		if GroupName == "Spend" then
+		local ValueType = typeof(ReferenceValue)
+
+		if GroupName == "Flags" or GroupName == "Spend" then
 			return ValueType == "boolean" or ValueType == "number"
 		end
 
@@ -6508,7 +6625,19 @@ return function(Config)
 			return nil, false
 		end
 
-		return getInterceptTarget(Candidate, IncomingValue)
+		local Replacement, ShouldReplace = getInterceptTarget(Candidate, IncomingValue)
+
+		if not ShouldReplace then
+			return nil, false
+		end
+
+		local NormalizedReplacement = normalizeValueForHandle(Handle, Replacement)
+
+		if NormalizedReplacement == nil then
+			return nil, false
+		end
+
+		return NormalizedReplacement, true
 	end
 
 	local function shouldBlockRemote(Controller, RemoteCandidate, Profile)
