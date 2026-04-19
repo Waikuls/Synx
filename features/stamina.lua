@@ -1312,9 +1312,15 @@ return function(Config)
 			return false
 		end
 
-		return string.find(TextLower, "mainscript", 1, true) ~= nil
-			or string.find(TextLower, "crninput", 1, true) ~= nil
-			or isInterestingLogicName(TextLower)
+		if string.find(TextLower, "mainscript", 1, true) ~= nil then
+			return true
+		end
+
+		if string.find(TextLower, "crninput", 1, true) ~= nil then
+			return true
+		end
+
+		return isInterestingLogicName(TextLower)
 	end
 
 	local function getFunctionScanConfidence(FunctionValue)
@@ -6763,6 +6769,42 @@ return function(Config)
 		return OriginalNamecall(Self, ...)
 	end
 
+	local function getHookWrap()
+		if type(newcclosure) == "function" then
+			return newcclosure
+		end
+
+		return function(Callback)
+			return Callback
+		end
+	end
+
+	local function installNewIndexHook(Wrap)
+		local OriginalNewIndex
+		local Success = pcall(function()
+			OriginalNewIndex = hookmetamethod(game, "__newindex", Wrap(function(Self, Key, Value)
+				return runValueNewIndexHook(OriginalNewIndex, Self, Key, Value)
+			end))
+		end)
+
+		return Success
+	end
+
+	local function installNamecallHook(Wrap)
+		if StaminaFeature.NamecallHookEnabled ~= true then
+			return false
+		end
+
+		local OriginalNamecall
+		local Success = pcall(function()
+			OriginalNamecall = hookmetamethod(game, "__namecall", Wrap(function(Self, ...)
+				return runNamecallHook(OriginalNamecall, Self, ...)
+			end))
+		end)
+
+		return Success
+	end
+
 	local function installHooks()
 		local HookState = StaminaFeature.GetHookStateInternal()
 		StaminaFeature.HookState = HookState
@@ -6771,27 +6813,9 @@ return function(Config)
 			return
 		end
 
-		local Wrap = type(newcclosure) == "function" and newcclosure or function(Callback)
-			return Callback
-		end
-
-		local OriginalNewIndex
-		local SuccessNewIndex = pcall(function()
-			OriginalNewIndex = hookmetamethod(game, "__newindex", Wrap(function(Self, Key, Value)
-				return runValueNewIndexHook(OriginalNewIndex, Self, Key, Value)
-			end))
-		end)
-
-		local SuccessNamecall = false
-
-		if StaminaFeature.NamecallHookEnabled == true then
-			local OriginalNamecall
-			SuccessNamecall = pcall(function()
-				OriginalNamecall = hookmetamethod(game, "__namecall", Wrap(function(Self, ...)
-					return runNamecallHook(OriginalNamecall, Self, ...)
-				end))
-			end)
-		end
+		local Wrap = getHookWrap()
+		local SuccessNewIndex = installNewIndexHook(Wrap)
+		local SuccessNamecall = installNamecallHook(Wrap)
 
 		HookState.Installed = SuccessNewIndex or SuccessNamecall
 	end
