@@ -2192,14 +2192,14 @@ return function(Config)
 			local Normalized = string.lower(Value)
 
 			if tonumber(Value) ~= nil then
-				return "1"
+				return 1
 			end
 
 			if Normalized == "false" or Normalized == "true" then
-				return "true"
+				return true
 			end
 
-			return "true"
+			return nil
 		end
 
 		return true
@@ -2220,14 +2220,14 @@ return function(Config)
 			local Normalized = string.lower(Value)
 
 			if tonumber(Value) ~= nil then
-				return "0"
+				return 0
 			end
 
 			if Normalized == "false" or Normalized == "true" then
-				return "false"
+				return false
 			end
 
-			return "0"
+			return nil
 		end
 
 		return 0
@@ -3449,12 +3449,32 @@ return function(Config)
 					end
 				end
 
+				if ResolvedProfile == "Attack" then
+					local Seen = {}
+
+					for _, ExistingEntry in ipairs(Entries) do
+						Seen[ExistingEntry.Key] = true
+					end
+
+					for _, Entry in ipairs(Group) do
+						local Candidate = Entry.Candidate
+
+						if Predicate(Candidate)
+							and Candidate
+							and Candidate.TrustedAlias == true
+							and Candidate.Family == "base"
+							and Candidate.SourceKind == "instance"
+							and StaminaFeature.HasStrongPrimarySiblingHandle(Candidate)
+							and not Seen[Entry.Key] then
+							table.insert(Entries, Entry)
+						end
+					end
+				end
+
 				if #Entries > 0 then
 					return Entries
 				end
 			end
-
-			return {}
 		end
 
 		local Entries = {}
@@ -3587,6 +3607,38 @@ return function(Config)
 			and Candidate.SourceKind == "instance"
 			and isMainScriptStatsHandle(Candidate.Handle)
 			and StaminaFeature.HasStrongPrimarySiblingHandle(Candidate)
+	end
+
+	local function isAuthoritativeRuntimeSupportCandidate(Candidate, GroupName, Profile)
+		if not Candidate then
+			return false
+		end
+
+		if Candidate.SourceKind == "instance"
+			and isMainScriptStatsHandle(Candidate.Handle)
+			and StaminaFeature.HasStrongPrimarySiblingHandle(Candidate) then
+			return true
+		end
+
+		if Profile == "Attack"
+			and (Candidate.SourceKind == "table" or Candidate.SourceKind == "env") then
+			return false
+		end
+
+		if Candidate.TrustedAlias == true
+			and Candidate.Family == "base"
+			and StaminaFeature.HasStrongPrimarySiblingHandle(Candidate) then
+			return true
+		end
+
+		if GroupName == "Spend"
+			and LocalUtils.isObservedExhaustionSpendName(Candidate.NameLower or "")
+			and Candidate.SourceKind == "instance"
+			and StaminaFeature.HasStrongPrimarySiblingHandle(Candidate) then
+			return true
+		end
+
+		return false
 	end
 
 	local function shouldMirrorDisplayCandidate(Candidate)
@@ -6007,7 +6059,7 @@ return function(Config)
 			local CanRewrite = supportsSafeRuntimeRewrite("Flags", CurrentValue, Entry.Candidate)
 			local DesiredValue = CurrentValue ~= nil and getTruthyValue(CurrentValue) or nil
 
-			if DesiredValue ~= nil then
+			if CanRewrite and DesiredValue ~= nil then
 				Applied = true
 			end
 
@@ -6038,7 +6090,7 @@ return function(Config)
 			local CanRewrite = supportsSafeRuntimeRewrite("Spend", CurrentValue, Entry.Candidate)
 			local DesiredValue = CurrentValue ~= nil and getZeroLikeValue(CurrentValue) or nil
 
-			if DesiredValue ~= nil then
+			if CanRewrite and DesiredValue ~= nil then
 				Applied = true
 			end
 
@@ -6075,7 +6127,7 @@ return function(Config)
 				local CanRewrite = supportsSafeRuntimeRewrite("Current", CurrentValue, Candidate)
 				local DesiredValue = CurrentValue ~= nil and getZeroLikeValue(CurrentValue) or nil
 
-				if DesiredValue ~= nil then
+				if CanRewrite and DesiredValue ~= nil then
 					Applied = true
 				end
 
@@ -6389,6 +6441,23 @@ return function(Config)
 		local HasLocalSupport = #PreferredFlagEntries > 0 or #PreferredSpendEntries > 0
 		local HasSupportApplied = AppliedFlags or AppliedSpend or AppliedExhaustion
 		local ProfileReasonPrefix = string.lower(Profile)
+		local HasAuthoritativeLocalSupport = false
+
+		for _, Entry in ipairs(PreferredFlagEntries) do
+			if isAuthoritativeRuntimeSupportCandidate(Entry.Candidate, "Flags", Profile) then
+				HasAuthoritativeLocalSupport = true
+				break
+			end
+		end
+
+		if not HasAuthoritativeLocalSupport then
+			for _, Entry in ipairs(PreferredSpendEntries) do
+				if isAuthoritativeRuntimeSupportCandidate(Entry.Candidate, "Spend", Profile) then
+					HasAuthoritativeLocalSupport = true
+					break
+				end
+			end
+		end
 
 		StaminaFeature.LastActionProfile = Profile
 
@@ -6418,26 +6487,41 @@ return function(Config)
 				return "logic_unverified", MissingReason, Profile, true
 			end
 
-			for _, Entry in ipairs(PreferredFlagEntries) do
-				local CurrentValue = LocalUtils.getRuntimeObservedValue(Entry)
-				local DesiredValue = CurrentValue ~= nil and getTruthyValue(CurrentValue) or nil
+			if not HasAuthoritativeLocalSupport and not HasRemoteSuppression then
+				local AuthorityReason = HasRemotePending
+					and (ProfileReasonPrefix .. "_remote_pending")
+					or (ProfileReasonPrefix .. "_support_local_only")
 
-				if DesiredValue ~= nil and not LocalUtils.valuesEquivalent(CurrentValue, DesiredValue) then
-					setSupportIssue("flag", Entry, CurrentValue, DesiredValue, "verify")
-					FailureReason = ProfileReasonPrefix .. "_flag_blocked"
-					break
+				StaminaFeature.RemoteRuntime.noteProfileFailure(Profile, AuthorityReason, 1)
+				return "logic_unverified", AuthorityReason, Profile, true
+			end
+
+			for _, Entry in ipairs(PreferredFlagEntries) do
+				if (not HasAuthoritativeLocalSupport)
+					or isAuthoritativeRuntimeSupportCandidate(Entry.Candidate, "Flags", Profile) then
+					local CurrentValue = LocalUtils.getRuntimeObservedValue(Entry)
+					local DesiredValue = CurrentValue ~= nil and getTruthyValue(CurrentValue) or nil
+
+					if DesiredValue ~= nil and not LocalUtils.valuesEquivalent(CurrentValue, DesiredValue) then
+						setSupportIssue("flag", Entry, CurrentValue, DesiredValue, "verify")
+						FailureReason = ProfileReasonPrefix .. "_flag_blocked"
+						break
+					end
 				end
 			end
 
 			if not FailureReason then
 				for _, Entry in ipairs(PreferredSpendEntries) do
-					local CurrentValue = LocalUtils.getRuntimeObservedValue(Entry)
-					local DesiredValue = CurrentValue ~= nil and getZeroLikeValue(CurrentValue) or nil
+					if (not HasAuthoritativeLocalSupport)
+						or isAuthoritativeRuntimeSupportCandidate(Entry.Candidate, "Spend", Profile) then
+						local CurrentValue = LocalUtils.getRuntimeObservedValue(Entry)
+						local DesiredValue = CurrentValue ~= nil and getZeroLikeValue(CurrentValue) or nil
 
-					if DesiredValue ~= nil and not LocalUtils.valuesEquivalent(CurrentValue, DesiredValue) then
-						setSupportIssue("spend", Entry, CurrentValue, DesiredValue, "verify")
-						FailureReason = ProfileReasonPrefix .. "_spend_locked"
-						break
+						if DesiredValue ~= nil and not LocalUtils.valuesEquivalent(CurrentValue, DesiredValue) then
+							setSupportIssue("spend", Entry, CurrentValue, DesiredValue, "verify")
+							FailureReason = ProfileReasonPrefix .. "_spend_locked"
+							break
+						end
 					end
 				end
 			end
@@ -6782,17 +6866,41 @@ return function(Config)
 
 	local function runNamecallHook(OriginalNamecall, Self, ...)
 		local Method = type(getnamecallmethod) == "function" and getnamecallmethod() or nil
-		local Result, Handled = tryInterceptAttributeNamecall(OriginalNamecall, Self, Method, ...)
+		local Arguments = table.pack(...)
+
+		if type(Method) ~= "string" then
+			Method = nil
+		end
+
+		local Result, Handled = tryInterceptAttributeNamecall(
+			OriginalNamecall,
+			Self,
+			Method,
+			table.unpack(Arguments, 1, Arguments.n)
+		)
 
 		if Handled then
 			return Result
 		end
 
-		if tryInterceptRemoteNamecall(Self, Method, ...) then
+		if tryInterceptRemoteNamecall(Self, Method, table.unpack(Arguments, 1, Arguments.n)) then
 			return nil
 		end
 
-		return OriginalNamecall(Self, ...)
+		local Results = table.pack(pcall(function()
+			return OriginalNamecall(Self, table.unpack(Arguments, 1, Arguments.n))
+		end))
+
+		if Results[1] then
+			return table.unpack(Results, 2, Results.n)
+		end
+
+		if type(Results[2]) == "string"
+			and string.find(Results[2], "expects a string, but table was passed", 1, true) ~= nil then
+			return nil
+		end
+
+		error(Results[2])
 	end
 
 	local function getHookWrap()
