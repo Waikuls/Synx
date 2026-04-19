@@ -8,7 +8,6 @@ return function(Config)
 		Enabled = false,
 		Connections = {},
 		ValueConnections = {},
-		Var001Module = nil,
 	}
 
 	local function findMainScript()
@@ -19,15 +18,6 @@ return function(Config)
 		return Entity:FindFirstChild("MainScript")
 	end
 
-	local function cacheVar001()
-		local MainScript = findMainScript()
-		if MainScript and MainScript:FindFirstChild("Var001") and not StaminaFeature.Var001Module then
-			local success, module = pcall(require, MainScript.Var001)
-			if success then
-				StaminaFeature.Var001Module = module
-			end
-		end
-	end
 
 	local function setupValueHooks()
 		StaminaFeature.ValueConnections = {}
@@ -38,51 +28,11 @@ return function(Config)
 
 		local Stamina = Stats:FindFirstChild("Stamina")
 		local MaxStamina = Stats:FindFirstChild("MaxStamina")
-		local NoStaminaCost = Stats:FindFirstChild("NoStaminaCost")
-		local Exhaustion = Stats:FindFirstChild("Exhaustion")
-		local StaminaInStat = Stats:FindFirstChild("StaminaInStat")
-		local BodyFatique = Stats:FindFirstChild("BodyFatique") or Stats:FindFirstChild("BodyFatigue")
-		local NoCooldown = Stats:FindFirstChild("NoCooldown")
 
 		if Stamina and Stamina:IsA("NumberValue") and MaxStamina then
 			table.insert(StaminaFeature.ValueConnections, Stamina:GetPropertyChangedSignal("Value"):Connect(function()
-				if StaminaFeature.Enabled then
+				if StaminaFeature.Enabled and Stamina.Value < MaxStamina.Value then
 					Stamina.Value = MaxStamina.Value
-				end
-			end))
-		end
-		if Exhaustion and Exhaustion:IsA("NumberValue") then
-			table.insert(StaminaFeature.ValueConnections, Exhaustion:GetPropertyChangedSignal("Value"):Connect(function()
-				if StaminaFeature.Enabled then
-					Exhaustion.Value = 0
-				end
-			end))
-		end
-		if NoStaminaCost and NoStaminaCost:IsA("BoolValue") then
-			table.insert(StaminaFeature.ValueConnections, NoStaminaCost:GetPropertyChangedSignal("Value"):Connect(function()
-				if StaminaFeature.Enabled then
-					NoStaminaCost.Value = true
-				end
-			end))
-		end
-		if StaminaInStat and StaminaInStat:IsA("NumberValue") then
-			table.insert(StaminaFeature.ValueConnections, StaminaInStat:GetPropertyChangedSignal("Value"):Connect(function()
-				if StaminaFeature.Enabled then
-					StaminaInStat.Value = 100
-				end
-			end))
-		end
-		if BodyFatique and BodyFatique:IsA("NumberValue") then
-			table.insert(StaminaFeature.ValueConnections, BodyFatique:GetPropertyChangedSignal("Value"):Connect(function()
-				if StaminaFeature.Enabled then
-					BodyFatique.Value = 0
-				end
-			end))
-		end
-		if NoCooldown and NoCooldown:IsA("BoolValue") then
-			table.insert(StaminaFeature.ValueConnections, NoCooldown:GetPropertyChangedSignal("Value"):Connect(function()
-				if StaminaFeature.Enabled then
-					NoCooldown.Value = true
 				end
 			end))
 		end
@@ -98,64 +48,9 @@ return function(Config)
 			if Stats then
 				local Stamina = Stats:FindFirstChild("Stamina")
 				local MaxStamina = Stats:FindFirstChild("MaxStamina")
-				local NoStaminaCost = Stats:FindFirstChild("NoStaminaCost")
-				local Exhaustion = Stats:FindFirstChild("Exhaustion")
-				local StaminaInStat = Stats:FindFirstChild("StaminaInStat")
-				local BodyFatique = Stats:FindFirstChild("BodyFatique") or Stats:FindFirstChild("BodyFatigue")
-				local NoCooldown = Stats:FindFirstChild("NoCooldown")
-
-				if Stamina and MaxStamina then
+				if Stamina and MaxStamina and Stamina.Value < MaxStamina.Value then
 					Stamina.Value = MaxStamina.Value
 				end
-				if NoStaminaCost then
-					NoStaminaCost.Value = true
-				end
-				if Exhaustion then
-					Exhaustion.Value = 0
-				end
-				if StaminaInStat then
-					StaminaInStat.Value = MaxStamina and MaxStamina.Value or 100
-				end
-				if BodyFatique then
-					BodyFatique.Value = 0
-				end
-				if NoCooldown then
-					NoCooldown.Value = true
-				end
-			end
-		end)
-
-		pcall(function()
-			local Attributes = MainScript:FindFirstChild("Attributes")
-			if Attributes then
-				Attributes:SetAttribute("Exhausted", false)
-				Attributes:SetAttribute("StaminaRegenPeriod", 0)
-				Attributes:SetAttribute("StaminaRegenPercent", 100)
-				Attributes:SetAttribute("ExhaustionDeplete", 0)
-				Attributes:SetAttribute("ExhaustionDepletePeriod", 0)
-				Attributes:SetAttribute("StaminaInStat StatBoost", 0)
-				Attributes:SetAttribute("Melee Strength", 1)
-				Attributes:SetAttribute("Melee Defense", 1)
-				Attributes:SetAttribute("melee AnimationSpeed", 1)
-				Attributes:SetAttribute("meleelight AnimationSpeed", 1)
-				Attributes:SetAttribute("meleeheavy AnimationSpeed", 1)
-				Attributes:SetAttribute("NoCooldown", true)
-			end
-		end)
-
-		pcall(function()
-			local UCooldown = MainScript:FindFirstChild("UCooldown")
-			if UCooldown and UCooldown:IsA("NumberValue") then
-				UCooldown.Value = 0
-			end
-		end)
-
-		pcall(function()
-			if StaminaFeature.Var001Module then
-				StaminaFeature.Var001Module.M1StaminaCost = 0
-				StaminaFeature.Var001Module.M2StaminaCost = 0
-				StaminaFeature.Var001Module.currentM1StaminaCost = 0
-				StaminaFeature.Var001Module.currentM2StaminaCost = 0
 			end
 		end)
 	end
@@ -208,19 +103,8 @@ return function(Config)
 			if StaminaFeature.Enabled and self:IsA("ValueBase") and self.Parent and self.Parent.Name == "Stats" then
 				local MainScript = findMainScript()
 				if MainScript and self:IsDescendantOf(MainScript) then
-					if self.Name == "Stamina" then
-						local MaxStamina = self.Parent:FindFirstChild("MaxStamina")
-						if MaxStamina then
-							value = MaxStamina.Value
-						end
-					elseif self.Name == "NoStaminaCost" then
-						value = true
-					elseif self.Name == "Exhaustion" then
-						value = 0
-					elseif self.Name == "BodyFatique" or self.Name == "BodyFatigue" then
-						value = 0
-					elseif self.Name == "NoCooldown" then
-						value = true
+					if self.Name == "Stamina" and value < self.Value then
+						return -- Block drain
 					end
 				end
 			end
@@ -234,7 +118,6 @@ return function(Config)
 		getgenv().FatalityStaminaBlock = Value
 		if Value then
 			task.wait(0.1)
-			cacheVar001()
 			setupValueHooks()
 			hookValueNewIndex()
 			table.insert(self.Connections, RunService.RenderStepped:Connect(enforceStamina))
@@ -255,7 +138,6 @@ return function(Config)
 			end
 			self.Connections = {}
 			self.ValueConnections = {}
-			self.Var001Module = nil
 			getgenv().FatalityStaminaBlock = false
 			if Notification then
 				Notification:Notify({
