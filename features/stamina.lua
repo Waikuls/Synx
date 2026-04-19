@@ -105,13 +105,20 @@ return function(Config)
 			local method = getnamecallmethod()
 			if method == "FireServer" and self:IsA("RemoteEvent") and StaminaFeature.Enabled then
 				local args = {...}
+				local remoteName = self.Name
 				local MainScript = findMainScript()
 				if MainScript and #args > 0 then
-					-- Block or zero stamina cost args for sprint/attack (common patterns)
-					if typeof(args[1]) == "number" and args[1] > 0 then
-						args[1] = 0 -- zero cost if first arg is stamina cost
+					-- Whitelist common inventory/pickup/equip remotes (add more from your logs if needed)
+					local inventoryRemotes = {"Equip", "Pickup", "Bag", "Inventory", "Hold", "UseItem", "Take"}
+					if table.find(inventoryRemotes, remoteName) then
+						warn("[STAMINA DEBUG] namecall ALLOWED inventory remote:", remoteName)
+						return oldNamecall(self, ...)
 					end
-					-- Add more specific arg checks if real debug shows remote names like "Sprint" or "Attack"
+					-- Only zero stamina cost for action remotes (sprint/attack)
+					if typeof(args[1]) == "number" and args[1] > 0 and not table.find(inventoryRemotes, remoteName) then
+						warn("[STAMINA DEBUG] namecall ZEROED stamina cost on remote:", remoteName, "arg:", args[1])
+						args[1] = 0
+					end
 				end
 				return oldNamecall(self, unpack(args))
 			end
@@ -131,13 +138,19 @@ return function(Config)
 			if self:IsA("ValueBase") and self.Parent and self.Parent.Name == "Stats" then
 				local MainScript = findMainScript()
 				if MainScript and self:IsDescendantOf(MainScript) then
-					if self.Name == "Stamina" and typeof(value) == "number" and value < (self.Value or 100) then
-						-- Block drain at source by preventing negative change
-						return
-					elseif self.Name == "NoStaminaCost" or self.Name == "NoCooldown" then
+					local name = self.Name
+					local isNumber = typeof(value) == "number"
+					if name == "Stamina" and isNumber and value < (self.Value or 100) then
+						warn("[STAMINA DEBUG] __newindex BLOCKED Stamina drain:", value, "old:", self.Value)
+						return -- Re-enabled block (confirmed diagnosis)
+					elseif name == "NoStaminaCost" or name == "NoCooldown" then
 						value = true
-					elseif (self.Name == "BodyFatigue" or self.Name == "BodyFatique" or self.Name == "Exhaustion") and typeof(value) == "number" and value > 0 then
+					elseif (name == "BodyFatigue" or name == "BodyFatique" or name == "Exhaustion") and isNumber and value > 0 then
+						warn("[STAMINA DEBUG] __newindex ZEROED fatigue/exhaustion:", name, value)
 						value = 0
+					else
+						-- Narrowed: only log OTHER (no interference with Bag/Tool/Equip values)
+						warn("[STAMINA DEBUG] __newindex OTHER Stats value (allowed):", name, "value:", value)
 					end
 				end
 			end
