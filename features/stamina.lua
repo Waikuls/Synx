@@ -82,11 +82,12 @@ return function(Config)
 				local StaminaInStat = Stats:FindFirstChild("StaminaInStat")
 				local MaxStamina = Stats:FindFirstChild("MaxStamina")
 
-				if NoStaminaCost then NoStaminaCost.Value = true end
-				if NoCooldown then NoCooldown.Value = true end
-				if BodyFatigue then BodyFatigue.Value = 0 end
-				if Exhaustion then Exhaustion.Value = 0 end
-				if StaminaInStat and MaxStamina then
+				-- Only set if not already correct to reduce spam
+				if NoStaminaCost and not NoStaminaCost.Value then NoStaminaCost.Value = true end
+				if NoCooldown and not NoCooldown.Value then NoCooldown.Value = true end
+				if BodyFatigue and BodyFatigue.Value ~= 0 then BodyFatigue.Value = 0 end
+				if Exhaustion and Exhaustion.Value ~= 0 then Exhaustion.Value = 0 end
+				if StaminaInStat and MaxStamina and StaminaInStat.Value ~= MaxStamina.Value then
 					StaminaInStat.Value = MaxStamina.Value
 				end
 			end
@@ -141,17 +142,14 @@ return function(Config)
 					local name = self.Name
 					local isNumber = typeof(value) == "number"
 					if name == "Stamina" and isNumber and value < (self.Value or 100) then
-						warn("[STAMINA DEBUG] __newindex BLOCKED Stamina drain:", value, "old:", self.Value)
-						return -- Re-enabled block (confirmed diagnosis)
+						-- Critical block for stamina (no spam)
+						return
 					elseif name == "NoStaminaCost" or name == "NoCooldown" then
 						value = true
 					elseif (name == "BodyFatigue" or name == "BodyFatique" or name == "Exhaustion") and isNumber and value > 0 then
-						warn("[STAMINA DEBUG] __newindex ZEROED fatigue/exhaustion:", name, value)
 						value = 0
-					else
-						-- Narrowed: only log OTHER (no interference with Bag/Tool/Equip values)
-						warn("[STAMINA DEBUG] __newindex OTHER Stats value (allowed):", name, "value:", value)
 					end
+					-- No debug logs in production (spam fixed via conditional enforce)
 				end
 			end
 			return oldNewIndex(self, key, value)
