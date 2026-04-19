@@ -84,24 +84,7 @@ return function(Config)
 			if method == "FireServer" then
 				local MainScript = findMainScript()
 				if MainScript then
-					local ToggleRemote = MainScript:FindFirstChild("Toggle?")
-					local DashRemote = MainScript:FindFirstChild("Dash")
-					local InputRemote = MainScript:FindFirstChild("Input")
-					if self == ToggleRemote then
-						local args = {...}
-						if args[1] and args[1].Action == "Run" then
-							args[1].State = false
-						end
-						return oldNamecall(self, unpack(args))
-					elseif self == DashRemote then
-						return
-					elseif self == InputRemote then
-						local args = {...}
-						if args[1] and args[1].KeyInfo and args[1].KeyInfo.Name == "Q" and not args[1].KeyInfo.Airborne then
-							return -- Block skill Q
-						end
-						return oldNamecall(self, unpack(args))
-					end
+					warn("DEBUG Remote FireServer:", self.Name) -- TEMP if needed
 				end
 			end
 			return oldNamecall(self, ...)
