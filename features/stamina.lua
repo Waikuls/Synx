@@ -1,3 +1,4 @@
+print("Stamina module loaded")
 return function(Config)
 	local Players = game:GetService("Players")
 	local RunService = game:GetService("RunService")
@@ -6,6 +7,9 @@ return function(Config)
 
 	local StaminaFeature = {
 		Enabled = false,
+		DebugEnabled = false,
+		CurrentProfile = "Run",
+		CapturedLines = {},
 		Connections = {},
 		ValueConnections = {},
 	}
@@ -16,7 +20,6 @@ return function(Config)
 		local Entity = Entities:FindFirstChild(LocalPlayer.Name) or Entities:FindFirstChild("Kiwzex")
 		if not Entity then return nil end
 		local MainScript = Entity:FindFirstChild("MainScript")
-		warn("DEBUG findMainScript:", Entity.Name, MainScript and "found" or "nil") -- DEBUG
 		return MainScript
 	end
 
@@ -31,18 +34,34 @@ return function(Config)
 		local Stamina = Stats:FindFirstChild("Stamina")
 		local MaxStamina = Stats:FindFirstChild("MaxStamina")
 		local NoStaminaCost = Stats:FindFirstChild("NoStaminaCost")
+		local NoCooldown = Stats:FindFirstChild("NoCooldown")
+		local BodyFatigue = Stats:FindFirstChild("BodyFatigue") or Stats:FindFirstChild("BodyFatique")
+		local Exhaustion = Stats:FindFirstChild("Exhaustion")
 
-		if Stamina and Stamina:IsA("NumberValue") and MaxStamina then
-			table.insert(StaminaFeature.ValueConnections, Stamina:GetPropertyChangedSignal("Value"):Connect(function()
-				if StaminaFeature.Enabled and Stamina.Value < MaxStamina.Value then
-					Stamina.Value = MaxStamina.Value
-				end
-			end))
-		end
+		-- Set flags at source to prevent cost
 		if NoStaminaCost and NoStaminaCost:IsA("BoolValue") then
+			NoStaminaCost.Value = true
 			table.insert(StaminaFeature.ValueConnections, NoStaminaCost:GetPropertyChangedSignal("Value"):Connect(function()
 				if StaminaFeature.Enabled then
 					NoStaminaCost.Value = true
+				end
+			end))
+		end
+		if NoCooldown and NoCooldown:IsA("BoolValue") then
+			NoCooldown.Value = true
+		end
+		if BodyFatigue and BodyFatigue:IsA("NumberValue") then
+			BodyFatigue.Value = 0
+		end
+		if Exhaustion and Exhaustion:IsA("NumberValue") then
+			Exhaustion.Value = 0
+		end
+
+		if Stamina and Stamina:IsA("NumberValue") and MaxStamina then
+			table.insert(StaminaFeature.ValueConnections, Stamina:GetPropertyChangedSignal("Value"):Connect(function()
+				if StaminaFeature.Enabled and Stamina.Value < MaxStamina.Value * 0.95 then
+					-- Only restore if significant drain (avoid loop)
+					Stamina.Value = MaxStamina.Value
 				end
 			end))
 		end
@@ -56,20 +75,19 @@ return function(Config)
 		pcall(function()
 			local Stats = MainScript:FindFirstChild("Stats")
 			if Stats then
-				local Stamina = Stats:FindFirstChild("Stamina")
-				local MaxStamina = Stats:FindFirstChild("MaxStamina")
 				local NoStaminaCost = Stats:FindFirstChild("NoStaminaCost")
+				local NoCooldown = Stats:FindFirstChild("NoCooldown")
+				local BodyFatigue = Stats:FindFirstChild("BodyFatigue") or Stats:FindFirstChild("BodyFatique")
+				local Exhaustion = Stats:FindFirstChild("Exhaustion")
 				local StaminaInStat = Stats:FindFirstChild("StaminaInStat")
-				warn("DEBUG Enforce: Stamina=", Stamina and Stamina.Value or "nil", "Max=", MaxStamina and MaxStamina.Value or "nil", "NoCost=", NoStaminaCost and NoStaminaCost.Value or "nil", "StaminaInStat=", StaminaInStat and StaminaInStat.Value or "nil") -- DEBUG no throttle
-				-- NoStaminaCost prevents drain at source
-				if NoStaminaCost then
-					NoStaminaCost.Value = true
-				end
-				if StaminaInStat then
-					if MaxStamina then StaminaInStat.Value = MaxStamina.Value end
-				end
-				if Stamina and MaxStamina then
-					Stamina.Value = MaxStamina.Value -- Always set for safety
+				local MaxStamina = Stats:FindFirstChild("MaxStamina")
+
+				if NoStaminaCost then NoStaminaCost.Value = true end
+				if NoCooldown then NoCooldown.Value = true end
+				if BodyFatigue then BodyFatigue.Value = 0 end
+				if Exhaustion then Exhaustion.Value = 0 end
+				if StaminaInStat and MaxStamina then
+					StaminaInStat.Value = MaxStamina.Value
 				end
 			end
 		end)
@@ -77,23 +95,25 @@ return function(Config)
 
 	local function hookRemotes()
 		if getgenv().FatalityStaminaHookInstalled then return end
-		getgenv().FatalityStaminaBlock = false
+		getgenv().FatalityStaminaBlock = true
 		getgenv().FatalityStaminaHookInstalled = true
 
 		local mt = getrawmetatable(game)
 		local oldNamecall = mt.__namecall
 		setreadonly(mt, false)
 		mt.__namecall = newcclosure(function(self, ...)
-			if not getgenv().FatalityStaminaBlock then
-				return oldNamecall(self, ...)
-			end
 			local method = getnamecallmethod()
-			if method ~= "FireServer" or not self:IsA("RemoteEvent") then
-				return oldNamecall(self, ...)
-			end
-			local MainScript = findMainScript()
-			if MainScript then
-				warn("DEBUG RemoteEvent FireServer:", self.Name) -- TEMP
+			if method == "FireServer" and self:IsA("RemoteEvent") and StaminaFeature.Enabled then
+				local args = {...}
+				local MainScript = findMainScript()
+				if MainScript and #args > 0 then
+					-- Block or zero stamina cost args for sprint/attack (common patterns)
+					if typeof(args[1]) == "number" and args[1] > 0 then
+						args[1] = 0 -- zero cost if first arg is stamina cost
+					end
+					-- Add more specific arg checks if real debug shows remote names like "Sprint" or "Attack"
+				end
+				return oldNamecall(self, unpack(args))
 			end
 			return oldNamecall(self, ...)
 		end)
@@ -105,15 +125,19 @@ return function(Config)
 		local oldNewIndex = mt.__newindex
 		setreadonly(mt, false)
 		mt.__newindex = newcclosure(function(self, key, value)
-			if StaminaFeature.Enabled and self:IsA("ValueBase") and self.Parent and self.Parent.Name == "Stats" then
+			if not StaminaFeature.Enabled then
+				return oldNewIndex(self, key, value)
+			end
+			if self:IsA("ValueBase") and self.Parent and self.Parent.Name == "Stats" then
 				local MainScript = findMainScript()
 				if MainScript and self:IsDescendantOf(MainScript) then
-					warn("DEBUG __newindex ALL:", self.Name, "key:", key, "value type:", typeof(value), "old value:", self.Value) -- DEBUG
-					if self.Name == "Stamina" and value < self.Value then
-						warn("DEBUG BLOCK Stamina drain") -- DEBUG
-						return -- Block drain
-					elseif self.Name == "NoStaminaCost" then
+					if self.Name == "Stamina" and typeof(value) == "number" and value < (self.Value or 100) then
+						-- Block drain at source by preventing negative change
+						return
+					elseif self.Name == "NoStaminaCost" or self.Name == "NoCooldown" then
 						value = true
+					elseif (self.Name == "BodyFatigue" or self.Name == "BodyFatique" or self.Name == "Exhaustion") and typeof(value) == "number" and value > 0 then
+						value = 0
 					end
 				end
 			end
@@ -125,17 +149,24 @@ return function(Config)
 	function StaminaFeature:SetEnabled(Value)
 		self.Enabled = Value
 		if Value then
-			warn("DEBUG StaminaFeature enabled") -- DEBUG
 			local MainScript = findMainScript()
-			warn("DEBUG SetEnabled MainScript:", MainScript and "found" or "nil") -- DEBUG
-			task.wait(0.1)
+			task.wait(0.5) -- Give time for entity to load
 			setupValueHooks()
-			-- hookValueNewIndex() disabled to avoid error
+			hookRemotes()
+			hookValueNewIndex()
 			table.insert(self.Connections, RunService.RenderStepped:Connect(enforceStamina))
+
+			-- Add entity change listener for respawn
+			table.insert(self.Connections, workspace.ChildAdded:Connect(function(child)
+				if child.Name == "Entities" then
+					task.delay(1, setupValueHooks)
+				end
+			end))
+
 			if Notification then
 				Notification:Notify({
-					Title = "No Drain Stamina",
-					Content = "เปิดแล้ว - No Stamina Drain (value hooks + enforce)",
+					Title = "Inf Stamina",
+					Content = "เปิดแล้ว - Source prevention (flags + hooks + no drain)",
 					Icon = "check-circle"
 				})
 			end
@@ -150,7 +181,7 @@ return function(Config)
 			self.ValueConnections = {}
 			if Notification then
 				Notification:Notify({
-					Title = "No Drain Stamina",
+					Title = "Inf Stamina",
 					Content = "ปิดแล้ว",
 					Icon = "x-circle"
 				})
@@ -160,6 +191,63 @@ return function(Config)
 
 	function StaminaFeature:Destroy()
 		self:SetEnabled(false)
+	end
+
+	-- Extended API for stats.lua integration and debug
+	function StaminaFeature:IsDebugEnabled()
+		return self.DebugEnabled
+	end
+
+	function StaminaFeature:SetDebugEnabled(Value)
+		self.DebugEnabled = Value
+		if Value then
+			self.CapturedLines = {}
+		end
+	end
+
+	function StaminaFeature:GetDebugProfile()
+		return self.CurrentProfile
+	end
+
+	function StaminaFeature:SetDebugProfile(Profile)
+		if table.find({"Free", "Run", "Dash", "Attack"}, Profile) then
+			self.CurrentProfile = Profile
+			self.CapturedLines = {}
+			return true
+		end
+		return false
+	end
+
+	function StaminaFeature:StartDebugCapture(Profile)
+		if Profile then
+			self:SetDebugProfile(Profile)
+		end
+		self.DebugEnabled = true
+		self.CapturedLines = {"Capture started for profile: " .. self.CurrentProfile}
+		return true
+	end
+
+	function StaminaFeature:ClearDebugCapture()
+		self.CapturedLines = {}
+		self.DebugEnabled = false
+		return true
+	end
+
+	function StaminaFeature:GetDebugLines()
+		if not self.DebugEnabled then return {} end
+		local lines = table.clone(self.CapturedLines)
+		table.insert(lines, "Profile: " .. self.CurrentProfile)
+		table.insert(lines, "Enabled: " .. tostring(self.Enabled))
+		return lines
+	end
+
+	function StaminaFeature:GetStatusLines()
+		return {
+			"InfStamina: " .. (self.Enabled and "ACTIVE" or "OFF"),
+			"Prevention: Flags + Hooks + Block",
+			"Profile: " .. self.CurrentProfile,
+			"Note: Actions should not drain stamina"
+		}
 	end
 
 	return StaminaFeature
