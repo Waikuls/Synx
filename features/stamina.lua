@@ -979,7 +979,7 @@ return function(Config)
 		return false
 	end
 
-	local function isStrongSupportTable(TableValue)
+	StaminaFeature.IsStrongSupportTable = function(TableValue)
 		if type(TableValue) ~= "table" then
 			return false
 		end
@@ -2017,7 +2017,7 @@ return function(Config)
 		return Success
 	end
 
-	local function countPromotedLocalCandidates()
+	StaminaFeature.CountPromotedLocalCandidatesInternal = function()
 		local Count = 0
 
 		for _, Candidate in ipairs(StaminaFeature.CandidateOrder) do
@@ -2029,7 +2029,7 @@ return function(Config)
 		return Count
 	end
 
-	local function countPromotedRemoteCandidates()
+	StaminaFeature.CountPromotedRemoteCandidatesInternal = function()
 		local Count = 0
 
 		for _, Candidate in ipairs(StaminaFeature.RemoteCandidateOrder) do
@@ -2049,7 +2049,7 @@ return function(Config)
 	local isRuntimeSpendCandidate
 	local inferContextGroup
 
-	local function countLogicPrimaryEntries()
+	StaminaFeature.CountLogicPrimaryEntriesInternal = function()
 		local CurrentCount = 0
 		local MaxCount = 0
 
@@ -2068,8 +2068,8 @@ return function(Config)
 		return CurrentCount, MaxCount
 	end
 
-	local function getDiagnosticSnapshot()
-		local LogicCurrentCount, LogicMaxCount = countLogicPrimaryEntries()
+	StaminaFeature.GetDiagnosticSnapshotInternal = function()
+		local LogicCurrentCount, LogicMaxCount = StaminaFeature.CountLogicPrimaryEntriesInternal()
 		local DisplayCurrentCount = 0
 		local DisplayMaxCount = 0
 
@@ -2150,7 +2150,7 @@ return function(Config)
 	end
 
 	local function buildStatusLines()
-		local Snapshot = getDiagnosticSnapshot()
+		local Snapshot = StaminaFeature.GetDiagnosticSnapshotInternal()
 		local TrustedPrimaryLabel = getHandleCandidateLabel("Current", isLogicLocalCandidate)
 		local RejectedPrimaryLabel, RejectedPrimaryCandidate = getHandleCandidateLabel("Current", isRejectedPrimaryCandidate)
 		local RejectedReason = RejectedPrimaryCandidate and getRejectedPrimaryReason(RejectedPrimaryCandidate) or "none"
@@ -2168,7 +2168,7 @@ return function(Config)
 	end
 
 	local function buildStatusConsoleLine()
-		local Snapshot = getDiagnosticSnapshot()
+		local Snapshot = StaminaFeature.GetDiagnosticSnapshotInternal()
 		local TrustedPrimaryLabel = getHandleCandidateLabel("Current", isLogicLocalCandidate)
 		local RejectedPrimaryLabel, RejectedPrimaryCandidate = getHandleCandidateLabel("Current", isRejectedPrimaryCandidate)
 		local FlagLabel = getHandleCandidateLabel("Flags", isRuntimeFlagCandidate)
@@ -2208,7 +2208,7 @@ return function(Config)
 	end
 
 	local function buildDiagnosticHeadline(HeaderText)
-		local Snapshot = getDiagnosticSnapshot()
+		local Snapshot = StaminaFeature.GetDiagnosticSnapshotInternal()
 
 		return string.format(
 			"%s Logic C=%d M=%d | Handles C=%d M=%d F=%d S=%d",
@@ -2223,7 +2223,7 @@ return function(Config)
 	end
 
 	local function buildDiagnosticLines(MaxSummaryLines)
-		local Snapshot = getDiagnosticSnapshot()
+		local Snapshot = StaminaFeature.GetDiagnosticSnapshotInternal()
 		local Lines = {
 			string.format(
 				"Handles C=%d M=%d F=%d S=%d",
@@ -2467,7 +2467,7 @@ return function(Config)
 			or string.find(NameLower, "stamina", 1, true) ~= nil
 	end
 
-	local function hasStrongPrimarySiblingHandle(Candidate)
+	StaminaFeature.HasStrongPrimarySiblingHandle = function(Candidate)
 		if not Candidate then
 			return false
 		end
@@ -2544,7 +2544,7 @@ return function(Config)
 			Score = Score + 3
 		end
 
-		if hasStrongPrimarySiblingHandle(Candidate) then
+		if StaminaFeature.HasStrongPrimarySiblingHandle(Candidate) then
 			Score = Score + 6
 		end
 
@@ -2613,7 +2613,7 @@ return function(Config)
 			for _, Entry in ipairs(Group) do
 				local Candidate = Entry.Candidate
 
-				if isRelevantCandidate(Candidate) and hasStrongPrimarySiblingHandle(Candidate) then
+				if isRelevantCandidate(Candidate) and StaminaFeature.HasStrongPrimarySiblingHandle(Candidate) then
 					local Score = getRuntimeSupportPriority(Candidate, GroupName, ResolvedProfile)
 
 					if Score ~= nil then
@@ -2775,7 +2775,7 @@ return function(Config)
 			or isStaminaDisplayName(NameLower)
 	end
 
-	local function hasCanonicalCurrentHandle()
+	StaminaFeature.HasCanonicalCurrentHandleInternal = function()
 		for _, Entry in ipairs(StaminaFeature.Handles.Current) do
 			if isCanonicalStatsCurrentCandidate(Entry.Candidate) then
 				return true
@@ -2785,7 +2785,7 @@ return function(Config)
 		return false
 	end
 
-	local function hasCanonicalLogicCurrentHandle()
+	StaminaFeature.HasCanonicalLogicCurrentHandleInternal = function()
 		for _, Entry in ipairs(StaminaFeature.Handles.Current) do
 			if isLogicLocalCandidate(Entry.Candidate)
 				and isCanonicalStatsCurrentCandidate(Entry.Candidate) then
@@ -2796,11 +2796,11 @@ return function(Config)
 		return false
 	end
 
-	local function hasPrimaryHandles()
+	StaminaFeature.HasPrimaryHandlesInternal = function()
 		return #StaminaFeature.Handles.Current > 0 or #StaminaFeature.Handles.Max > 0
 	end
 
-	local function hasLogicPrimaryHandles()
+	StaminaFeature.HasLogicPrimaryHandlesInternal = function()
 		for _, Entry in ipairs(StaminaFeature.Handles.Current) do
 			if isLogicLocalCandidate(Entry.Candidate) then
 				return true
@@ -2816,12 +2816,12 @@ return function(Config)
 		return false
 	end
 
-	local function hasSupportHandles(Profile)
+	StaminaFeature.HasSupportHandlesInternal = function(Profile)
 		return #getPreferredRuntimeFlagEntries(Profile) > 0
 			or #getPreferredRuntimeSpendEntries(Profile) > 0
 	end
 
-	local function hasRelevantLogicPrimaryHandles(Profile)
+	StaminaFeature.HasRelevantLogicPrimaryHandlesInternal = function(Profile)
 		for _, GroupName in ipairs({"Current", "Max"}) do
 			for _, Entry in ipairs(StaminaFeature.Handles[GroupName]) do
 				if isLogicLocalCandidate(Entry.Candidate)
@@ -2834,7 +2834,7 @@ return function(Config)
 		return false
 	end
 
-	local function hasRelevantLogicCurrentHandles(Profile)
+	StaminaFeature.HasRelevantLogicCurrentHandlesInternal = function(Profile)
 		for _, Entry in ipairs(StaminaFeature.Handles.Current) do
 			if isLogicLocalCandidate(Entry.Candidate)
 				and candidateMatchesActionProfile(Entry.Candidate, Profile) then
@@ -2845,7 +2845,7 @@ return function(Config)
 		return false
 	end
 
-	local function hasHandles()
+	StaminaFeature.HasHandlesInternal = function()
 		return #StaminaFeature.Handles.Current > 0
 			or #StaminaFeature.Handles.Max > 0
 			or #StaminaFeature.Handles.Flags > 0
@@ -3138,7 +3138,7 @@ return function(Config)
 		end
 
 		local ProfileFamily = getProfileFamily(Session.Profile)
-		local Snapshot = getDiagnosticSnapshot()
+		local Snapshot = StaminaFeature.GetDiagnosticSnapshotInternal()
 		local PromotedLogic = {}
 		local DisplaySuspects = {}
 		local HiddenPrimarySuspects = {}
@@ -3821,7 +3821,7 @@ return function(Config)
 
 		local function visitTable(TableValue)
 			local BelongsToLocalPlayer = tableBelongsToLocalPlayer(TableValue)
-			local HasStrongSupportShape = isStrongSupportTable(TableValue)
+			local HasStrongSupportShape = StaminaFeature.IsStrongSupportTable(TableValue)
 			local TableConfidence = HasStrongSupportShape and 138 or 15
 
 			if not BelongsToLocalPlayer and not HasStrongSupportShape then
@@ -3858,7 +3858,7 @@ return function(Config)
 				return false
 			end
 
-			if isStrongSupportTable(TableValue) then
+			if StaminaFeature.IsStrongSupportTable(TableValue) then
 				return true
 			end
 
@@ -4068,7 +4068,7 @@ return function(Config)
 
 							if type(Result) == "table" then
 								if tableBelongsToLocalPlayer(Result)
-									or isStrongSupportTable(Result)
+									or StaminaFeature.IsStrongSupportTable(Result)
 									or isInterestingLogicName(ScopeTextLower) then
 									visitEnvTable(
 										Result,
@@ -4161,7 +4161,7 @@ return function(Config)
 					and (
 						tableBelongsToLocalPlayer(UpvalueValue)
 						or isInterestingLogicName(string.lower(tostring(UpvalueName)))
-						or isStrongSupportTable(UpvalueValue)
+						or StaminaFeature.IsStrongSupportTable(UpvalueValue)
 					) then
 					visitEnvTable(
 						UpvalueValue,
@@ -4898,7 +4898,7 @@ return function(Config)
 	end
 
 	local function applyFlags(Profile)
-		if not hasCanonicalLogicCurrentHandle() then
+		if not StaminaFeature.HasCanonicalLogicCurrentHandleInternal() then
 			return
 		end
 
@@ -4925,7 +4925,7 @@ return function(Config)
 	end
 
 	local function applySpend(Profile)
-		if not hasCanonicalLogicCurrentHandle() then
+		if not StaminaFeature.HasCanonicalLogicCurrentHandleInternal() then
 			return
 		end
 
@@ -4952,7 +4952,7 @@ return function(Config)
 	end
 
 	local function applyDirectStatsOverrides()
-		if not hasCanonicalLogicCurrentHandle() then
+		if not StaminaFeature.HasCanonicalLogicCurrentHandleInternal() then
 			return
 		end
 
@@ -5074,11 +5074,11 @@ return function(Config)
 	end
 
 	local function applyMaxHandles()
-		if not hasCanonicalLogicCurrentHandle() then
+		if not StaminaFeature.HasCanonicalLogicCurrentHandleInternal() then
 			return
 		end
 
-		local AllowDisplayMirror = hasLogicPrimaryHandles()
+		local AllowDisplayMirror = StaminaFeature.HasLogicPrimaryHandlesInternal()
 
 		for _, Entry in ipairs(StaminaFeature.Handles.Max) do
 			local Target = getMaxTargetForEntry(Entry)
@@ -5114,7 +5114,7 @@ return function(Config)
 	end
 
 	local function applyCurrentHandles()
-		if not hasCanonicalLogicCurrentHandle() then
+		if not StaminaFeature.HasCanonicalLogicCurrentHandleInternal() then
 			return false, false
 		end
 
@@ -5139,7 +5139,7 @@ return function(Config)
 			end
 		end
 
-		if not hasLogicPrimaryHandles() then
+		if not StaminaFeature.HasLogicPrimaryHandlesInternal() then
 			return AppliedLogic, false
 		end
 
@@ -5192,21 +5192,21 @@ return function(Config)
 	)
 		local DropDetected = false
 		local FailureReason = nil
-		local Snapshot = getDiagnosticSnapshot()
+		local Snapshot = StaminaFeature.GetDiagnosticSnapshotInternal()
 		local PreferredFlagEntries = getPreferredRuntimeFlagEntries(Profile)
 		local PreferredSpendEntries = getPreferredRuntimeSpendEntries(Profile)
 
 		StaminaFeature.LastActionProfile = Profile
 
-		if not hasHandles() then
+		if not StaminaFeature.HasHandlesInternal() then
 			return "searching", "no_handles", Profile, true
 		end
 
-		if not hasPrimaryHandles() or #StaminaFeature.Handles.Current == 0 then
+		if not StaminaFeature.HasPrimaryHandlesInternal() or #StaminaFeature.Handles.Current == 0 then
 			return "searching", "missing_primary_handles", Profile, true
 		end
 
-		if not hasCanonicalCurrentHandle() or not hasCanonicalLogicCurrentHandle() then
+		if not StaminaFeature.HasCanonicalCurrentHandleInternal() or not StaminaFeature.HasCanonicalLogicCurrentHandleInternal() then
 			if AppliedDisplay or Snapshot.DisplayCurrentCount > 0 or Snapshot.DisplayMaxCount > 0 then
 				return "display_only", "no_canonical_stamina", Profile, true
 			end
@@ -5227,7 +5227,10 @@ return function(Config)
 		end
 
 		if ActionPressure
-			and (not hasRelevantLogicPrimaryHandles(Profile) or not hasRelevantLogicCurrentHandles(Profile)) then
+			and (
+				not StaminaFeature.HasRelevantLogicPrimaryHandlesInternal(Profile)
+				or not StaminaFeature.HasRelevantLogicCurrentHandlesInternal(Profile)
+			) then
 			return "searching", "missing_relevant_primary_handles", Profile, true
 		end
 
@@ -5292,17 +5295,17 @@ return function(Config)
 	end
 
 	local function shouldQueueGcResolve()
-		if not hasLogicPrimaryHandles() then
+		if not StaminaFeature.HasLogicPrimaryHandlesInternal() then
 			StaminaFeature.DropEventCount = StaminaFeature.DropEventCount + 1
 			return StaminaFeature.DropEventCount >= StaminaFeature.DropEventLimit
 		end
 
-		if not hasCanonicalLogicCurrentHandle() then
+		if not StaminaFeature.HasCanonicalLogicCurrentHandleInternal() then
 			StaminaFeature.DropEventCount = StaminaFeature.DropEventCount + 1
 			return StaminaFeature.DropEventCount >= StaminaFeature.DropEventLimit
 		end
 
-		if not hasPrimaryHandles() or #StaminaFeature.Handles.Current == 0 then
+		if not StaminaFeature.HasPrimaryHandlesInternal() or #StaminaFeature.Handles.Current == 0 then
 			StaminaFeature.DropEventCount = StaminaFeature.DropEventCount + 1
 			return StaminaFeature.DropEventCount >= StaminaFeature.DropEventLimit
 		end
@@ -5361,9 +5364,7 @@ return function(Config)
 		table.clear(StaminaFeature.OriginalSpendValues)
 	end
 
-	local HookState
-
-	local function getHookState()
+	StaminaFeature.GetHookStateInternal = function()
 		if type(getgenv) ~= "function" then
 			return nil
 		end
@@ -5383,7 +5384,7 @@ return function(Config)
 		return State
 	end
 
-	local function controllerNeedsHooks(Controller)
+	StaminaFeature.ControllerNeedsHooksInternal = function(Controller)
 		return type(Controller) == "table"
 			and (
 				Controller.Enabled
@@ -5392,13 +5393,15 @@ return function(Config)
 			)
 	end
 
-	local function getActiveController()
+	StaminaFeature.GetActiveControllerInternal = function()
+		local HookState = StaminaFeature.HookState
+
 		if not HookState then
 			return nil
 		end
 
 		for _, Controller in pairs(HookState.Controllers) do
-			if controllerNeedsHooks(Controller) then
+			if StaminaFeature.ControllerNeedsHooksInternal(Controller) then
 				return Controller
 			end
 		end
@@ -5406,14 +5409,15 @@ return function(Config)
 		return nil
 	end
 
-	local function syncHookController()
-		HookState = getHookState()
+	StaminaFeature.SyncHookControllerInternal = function()
+		local HookState = StaminaFeature.GetHookStateInternal()
+		StaminaFeature.HookState = HookState
 
 		if not HookState then
 			return
 		end
 
-		if controllerNeedsHooks(StaminaFeature) then
+		if StaminaFeature.ControllerNeedsHooksInternal(StaminaFeature) then
 			if not StaminaFeature.HookControllerId then
 				HookState.NextId = (HookState.NextId or 0) + 1
 				StaminaFeature.HookControllerId = HookState.NextId
@@ -5465,7 +5469,7 @@ return function(Config)
 		end
 
 		if Candidate.Group == "Flags" and isRuntimeFlagCandidate(Candidate) then
-			if not hasCanonicalLogicCurrentHandle() then
+			if not StaminaFeature.HasCanonicalLogicCurrentHandleInternal() then
 				return nil, false
 			end
 
@@ -5473,7 +5477,7 @@ return function(Config)
 		end
 
 		if Candidate.Group == "Spend" and isRuntimeSpendCandidate(Candidate) then
-			if not hasCanonicalLogicCurrentHandle() then
+			if not StaminaFeature.HasCanonicalLogicCurrentHandleInternal() then
 				return nil, false
 			end
 
@@ -5498,7 +5502,7 @@ return function(Config)
 	end
 
 	local function inspectIncomingLocalChange(GroupName, Name, NameLower, Handle, IncomingValue, Confidence, SourceKind)
-		local Controller = getActiveController()
+		local Controller = StaminaFeature.GetActiveControllerInternal()
 
 		if not Controller or not GroupName then
 			return nil, false
@@ -5527,7 +5531,8 @@ return function(Config)
 	end
 
 	local function installHooks()
-		HookState = getHookState()
+		local HookState = StaminaFeature.GetHookStateInternal()
+		StaminaFeature.HookState = HookState
 
 		if not HookState or HookState.Installed or type(hookmetamethod) ~= "function" then
 			return
@@ -5610,7 +5615,7 @@ return function(Config)
 						and (Method == "FireServer" or Method == "InvokeServer")
 						and typeof(Self) == "Instance"
 						and (Self:IsA("RemoteEvent") or Self:IsA("RemoteFunction")) then
-						local Controller = getActiveController()
+						local Controller = StaminaFeature.GetActiveControllerInternal()
 
 						if Controller then
 							local Arguments = table.pack(...)
@@ -5641,7 +5646,7 @@ return function(Config)
 			refreshStatusSummary()
 		end
 
-		syncHookController()
+		StaminaFeature.SyncHookControllerInternal()
 		installHooks()
 		ensureHeartbeatConnection()
 		disconnectHeartbeatIfIdle()
@@ -5670,7 +5675,7 @@ return function(Config)
 
 		table.clear(self.LastCaptureSummary)
 		self.CaptureSession = createCaptureSession(self.DebugProfile)
-		syncHookController()
+		StaminaFeature.SyncHookControllerInternal()
 		installHooks()
 		ensureHeartbeatConnection()
 		refreshCaptureWindow(self.CaptureSession)
@@ -5682,7 +5687,7 @@ return function(Config)
 	function StaminaFeature:ClearDebugCapture()
 		clearCaptureSessionState()
 		refreshStatusSummary()
-		syncHookController()
+		StaminaFeature.SyncHookControllerInternal()
 		disconnectHeartbeatIfIdle()
 	end
 
@@ -5703,7 +5708,7 @@ return function(Config)
 			return {}
 		end
 
-		local LogicCurrentCount, LogicMaxCount = countLogicPrimaryEntries()
+		local LogicCurrentCount, LogicMaxCount = StaminaFeature.CountLogicPrimaryEntriesInternal()
 		local TrustedPrimaryLabel = getHandleCandidateLabel("Current", isLogicLocalCandidate)
 		local RejectedPrimaryLabel, RejectedPrimaryCandidate = getHandleCandidateLabel("Current", isRejectedPrimaryCandidate)
 		local RejectedReason = RejectedPrimaryCandidate and getRejectedPrimaryReason(RejectedPrimaryCandidate) or "none"
@@ -5714,8 +5719,8 @@ return function(Config)
 			string.format("FailureReason: %s", tostring(self.LastFailureReason or "none")),
 			string.format("Profile: %s", self.DebugProfile),
 			string.format("ActionProfile: %s", tostring(self.LastActionProfile or "Free")),
-			string.format("PromotedLocal: %d", countPromotedLocalCandidates()),
-			string.format("PromotedRemote: %d", countPromotedRemoteCandidates()),
+			string.format("PromotedLocal: %d", StaminaFeature.CountPromotedLocalCandidatesInternal()),
+			string.format("PromotedRemote: %d", StaminaFeature.CountPromotedRemoteCandidatesInternal()),
 			string.format(
 				"Handles: C=%d M=%d F=%d S=%d",
 				#self.Handles.Current,
@@ -5757,7 +5762,7 @@ return function(Config)
 			resolveHandles(ForceRefresh, IncludeGc == true)
 			advanceCaptureSession()
 
-			if not hasHandles() then
+			if not StaminaFeature.HasHandlesInternal() then
 				if shouldRunRuntime() then
 					scheduleGcResolve()
 				end
@@ -5863,13 +5868,15 @@ return function(Config)
 		if self.Enabled then
 			clearScopeCache()
 			clearHandles()
-			syncHookController()
+			StaminaFeature.SyncHookControllerInternal()
 			installHooks()
 			ensureHeartbeatConnection()
 			setVerificationState("searching", "initializing", self.LastActionProfile)
 			self:Step(true, false)
 
-			if not hasLogicPrimaryHandles() or not hasPrimaryHandles() or #self.Handles.Current == 0 then
+			if not StaminaFeature.HasLogicPrimaryHandlesInternal()
+				or not StaminaFeature.HasPrimaryHandlesInternal()
+				or #self.Handles.Current == 0 then
 				scheduleGcResolve()
 			end
 		else
@@ -5879,7 +5886,7 @@ return function(Config)
 
 			clearHandleSignals()
 			setVerificationState("idle", "disabled", "Free")
-			syncHookController()
+			StaminaFeature.SyncHookControllerInternal()
 			disconnectHeartbeatIfIdle()
 		end
 
@@ -5912,7 +5919,8 @@ return function(Config)
 			self.CharacterAddedConnection = nil
 		end
 
-		HookState = getHookState()
+		local HookState = StaminaFeature.GetHookStateInternal()
+		StaminaFeature.HookState = HookState
 
 		if HookState and self.HookControllerId then
 			HookState.Controllers[self.HookControllerId] = nil
@@ -5950,7 +5958,7 @@ return function(Config)
 		clearScopeCache()
 		clearHandles()
 		clearRuntimeCandidates()
-		syncHookController()
+		StaminaFeature.SyncHookControllerInternal()
 		setVerificationState(StaminaFeature.Enabled and "searching" or "idle", StaminaFeature.Enabled and "character_reset" or "disabled", "Free")
 
 		if shouldRunRuntime() then
