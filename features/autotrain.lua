@@ -448,22 +448,82 @@ return function(Config)
 		return nil
 	end
 
+	local function isVisibleGuiButton(Instance)
+		return Instance
+			and Instance:IsA("GuiButton")
+			and isGuiVisible(Instance)
+	end
+
+	local function findClickableButton(Instance)
+		local Current = Instance
+		local Depth = 0
+
+		while Current and Depth < 8 do
+			if isVisibleGuiButton(Current) then
+				return Current
+			end
+
+			Current = Current.Parent
+			Depth = Depth + 1
+		end
+
+		return nil
+	end
+
+	local function getButtonLabelText(Button)
+		if not isVisibleGuiButton(Button) then
+			return nil
+		end
+
+		local DirectText = normalizeText(getTextValue(Button))
+
+		if DirectText ~= "" then
+			return DirectText
+		end
+
+		for _, Descendant in ipairs(Button:GetDescendants()) do
+			if isGuiVisible(Descendant) then
+				local Text = normalizeText(getTextValue(Descendant))
+
+				if Text ~= "" then
+					return Text
+				end
+			end
+		end
+
+		return nil
+	end
+
 	local function findVisibleStartButton()
 		local PlayerGui = getPlayerGui()
+		local BestButton = nil
+		local BestScore = math.huge
 
 		if not PlayerGui then
 			return nil
 		end
 
 		for _, Descendant in ipairs(PlayerGui:GetDescendants()) do
-			if Descendant:IsA("TextButton") and isGuiVisible(Descendant) then
-				if normalizeText(getTextValue(Descendant)) == "start" then
-					return Descendant
+			if isVisibleGuiButton(Descendant) then
+				local ButtonText = getButtonLabelText(Descendant)
+
+				if ButtonText == "start" then
+					local Center, Size = getGuiCenter(Descendant)
+					local Score = 999999
+
+					if Center and Size then
+						Score = math.abs(Center.Y) + math.abs(Center.X) - (Size.X * Size.Y * 0.01)
+					end
+
+					if Score < BestScore then
+						BestScore = Score
+						BestButton = Descendant
+					end
 				end
 			end
 		end
 
-		return nil
+		return BestButton
 	end
 
 	local function clickGuiButton(Button)
@@ -537,6 +597,26 @@ return function(Config)
 		return nil
 	end
 
+	local function resolveCandidateButton(Instance)
+		local Button = findClickableButton(Instance)
+
+		if Button then
+			return Button
+		end
+
+		if Instance and Instance:IsA("GuiObject") then
+			for _, Descendant in ipairs(Instance:GetDescendants()) do
+				Button = findClickableButton(Descendant)
+
+				if Button then
+					return Button
+				end
+			end
+		end
+
+		return nil
+	end
+
 	local function collectMinigameCandidates()
 		local PlayerGui = getPlayerGui()
 
@@ -554,6 +634,7 @@ return function(Config)
 
 				if KeyLabel then
 					local Center, Size = getGuiCenter(Descendant)
+					local Button = resolveCandidateButton(Descendant)
 
 					if Center and Size and Size.X >= 18 and Size.Y >= 18 then
 						local Distance = (Center - ScreenCenter).Magnitude
@@ -561,18 +642,25 @@ return function(Config)
 						if Distance <= MaxDistance then
 							local AreaScore = math.min((Size.X * Size.Y) / 40, 300)
 							local DistanceScore = math.max(0, 220 - Distance)
+							local ButtonBonus = Button and 160 or 0
+							local Signature = string.format(
+								"%s:%d:%d:%d:%d",
+								KeyLabel,
+								math.floor(Center.X + 0.5),
+								math.floor(Center.Y + 0.5),
+								math.floor(Size.X + 0.5),
+								math.floor(Size.Y + 0.5)
+							)
+
+							if Button then
+								Signature = Signature .. ":" .. Button:GetFullName()
+							end
 
 							table.insert(Candidates, {
 								Key = KeyLabel,
-								Score = AreaScore + DistanceScore,
-								Signature = string.format(
-									"%s:%d:%d:%d:%d",
-									KeyLabel,
-									math.floor(Center.X + 0.5),
-									math.floor(Center.Y + 0.5),
-									math.floor(Size.X + 0.5),
-									math.floor(Size.Y + 0.5)
-								)
+								Button = Button,
+								Score = AreaScore + DistanceScore + ButtonBonus,
+								Signature = Signature
 							})
 						end
 					end
@@ -820,7 +908,17 @@ return function(Config)
 			) then
 			if BestCandidate.Signature ~= self.LastPressedSignature
 				or (Now - self.LastPressedAt) >= self.RepeatPromptCooldown then
-				if sendKeyTap(KeyCodes[BestCandidate.Key]) then
+				local Triggered = false
+
+				if BestCandidate.Button then
+					Triggered = clickGuiButton(BestCandidate.Button)
+				end
+
+				if not Triggered then
+					Triggered = sendKeyTap(KeyCodes[BestCandidate.Key])
+				end
+
+				if Triggered then
 					self.LastPressedSignature = BestCandidate.Signature
 					self.LastPressedAt = Now
 					return true
@@ -832,14 +930,28 @@ return function(Config)
 
 		local UniqueKeys = {}
 		local SeenKeys = {}
+		local UniqueButtons = {}
+		local SeenButtons = {}
 
 		for Index = 1, math.min(#Candidates, 4) do
-			local Key = Candidates[Index].Key
+			local Candidate = Candidates[Index]
+			local Key = Candidate.Key
 
 			if not SeenKeys[Key] then
 				SeenKeys[Key] = true
 				table.insert(UniqueKeys, Key)
 			end
+
+			local Button = Candidate.Button
+
+			if Button and not SeenButtons[Button] then
+				SeenButtons[Button] = true
+				table.insert(UniqueButtons, Button)
+			end
+		end
+
+		for _, Button in ipairs(UniqueButtons) do
+			clickGuiButton(Button)
 		end
 
 		if #UniqueKeys > 0 then
