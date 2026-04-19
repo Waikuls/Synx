@@ -222,7 +222,7 @@ return function(Config)
 		HeartbeatConnection = nil,
 		CharacterAddedConnection = nil,
 		HandleSignals = {},
-		StepInterval = 0.03,
+		StepInterval = 0,
 		ResolveInterval = 2.5,
 		GcResolveInterval = 15,
 		LastResolveAt = 0,
@@ -1393,7 +1393,7 @@ return function(Config)
 	end
 
 	local function isCanonicalStatsCurrentCandidate(Candidate)
-		return Candidate ~= nil
+		return type(Candidate) == "table"
 			and Candidate.Group == "Current"
 			and Candidate.SourceKind == "instance"
 			and Candidate.TrustedAlias == true
@@ -1402,7 +1402,7 @@ return function(Config)
 	end
 
 	local function isCanonicalStatsMaxCandidate(Candidate)
-		return Candidate ~= nil
+		return type(Candidate) == "table"
 			and Candidate.Group == "Max"
 			and Candidate.SourceKind == "instance"
 			and Candidate.TrustedAlias == true
@@ -1424,7 +1424,7 @@ return function(Config)
 	end
 
 	local function isRejectedPrimaryCandidate(Candidate)
-		return Candidate ~= nil
+		return type(Candidate) == "table"
 			and (Candidate.Group == "Current" or Candidate.Group == "Max")
 			and not isTrustedPrimaryCandidate(Candidate)
 			and (
@@ -3678,12 +3678,45 @@ return function(Config)
 
 		local Connected = {}
 
+		local function tryImmediateTrackedRepair(Entry)
+			local Success, Result = pcall(function()
+				if not StaminaFeature.Enabled
+					or not Entry
+					or not isLogicLocalCandidate(Entry.Candidate)
+					or not isCanonicalStatsCurrentCandidate(Entry.Candidate) then
+					return false
+				end
+
+				local Target = getCurrentTargetForEntry and getCurrentTargetForEntry(Entry) or nil
+				local CurrentValue = toNumber(readEntryValue(Entry))
+
+				if not hasCanonicalTargetDrop
+					or not hasCanonicalTargetDrop(Target, CurrentValue) then
+					return false
+				end
+
+				return writeEntryValue(Entry, Target)
+			end)
+
+			return Success and Result == true
+		end
+
 		local function onTrackedHandleChanged(Entry)
 			if not shouldRunRuntime() then
 				return
 			end
 
 			if Entry == nil then
+				return
+			end
+
+			if StaminaFeature.Enabled and not StaminaFeature.StepBusy then
+				if tryImmediateTrackedRepair(Entry) then
+					scheduleStep()
+					return
+				end
+
+				StaminaFeature:Step(false, false)
 				return
 			end
 
@@ -5352,10 +5385,6 @@ return function(Config)
 
 		if not AppliedLogic then
 			return "logic_unverified", "logic_not_applied", Profile, true
-		end
-
-		if ActionPressure and HadPreApplyDrop then
-			return "logic_ineffective", string.lower(Profile) .. "_still_drains", Profile, true
 		end
 
 		for _, Entry in ipairs(StaminaFeature.Handles.Current) do
