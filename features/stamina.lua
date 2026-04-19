@@ -2095,6 +2095,10 @@ return function(Config)
 	local isRuntimeFlagCandidate
 	local isRuntimeSpendCandidate
 	local inferContextGroup
+	local getPreferredRuntimeFlagEntries
+	local getPreferredRuntimeSpendEntries
+	local getCurrentTargetForEntry
+	local hasCanonicalTargetDrop
 
 	StaminaFeature.CountLogicPrimaryEntriesInternal = function()
 		local CurrentCount = 0
@@ -2803,11 +2807,11 @@ return function(Config)
 		return Entries
 	end
 
-	local function getPreferredRuntimeFlagEntries(Profile)
+	getPreferredRuntimeFlagEntries = function(Profile)
 		return collectPreferredSupportEntries("Flags", isRuntimeFlagCandidate, Profile)
 	end
 
-	local function getPreferredRuntimeSpendEntries(Profile)
+	getPreferredRuntimeSpendEntries = function(Profile)
 		return collectPreferredSupportEntries("Spend", isRuntimeSpendCandidate, Profile)
 	end
 
@@ -4981,7 +4985,7 @@ return function(Config)
 		return Target
 	end
 
-	local function getCurrentTargetForEntry(Entry)
+	getCurrentTargetForEntry = function(Entry)
 		return getPreferredCandidateTarget(Entry.Candidate, "Current", Entry.Family, readEntryValue(Entry))
 	end
 
@@ -5277,7 +5281,7 @@ return function(Config)
 			and math.abs(NumberValue - math.floor(NumberValue + 0.5)) < 0.000001
 	end
 
-	local function hasCanonicalTargetDrop(Target, CurrentValue)
+	hasCanonicalTargetDrop = function(Target, CurrentValue)
 		if typeof(Target) ~= "number" or typeof(CurrentValue) ~= "number" then
 			return false
 		end
