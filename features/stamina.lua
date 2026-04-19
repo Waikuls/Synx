@@ -305,6 +305,8 @@ return function(Config)
 		LastStatusSummary = {},
 		LastActionProfile = "Free",
 		LastEffectiveLogicAt = 0,
+		RuntimeMode = "action_suppression",
+		FallbackCurrentEnabled = false,
 		VerificationState = "idle",
 		LastStatusConsoleLine = "",
 		StepBusy = false,
@@ -2425,7 +2427,7 @@ return function(Config)
 		Free = {"base"},
 		Run = {"sprint", "run", "base"},
 		Dash = {"dash", "sprint", "run", "base"},
-		Attack = {"attack", "combat", "base"}
+		Attack = {"attack", "combat"}
 	}
 
 	local function getProfileFamilyPriority(Profile)
@@ -2839,11 +2841,14 @@ return function(Config)
 		local RejectedReason = RejectedPrimaryCandidate and getRejectedPrimaryReason(RejectedPrimaryCandidate) or "none"
 		local ActiveProfile = tostring(StaminaFeature.LastActionProfile or "Free")
 		local RemoteLabel = StaminaFeature.RemoteRuntime.getPreferredLabel(ActiveProfile)
+		local FallbackCurrentState = StaminaFeature.FallbackCurrentEnabled and "on" or "off"
 
 		return {
+			string.format("Mode: %s", tostring(StaminaFeature.RuntimeMode or "action_suppression")),
 			string.format("State: %s", tostring(StaminaFeature.VerificationState or "idle")),
 			string.format("FailureReason: %s", tostring(StaminaFeature.LastFailureReason or "none")),
 			string.format("Profile: %s", ActiveProfile),
+			string.format("FallbackCurrent: %s", FallbackCurrentState),
 			string.format("LogicHandles: C=%d M=%d", Snapshot.LogicCurrentCount, Snapshot.LogicMaxCount),
 			string.format("DisplayHandles: C=%d M=%d", Snapshot.DisplayCurrentCount, Snapshot.DisplayMaxCount),
 			string.format("TrustedPrimary: %s", TrustedPrimaryLabel),
@@ -2862,9 +2867,11 @@ return function(Config)
 		local SpendLabel = getPreferredSupportLabel("Spend", ActiveProfile)
 		local RemoteLabel = StaminaFeature.RemoteRuntime.getPreferredLabel(ActiveProfile)
 		local RejectedReason = RejectedPrimaryCandidate and getRejectedPrimaryReason(RejectedPrimaryCandidate) or "none"
+		local FallbackCurrentState = StaminaFeature.FallbackCurrentEnabled and "on" or "off"
 
 		local BaseLine = string.format(
-			"State=%s Reason=%s Profile=%s Logic C=%d M=%d Display C=%d M=%d Handles C=%d M=%d F=%d S=%d TrustedPrimary=%s RejectedPrimary=%s(%s) Flag=%s Spend=%s Remote=%s",
+			"Mode=%s State=%s Reason=%s Profile=%s Logic C=%d M=%d Display C=%d M=%d Handles C=%d M=%d F=%d S=%d TrustedPrimary=%s RejectedPrimary=%s(%s) Flag=%s Spend=%s Remote=%s FallbackCurrent=%s",
+			tostring(StaminaFeature.RuntimeMode or "action_suppression"),
 			tostring(StaminaFeature.VerificationState or "idle"),
 			tostring(StaminaFeature.LastFailureReason or "none"),
 			ActiveProfile,
@@ -2881,7 +2888,8 @@ return function(Config)
 			RejectedReason,
 			FlagLabel,
 			SpendLabel,
-			RemoteLabel
+			RemoteLabel,
+			FallbackCurrentState
 		)
 
 		if type(StaminaFeature.LastSupportIssue) == "string"
@@ -3227,6 +3235,12 @@ return function(Config)
 			and LocalUtils.isObservedExhaustionSpendName(NameLower)
 			and StaminaFeature.HasStrongPrimarySiblingHandle(Candidate)
 
+		if FamilyRank == nil
+			and Profile == "Free"
+			and (Candidate.Family == "attack" or Candidate.Family == "combat") then
+			FamilyRank = 1
+		end
+
 		if NameLower == "issprinting"
 			or NameLower == "offensive"
 			or (
@@ -3239,6 +3253,14 @@ return function(Config)
 		end
 
 		Score = Score + math.max(0, 8 - (FamilyRank * 2))
+
+		if Profile == "Attack" then
+			if Candidate.Family == "attack" then
+				Score = Score + 5
+			elseif Candidate.Family == "combat" then
+				Score = Score + 4
+			end
+		end
 
 		if Candidate.TrustedAlias == true then
 			Score = Score + 4
@@ -3266,6 +3288,10 @@ return function(Config)
 			elseif string.find(NameLower, "stamina", 1, true) ~= nil then
 				Score = Score + 3
 			end
+
+			if Profile == "Attack" and NameLower == "canattack" then
+				Score = Score + 4
+			end
 		elseif GroupName == "Spend" then
 			if NameLower == "m1staminacost"
 				or NameLower == "m2staminacost"
@@ -3288,6 +3314,20 @@ return function(Config)
 				Score = Score + 4
 			elseif AllowObservedExhaustionSpend then
 				Score = Score + 5
+			end
+
+			if Profile == "Attack"
+				and (
+					NameLower == "m1staminacost"
+					or NameLower == "m2staminacost"
+					or NameLower == "currentm1staminacost"
+					or NameLower == "currentm2staminacost"
+					or NameLower == "attackcost"
+					or NameLower == "combatcost"
+					or NameLower == "attackcooldown"
+					or NameLower == "combatcooldown"
+				) then
+				Score = Score + 4
 			end
 
 			if string.find(NameLower, "deplete", 1, true) ~= nil
@@ -3439,6 +3479,24 @@ return function(Config)
 			return Entries
 		end
 
+		if ResolvedProfile == "Attack" then
+			for _, Entry in ipairs(Group) do
+				local Candidate = Entry.Candidate
+
+				if Predicate(Candidate)
+					and Candidate
+					and Candidate.TrustedAlias == true
+					and Candidate.Family == "base"
+					and StaminaFeature.HasStrongPrimarySiblingHandle(Candidate) then
+					table.insert(Entries, Entry)
+				end
+			end
+
+			if #Entries > 0 then
+				return Entries
+			end
+		end
+
 		for _, Entry in ipairs(Group) do
 			if isRelevantCandidate(Entry.Candidate) then
 				table.insert(Entries, Entry)
@@ -3473,6 +3531,31 @@ return function(Config)
 		StaminaFeature.LastSupportIssue = ""
 	end
 
+	function LocalUtils.getRuntimeObservedValue(Entry)
+		local CurrentValue = readEntryValue(Entry)
+
+		if CurrentValue ~= nil then
+			return CurrentValue
+		end
+
+		if Entry and Entry.Candidate then
+			return Entry.Candidate.LastValue
+		end
+
+		return nil
+	end
+
+	function LocalUtils.isSupportFailureReason(Reason)
+		if type(Reason) ~= "string" or Reason == "" then
+			return false
+		end
+
+		return string.find(Reason, "_support_", 1, true) ~= nil
+			or string.find(Reason, "_flag_", 1, true) ~= nil
+			or string.find(Reason, "_spend_", 1, true) ~= nil
+			or string.find(Reason, "_remote_", 1, true) ~= nil
+	end
+
 	isRuntimeSpendCandidate = function(Candidate)
 		if not isSpendCandidate(Candidate) then
 			return false
@@ -3495,6 +3578,15 @@ return function(Config)
 			or string.find(NameLower, "dash", 1, true) ~= nil
 			or string.find(NameLower, "attack", 1, true) ~= nil
 			or string.find(NameLower, "combat", 1, true) ~= nil
+	end
+
+	local function isRuntimeExhaustionCurrentCandidate(Candidate)
+		return Candidate ~= nil
+			and Candidate.Group == "Current"
+			and LocalUtils.isObservedExhaustionCurrentName(Candidate.NameLower or "")
+			and Candidate.SourceKind == "instance"
+			and isMainScriptStatsHandle(Candidate.Handle)
+			and StaminaFeature.HasStrongPrimarySiblingHandle(Candidate)
 	end
 
 	local function shouldMirrorDisplayCandidate(Candidate)
@@ -3668,6 +3760,17 @@ return function(Config)
 		end
 
 		local AttackStateActive = Metrics and hasActiveAttackState(Metrics.AttackState)
+		local HasAttackSupport = #getPreferredRuntimeFlagEntries("Attack") > 0
+			or #getPreferredRuntimeSpendEntries("Attack") > 0
+		local HasAttackRemoteSupport = StaminaFeature.RemoteRuntime.hasActiveSuppression("Attack")
+			or StaminaFeature.RemoteRuntime.hasPendingSupport("Attack")
+		local CombatArmingAllowed = not (
+			Metrics
+			and (
+				(Metrics.IsSprinting and hasRunMotion(Metrics))
+				or (Metrics.IsBoostedSprinting and hasDashMotion(Metrics))
+			)
+		)
 		local AttackPressure = AttackStateActive
 			or hasRecentAttackPressure()
 			or (
@@ -3677,13 +3780,12 @@ return function(Config)
 				and not (Metrics.IsSprinting and hasRunMotion(Metrics))
 				and not (Metrics.IsBoostedSprinting and hasDashMotion(Metrics))
 			)
-		local IdleCombatArmed = Metrics
-			and Metrics.ToolEquipped
-			and not (Metrics.IsSprinting and hasRunMotion(Metrics))
-			and not (Metrics.IsBoostedSprinting and hasDashMotion(Metrics))
+		local IdleCombatArmed = CombatArmingAllowed
 			and (
-				#getPreferredRuntimeFlagEntries("Attack") > 0
-				or #getPreferredRuntimeSpendEntries("Attack") > 0
+				(Metrics and Metrics.ToolEquipped)
+				or AttackPressure
+				or HasAttackSupport
+				or HasAttackRemoteSupport
 			)
 
 		if AttackPressure or IdleCombatArmed then
@@ -3804,36 +3906,6 @@ return function(Config)
 				end
 			end
 		end
-	end
-
-	local function demoteIneffectiveLogicCandidates(Reason)
-		local Demoted = 0
-
-		for _, Group in ipairs({"Current", "Max"}) do
-			for _, Entry in ipairs(StaminaFeature.Handles[Group]) do
-				local Candidate = Entry.Candidate
-
-				if isLogicLocalCandidate(Candidate) then
-					Candidate.FailedVerificationCount = (Candidate.FailedVerificationCount or 0) + 1
-					Candidate.LastFailureReason = Reason
-
-					local FailureLimit = Candidate.SourceKind == "instance" and 3 or 2
-
-					if Candidate.RuntimePinned == true
-						and isStrongMainScriptStatsPrimaryAlias(Candidate) then
-						FailureLimit = math.max(FailureLimit, 6)
-					end
-
-					if Candidate.FailedVerificationCount >= FailureLimit then
-						Candidate.BootstrapBlocked = true
-						normalizeCandidate(Candidate)
-						Demoted = Demoted + 1
-					end
-				end
-			end
-		end
-
-		return Demoted
 	end
 
 	local function requestFailureRecovery(Profile)
@@ -5926,22 +5998,24 @@ return function(Config)
 	end
 
 	local function applyFlags(Profile)
-		if not StaminaFeature.HasCanonicalLogicCurrentHandleInternal() then
-			return
-		end
+		local Applied = false
 
 		rememberOriginalFlags(Profile)
 
 		for _, Entry in ipairs(getPreferredRuntimeFlagEntries(Profile)) do
-			local CurrentValue = readEntryValue(Entry)
+			local CurrentValue = LocalUtils.getRuntimeObservedValue(Entry)
 			local CanRewrite = supportsSafeRuntimeRewrite("Flags", CurrentValue, Entry.Candidate)
 			local DesiredValue = CurrentValue ~= nil and getTruthyValue(CurrentValue) or nil
+
+			if DesiredValue ~= nil then
+				Applied = true
+			end
 
 			if CanRewrite
 				and DesiredValue ~= nil
 				and not LocalUtils.valuesEquivalent(CurrentValue, DesiredValue) then
 				local WriteSuccess = writeEntryValue(Entry, DesiredValue)
-				local ReadBackValue = readEntryValue(Entry)
+				local ReadBackValue = LocalUtils.getRuntimeObservedValue(Entry)
 
 				if not WriteSuccess then
 					setSupportIssue("flag", Entry, CurrentValue, DesiredValue, "write_failed")
@@ -5950,25 +6024,29 @@ return function(Config)
 				end
 			end
 		end
+
+		return Applied
 	end
 
 	local function applySpend(Profile)
-		if not StaminaFeature.HasCanonicalLogicCurrentHandleInternal() then
-			return
-		end
+		local Applied = false
 
 		rememberOriginalSpends(Profile)
 
 		for _, Entry in ipairs(getPreferredRuntimeSpendEntries(Profile)) do
-			local CurrentValue = readEntryValue(Entry)
+			local CurrentValue = LocalUtils.getRuntimeObservedValue(Entry)
 			local CanRewrite = supportsSafeRuntimeRewrite("Spend", CurrentValue, Entry.Candidate)
 			local DesiredValue = CurrentValue ~= nil and getZeroLikeValue(CurrentValue) or nil
+
+			if DesiredValue ~= nil then
+				Applied = true
+			end
 
 			if CanRewrite
 				and DesiredValue ~= nil
 				and not LocalUtils.valuesEquivalent(CurrentValue, DesiredValue) then
 				local WriteSuccess = writeEntryValue(Entry, DesiredValue)
-				local ReadBackValue = readEntryValue(Entry)
+				local ReadBackValue = LocalUtils.getRuntimeObservedValue(Entry)
 
 				if not WriteSuccess then
 					setSupportIssue("spend", Entry, CurrentValue, DesiredValue, "write_failed")
@@ -5977,6 +6055,46 @@ return function(Config)
 				end
 			end
 		end
+
+		return Applied
+	end
+
+	local function applyExhaustionCurrent(Profile)
+		local Applied = false
+
+		for _, Entry in ipairs(StaminaFeature.Handles.Current) do
+			local Candidate = Entry.Candidate
+
+			if Candidate
+				and isRuntimeExhaustionCurrentCandidate(Candidate)
+				and (
+					candidateMatchesActionProfile(Candidate, Profile)
+					or Profile == "Free"
+				) then
+				local CurrentValue = LocalUtils.getRuntimeObservedValue(Entry)
+				local CanRewrite = supportsSafeRuntimeRewrite("Current", CurrentValue, Candidate)
+				local DesiredValue = CurrentValue ~= nil and getZeroLikeValue(CurrentValue) or nil
+
+				if DesiredValue ~= nil then
+					Applied = true
+				end
+
+				if CanRewrite
+					and DesiredValue ~= nil
+					and not LocalUtils.valuesEquivalent(CurrentValue, DesiredValue) then
+					local WriteSuccess = writeEntryValue(Entry, DesiredValue)
+					local ReadBackValue = LocalUtils.getRuntimeObservedValue(Entry)
+
+					if not WriteSuccess then
+						setSupportIssue("current", Entry, CurrentValue, DesiredValue, "write_failed")
+					elseif not LocalUtils.valuesEquivalent(ReadBackValue, DesiredValue) then
+						setSupportIssue("current", Entry, ReadBackValue, DesiredValue, "write_reverted")
+					end
+				end
+			end
+		end
+
+		return Applied
 	end
 
 	local function applyDirectStatsOverrides()
@@ -6254,57 +6372,28 @@ return function(Config)
 		return Delta > 0.001
 	end
 
-	local function hasCanonicalProfileDrop(Profile)
-		for _, Entry in ipairs(StaminaFeature.Handles.Current) do
-			if isLogicLocalCandidate(Entry.Candidate)
-				and isCanonicalStatsCurrentCandidate(Entry.Candidate)
-				and candidateMatchesActionProfile(Entry.Candidate, Profile) then
-				local Target = getCurrentTargetForEntry(Entry)
-				local CurrentValue = LocalUtils.toNumber(readEntryValue(Entry))
-
-				if hasCanonicalTargetDrop(Target, CurrentValue) then
-					return true
-				end
-			end
-		end
-
-		return false
-	end
-
 	local function evaluateRuntimeVerification(
-		AppliedLogic,
-		AppliedDisplay,
+		AppliedFlags,
+		AppliedSpend,
+		AppliedExhaustion,
 		Profile,
 		ActionPressure,
 		ActionHintReason,
-		Metrics,
-		HadPreApplyDrop
+		Metrics
 	)
-		local DropDetected = false
 		local FailureReason = nil
-		local Snapshot = StaminaFeature.GetDiagnosticSnapshotInternal()
 		local PreferredFlagEntries = getPreferredRuntimeFlagEntries(Profile)
 		local PreferredSpendEntries = getPreferredRuntimeSpendEntries(Profile)
 		local HasRemoteSuppression = StaminaFeature.RemoteRuntime.hasActiveSuppression(Profile)
 		local HasRemotePending = StaminaFeature.RemoteRuntime.hasPendingSupport(Profile)
-		local HasAuthoritativeSpendSupport = false
+		local HasLocalSupport = #PreferredFlagEntries > 0 or #PreferredSpendEntries > 0
+		local HasSupportApplied = AppliedFlags or AppliedSpend or AppliedExhaustion
+		local ProfileReasonPrefix = string.lower(Profile)
 
 		StaminaFeature.LastActionProfile = Profile
 
 		if not StaminaFeature.HasHandlesInternal() then
 			return "searching", "no_handles", Profile, true
-		end
-
-		if not StaminaFeature.HasPrimaryHandlesInternal() or #StaminaFeature.Handles.Current == 0 then
-			return "searching", "missing_primary_handles", Profile, true
-		end
-
-		if not StaminaFeature.HasCanonicalCurrentHandleInternal() or not StaminaFeature.HasCanonicalLogicCurrentHandleInternal() then
-			if AppliedDisplay or Snapshot.DisplayCurrentCount > 0 or Snapshot.DisplayMaxCount > 0 then
-				return "display_only", "no_canonical_stamina", Profile, true
-			end
-
-			return "searching", "no_canonical_stamina", Profile, true
 		end
 
 		if Profile == "Free" then
@@ -6319,146 +6408,85 @@ return function(Config)
 			return "logic_unverified", "awaiting_run_motion", Profile, false
 		end
 
-		if ActionPressure
-			and (
-				not StaminaFeature.HasRelevantLogicPrimaryHandlesInternal(Profile)
-				or not StaminaFeature.HasRelevantLogicCurrentHandlesInternal(Profile)
-			) then
-			return "searching", "missing_relevant_primary_handles", Profile, true
-		end
-
-		if not AppliedLogic then
-			return "logic_unverified", "logic_not_applied", Profile, true
-		end
-
-		for _, Entry in ipairs(StaminaFeature.Handles.Current) do
-			if isLogicLocalCandidate(Entry.Candidate)
-				and isCanonicalStatsCurrentCandidate(Entry.Candidate)
-				and candidateMatchesActionProfile(Entry.Candidate, Profile) then
-				local Target = getCurrentTargetForEntry(Entry)
-				local CurrentValue = LocalUtils.toNumber(readEntryValue(Entry))
-
-				if hasCanonicalTargetDrop(Target, CurrentValue) then
-					DropDetected = true
-					break
-				end
-			end
-		end
-
 		if ActionPressure then
-			for _, Entry in ipairs(PreferredSpendEntries) do
-				local Candidate = Entry and Entry.Candidate
-				local IsAuthoritativeRuntimeSpend = Candidate
-					and isRuntimeSpendCandidate(Candidate)
-					and Candidate.SourceKind == "instance"
-					and (
-						isMainScriptStatsHandle(Candidate.Handle)
-						or (
-							LocalUtils.isObservedExhaustionSpendName(Candidate.NameLower or "")
-							and StaminaFeature.HasStrongPrimarySiblingHandle(Candidate)
-						)
-					)
+			if not HasLocalSupport and not HasRemoteSuppression then
+				local MissingReason = HasRemotePending
+					and (ProfileReasonPrefix .. "_remote_pending")
+					or (ProfileReasonPrefix .. "_support_missing")
 
-				if IsAuthoritativeRuntimeSpend then
-					HasAuthoritativeSpendSupport = true
-					break
-				end
+				StaminaFeature.RemoteRuntime.noteProfileFailure(Profile, MissingReason, 1)
+				return "logic_unverified", MissingReason, Profile, true
 			end
 
 			for _, Entry in ipairs(PreferredFlagEntries) do
-				local CurrentValue = readEntryValue(Entry)
+				local CurrentValue = LocalUtils.getRuntimeObservedValue(Entry)
 				local DesiredValue = CurrentValue ~= nil and getTruthyValue(CurrentValue) or nil
 
 				if DesiredValue ~= nil and not LocalUtils.valuesEquivalent(CurrentValue, DesiredValue) then
 					setSupportIssue("flag", Entry, CurrentValue, DesiredValue, "verify")
-					FailureReason = string.lower(Profile) .. "_flag_blocked"
+					FailureReason = ProfileReasonPrefix .. "_flag_blocked"
 					break
 				end
 			end
 
 			if not FailureReason then
 				for _, Entry in ipairs(PreferredSpendEntries) do
-					local CurrentValue = readEntryValue(Entry)
+					local CurrentValue = LocalUtils.getRuntimeObservedValue(Entry)
 					local DesiredValue = CurrentValue ~= nil and getZeroLikeValue(CurrentValue) or nil
 
 					if DesiredValue ~= nil and not LocalUtils.valuesEquivalent(CurrentValue, DesiredValue) then
 						setSupportIssue("spend", Entry, CurrentValue, DesiredValue, "verify")
-						FailureReason = string.lower(Profile) .. "_spend_locked"
+						FailureReason = ProfileReasonPrefix .. "_spend_locked"
 						break
 					end
 				end
 			end
-		end
 
-		if ActionPressure and DropDetected then
-			StaminaFeature.RemoteRuntime.noteProfileFailure(Profile, string.lower(Profile) .. "_still_drains", 2)
-			return "logic_ineffective", string.lower(Profile) .. "_still_drains", Profile, true
-		end
-
-		if ActionPressure then
 			if FailureReason then
 				StaminaFeature.RemoteRuntime.noteProfileFailure(Profile, FailureReason, 1)
 				return "logic_unverified", FailureReason, Profile, true
 			end
 
-			if not HasAuthoritativeSpendSupport and not HasRemoteSuppression then
-				local RemoteReason = HasRemotePending
-					and (string.lower(Profile) .. "_remote_pending")
-					or (
-						#PreferredSpendEntries > 0
-						and (string.lower(Profile) .. "_support_local_only")
-						or (string.lower(Profile) .. "_remote_unhandled")
-					)
-
-				StaminaFeature.RemoteRuntime.noteProfileFailure(Profile, RemoteReason, 1)
-				return "logic_unverified", RemoteReason, Profile, true
+			if not HasSupportApplied and not HasRemoteSuppression then
+				local ApplyReason = ProfileReasonPrefix .. "_support_not_applied"
+				StaminaFeature.RemoteRuntime.noteProfileFailure(Profile, ApplyReason, 1)
+				return "logic_unverified", ApplyReason, Profile, true
 			end
 
 			noteVerifiedLogic()
-			return "verified", string.lower(Profile) .. "_stable", Profile, false
+			return "verified", ProfileReasonPrefix .. "_stable", Profile, false
 		end
 
 		return "logic_unverified", "awaiting_action", Profile, false
 	end
 
 	local function shouldQueueGcResolve()
-		if not StaminaFeature.HasLogicPrimaryHandlesInternal() then
+		if not StaminaFeature.HasHandlesInternal() then
 			StaminaFeature.DropEventCount = StaminaFeature.DropEventCount + 1
 			return StaminaFeature.DropEventCount >= StaminaFeature.DropEventLimit
 		end
 
-		if not StaminaFeature.HasCanonicalLogicCurrentHandleInternal() then
-			StaminaFeature.DropEventCount = StaminaFeature.DropEventCount + 1
-			return StaminaFeature.DropEventCount >= StaminaFeature.DropEventLimit
+		local ActiveProfile = StaminaFeature.LastActionProfile or "Free"
+		local NeedsResolve = false
+
+		if ActiveProfile ~= "Free"
+			and not StaminaFeature.HasSupportHandlesInternal(ActiveProfile)
+			and not StaminaFeature.RemoteRuntime.hasActiveSuppression(ActiveProfile)
+			and not StaminaFeature.RemoteRuntime.hasPendingSupport(ActiveProfile) then
+			NeedsResolve = true
 		end
 
-		if not StaminaFeature.HasPrimaryHandlesInternal() or #StaminaFeature.Handles.Current == 0 then
-			StaminaFeature.DropEventCount = StaminaFeature.DropEventCount + 1
-			return StaminaFeature.DropEventCount >= StaminaFeature.DropEventLimit
+		if not NeedsResolve
+			and type(StaminaFeature.LastSupportIssue) == "string"
+			and StaminaFeature.LastSupportIssue ~= "" then
+			NeedsResolve = true
 		end
 
-		local HasPromotedLogic = false
-		local HasDrop = false
-
-		for _, Entry in ipairs(StaminaFeature.Handles.Current) do
-			if isCanonicalStatsCurrentCandidate(Entry.Candidate) then
-				local Target = getCurrentTargetForEntry(Entry)
-				local CurrentValue = LocalUtils.toNumber(readEntryValue(Entry))
-
-				if isLogicLocalCandidate(Entry.Candidate) then
-					HasPromotedLogic = true
-				end
-
-				if hasCanonicalTargetDrop(Target, CurrentValue) then
-					if isLogicLocalCandidate(Entry.Candidate) or not HasPromotedLogic then
-						HasDrop = true
-						break
-					end
-				end
-			end
+		if not NeedsResolve and LocalUtils.isSupportFailureReason(StaminaFeature.LastFailureReason) then
+			NeedsResolve = true
 		end
 
-		if HasDrop then
+		if NeedsResolve then
 			StaminaFeature.DropEventCount = StaminaFeature.DropEventCount + 1
 		else
 			StaminaFeature.DropEventCount = 0
@@ -6596,44 +6624,18 @@ return function(Config)
 		end
 
 		if Candidate.Group == "Flags" and isRuntimeFlagCandidate(Candidate) then
-			if not StaminaFeature.HasCanonicalLogicCurrentHandleInternal() then
-				return nil, false
-			end
-
 			return getTruthyValue(IncomingValue), true
 		end
 
 		if Candidate.Group == "Spend" and isRuntimeSpendCandidate(Candidate) then
-			if not StaminaFeature.HasCanonicalLogicCurrentHandleInternal() then
-				return nil, false
-			end
-
 			return getZeroLikeValue(IncomingValue), true
 		end
 
-		if Candidate.Group == "Current" and isExhaustionCurrentCandidate(Candidate) then
-			if not StaminaFeature.HasCanonicalLogicCurrentHandleInternal() then
-				return nil, false
-			end
-
+		if Candidate.Group == "Current" and isRuntimeExhaustionCurrentCandidate(Candidate) then
 			return getZeroLikeValue(IncomingValue), true
 		end
 
-		if Candidate.Group ~= "Current" and Candidate.Group ~= "Max" then
-			return nil, false
-		end
-
-		if not isLogicLocalCandidate(Candidate) then
-			return nil, false
-		end
-
-		local Target = getPreferredCandidateTarget(Candidate, Candidate.Group, Candidate.Family, IncomingValue)
-
-		if Target == nil then
-			return nil, false
-		end
-
-		return coerceLike(IncomingValue, Target), true
+		return nil, false
 	end
 
 	local function inspectIncomingLocalChange(GroupName, Name, NameLower, Handle, IncomingValue, Confidence, SourceKind)
@@ -6924,10 +6926,12 @@ return function(Config)
 
 		local Lines = {
 			string.format("DebugEnabled: %s", tostring(self.DebugEnabled)),
+			string.format("Mode: %s", tostring(self.RuntimeMode or "action_suppression")),
 			string.format("State: %s", tostring(self.VerificationState or "idle")),
 			string.format("FailureReason: %s", tostring(self.LastFailureReason or "none")),
 			string.format("Profile: %s", self.DebugProfile),
 			string.format("ActionProfile: %s", tostring(self.LastActionProfile or "Free")),
+			string.format("FallbackCurrent: %s", self.FallbackCurrentEnabled and "on" or "off"),
 			string.format("PromotedLocal: %d", StaminaFeature.CountPromotedLocalCandidatesInternal()),
 			string.format("PromotedRemote: %d", StaminaFeature.CountPromotedRemoteCandidatesInternal()),
 			string.format(
@@ -7001,30 +7005,29 @@ return function(Config)
 			local Metrics = getCharacterMetrics()
 			local RecentExternalPressure = hasRecentExternalPressure()
 			local ActionProfile, ActionPressure, ActionHintReason = resolveActionProfile(Metrics, RecentExternalPressure)
-			local HadPreApplyDrop = ActionPressure and hasCanonicalProfileDrop(ActionProfile)
 			self.LastActionProfile = ActionProfile
-			applyFlags(ActionProfile)
-			applySpend(ActionProfile)
-			applyDirectStatsOverrides()
-			applyMaxHandles()
-			local AppliedLogic, AppliedDisplay = applyCurrentHandles()
+			self.FallbackCurrentEnabled = false
+			local AppliedFlags = applyFlags(ActionProfile)
+			local AppliedSpend = applySpend(ActionProfile)
+			local AppliedExhaustion = applyExhaustionCurrent(ActionProfile)
+
+			if self.FallbackCurrentEnabled then
+				applyDirectStatsOverrides()
+				applyMaxHandles()
+				applyCurrentHandles()
+			end
+
 			local VerificationState, FailureReason, ActionProfile, ShouldRecover = evaluateRuntimeVerification(
-				AppliedLogic,
-				AppliedDisplay,
+				AppliedFlags,
+				AppliedSpend,
+				AppliedExhaustion,
 				ActionProfile,
 				ActionPressure,
 				ActionHintReason,
-				Metrics,
-				HadPreApplyDrop
+				Metrics
 			)
 
 			setVerificationState(VerificationState, FailureReason, ActionProfile)
-
-			if VerificationState == "logic_ineffective"
-				and type(FailureReason) == "string"
-				and string.find(FailureReason, "_still_drains", 1, true) ~= nil then
-				demoteIneffectiveLogicCandidates(FailureReason)
-			end
 
 			if shouldQueueGcResolve() then
 				self.DropEventCount = 0
@@ -7079,6 +7082,7 @@ return function(Config)
 		self.LastRecoveryAt = 0
 		self.LastEffectiveLogicAt = 0
 		self.LastStepErrorAt = 0
+		self.FallbackCurrentEnabled = false
 
 		if self.Enabled then
 			clearScopeCache()
@@ -7120,6 +7124,7 @@ return function(Config)
 		self.LastRecoveryAt = 0
 		self.LastEffectiveLogicAt = 0
 		self.LastStepErrorAt = 0
+		self.FallbackCurrentEnabled = false
 		restoreOriginalFlags()
 		restoreOriginalSpends()
 		resetCaptureState(false)
@@ -7167,6 +7172,7 @@ return function(Config)
 		StaminaFeature.LastRecoveryAt = 0
 		StaminaFeature.LastEffectiveLogicAt = 0
 		StaminaFeature.LastStepErrorAt = 0
+		StaminaFeature.FallbackCurrentEnabled = false
 		table.clear(StaminaFeature.OriginalFlagValues)
 		table.clear(StaminaFeature.OriginalSpendValues)
 		resetCaptureState(false)
