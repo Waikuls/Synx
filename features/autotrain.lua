@@ -4,6 +4,7 @@ return function(Config)
 	local CoreGui = game:GetService("CoreGui")
 	local LocalPlayer = Players.LocalPlayer
 	local Notification = Config and Config.Notification
+	local Webhook = Config and Config.Webhook
 
 	local AvailableTypes = {
 		"Bag",
@@ -79,6 +80,7 @@ return function(Config)
 	AutoTrainFeature.ContinueLevel = "mid"
 	AutoTrainFeature.StaminaPaused = false
 	AutoTrainFeature.MaxFatigueAction = "Do nothing"
+	AutoTrainFeature.FatigueNotified = false
 	AutoTrainFeature.LastRideEndAt = 0
 	AutoTrainFeature.LastDebugNotifyAt = 0
 	AutoTrainFeature.LastDebugMessage = ""
@@ -1289,13 +1291,29 @@ return function(Config)
 			return
 		end
 
-		if self.MaxFatigueAction ~= "Do nothing" and getBodyFatigue() >= 100 then
-			if self.MaxFatigueAction == "Kick" then
-				pcall(function()
-					LocalPlayer:Kick()
-				end)
+		local CurrentBodyFatigue = getBodyFatigue()
+
+		if CurrentBodyFatigue >= 100 then
+			if self.MaxFatigueAction ~= "Do nothing" then
+				if self.MaxFatigueAction == "Kick" then
+					pcall(function()
+						LocalPlayer:Kick()
+					end)
+				end
+				return
 			end
-			return
+
+			if not self.FatigueNotified and Webhook and Webhook:IsConfigured() then
+				self.FatigueNotified = true
+				Webhook:Send(string.format(
+					"[KELV] %s — Body Fatigue is full (100%%). Auto train paused.",
+					LocalPlayer.Name
+				))
+			end
+		else
+			if CurrentBodyFatigue < 90 then
+				self.FatigueNotified = false
+			end
 		end
 
 		Now = os.clock()

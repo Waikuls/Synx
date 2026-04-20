@@ -56,7 +56,8 @@ local function hasCompleteLocalProject()
 		"features/esp.lua",
 		"features/food.lua",
 		"features/stamina.lua",
-		"features/stats.lua"
+		"features/stats.lua",
+		"features/webhook.lua"
 	}
 
 	for _, LocalPath in ipairs(RequiredLocalFiles) do
@@ -335,6 +336,24 @@ local function createFallbackAutoTrainFeature(ErrorMessage)
 	}
 end
 
+local function createFallbackWebhookFeature(ErrorMessage)
+	notifyModuleFailure("features/webhook.lua", ErrorMessage)
+
+	return {
+		Send = function()
+			return false
+		end,
+		SetUrl = function()
+		end,
+		GetUrl = function()
+			return ""
+		end,
+		IsConfigured = function()
+			return false
+		end
+	}
+end
+
 local function createFallbackStatsFeature(ErrorMessage)
 	notifyModuleFailure("features/stats.lua", ErrorMessage)
 
@@ -497,6 +516,7 @@ local CreateESP = safeLoadModule("features/esp.lua", createFallbackESP)
 local CreateFoodFeature = safeLoadModule("features/food.lua", createFallbackFoodFeature)
 local CreateAutoTrainFeature = safeLoadModule("features/autotrain.lua", createFallbackAutoTrainFeature)
 local CreateStaminaFeature = safeLoadModule("features/stamina.lua", createFallbackStaminaFeature)
+local CreateWebhookFeature = safeLoadModule("features/webhook.lua", createFallbackWebhookFeature)
 local CreateStatsFeature = safeLoadModule("features/stats.lua", createFallbackStatsFeature)
 local CreateMainUI = safeLoadModule("ui/main.lua", function(ErrorMessage)
 	return createFallbackUI("ui/main.lua", ErrorMessage)
@@ -516,8 +536,12 @@ local ESP = safeCreateModule("features/esp.lua", CreateESP, {
 local FoodFeature = safeCreateModule("features/food.lua", CreateFoodFeature, {
 	Notification = Notification
 }, createFallbackFoodFeature)
-local AutoTrainFeature = safeCreateModule("features/autotrain.lua", CreateAutoTrainFeature, {
+local WebhookFeature = safeCreateModule("features/webhook.lua", CreateWebhookFeature, {
 	Notification = Notification
+}, createFallbackWebhookFeature)
+local AutoTrainFeature = safeCreateModule("features/autotrain.lua", CreateAutoTrainFeature, {
+	Notification = Notification,
+	Webhook = WebhookFeature
 }, createFallbackAutoTrainFeature)
 local StaminaFeature = safeCreateModule("features/stamina.lua", CreateStaminaFeature, {
 	Notification = Notification
@@ -706,6 +730,57 @@ safeBuildBlock("Fatality/main.lua:LEGIT_STATIC", function()
 	
 	General:AddToggle({
 		Name = "Autorevolver"
+	})
+end)
+
+safeBuildBlock("Fatality/main.lua:MISC_WEBHOOK", function()
+	local WebhookSection = Misc:AddSection({
+		Name = "DISCORD WEBHOOK",
+		Position = 'left',
+		Height = 75
+	})
+
+	WebhookSection:AddButton({
+		Name = "Paste Webhook URL",
+		Callback = function()
+			local Url = ""
+
+			if type(getclipboard) == "function" then
+				local Ok, Result = pcall(getclipboard)
+				if Ok and type(Result) == "string" then
+					Url = Result
+				end
+			end
+
+			if WebhookFeature then
+				WebhookFeature:SetUrl(Url)
+			end
+		end,
+	})
+
+	WebhookSection:AddButton({
+		Name = "Clear Webhook URL",
+		Callback = function()
+			if WebhookFeature then
+				WebhookFeature:SetUrl("")
+			end
+		end,
+	})
+
+	WebhookSection:AddButton({
+		Name = "Test Webhook",
+		Callback = function()
+			if WebhookFeature and WebhookFeature:IsConfigured() then
+				WebhookFeature.LastSentAt = 0
+				WebhookFeature:Send("[KELV] Webhook test from " .. game.Players.LocalPlayer.Name)
+			elseif Notification then
+				Notification:Notify({
+					Title = "Webhook",
+					Content = "No URL set. Paste a webhook URL first.",
+					Icon = "alert-circle"
+				})
+			end
+		end,
 	})
 end)
 
