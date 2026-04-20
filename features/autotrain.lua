@@ -1324,6 +1324,45 @@ return function(Config)
 		return Best
 	end
 
+	local function findVisibleBikeLeaveButton()
+		local Containers = getGuiContainers(false)
+		local ScreenCenter, ViewportSize = getScreenCenter()
+		local MaxDistance = math.max(ViewportSize.X, ViewportSize.Y) * 0.55
+		local BestButton = nil
+		local BestScore = -math.huge
+
+		for _, Container in ipairs(Containers) do
+			for _, Descendant in ipairs(Container:GetDescendants()) do
+				if Descendant:IsA("GuiObject") and isVisibleGuiObject(Descendant) then
+					local Text = normalizeText(getInstanceText(Descendant))
+
+					if string.find(Text, "leave", 1, true) then
+						local Button = getGuiButtonFromInstance(Descendant)
+
+						if Button and isVisibleGuiObject(Button) then
+							local Center, Size = getGuiCenter(Button)
+
+							if Center and Size and Size.X >= 50 and Size.Y >= 16 then
+								local Distance = (Center - ScreenCenter).Magnitude
+
+								if Distance <= MaxDistance then
+									local Score = math.min(Size.X * Size.Y, 20000) + math.max(0, 450 - Distance)
+
+									if Score > BestScore then
+										BestScore = Score
+										BestButton = Button
+									end
+								end
+							end
+						end
+					end
+				end
+			end
+		end
+
+		return BestButton
+	end
+
 	function AutoTrainFeature:TryBikeLeave()
 		if self.SelectedType ~= "Bike" then
 			return false
@@ -1332,6 +1371,11 @@ return function(Config)
 		LeavePromptCache.At = 0
 
 		fireBikeRemote("Leave")
+
+		local LeaveButton = findVisibleBikeLeaveButton()
+		if LeaveButton then
+			clickGuiButton(LeaveButton)
+		end
 
 		local LeavePrompt = findLeavePrompt()
 		if LeavePrompt then
