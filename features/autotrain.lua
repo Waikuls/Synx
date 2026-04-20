@@ -179,6 +179,16 @@ return function(Config)
 		return LocalPlayer.Character
 	end
 
+	local function getHumanoid()
+		local Character = getCharacter()
+
+		if not Character then
+			return nil
+		end
+
+		return Character:FindFirstChildOfClass("Humanoid")
+	end
+
 	local function getRootPart()
 		local Character = getCharacter()
 
@@ -1000,6 +1010,45 @@ return function(Config)
 		return (RootPart.Position - BikePosition).Magnitude <= AutoTrainFeature.MaxRemoteStartDistance
 	end
 
+	local function isBikeSeatPart(SeatPart)
+		local Current = SeatPart
+
+		while Current do
+			if containsAlias(Current.Name, MachineAliases["Bike"]) then
+				return true
+			end
+
+			Current = Current.Parent
+		end
+
+		return false
+	end
+
+	local function isBikeRideActive(Now)
+		local Humanoid = getHumanoid()
+		local SeatPart = nil
+
+		if AutoTrainFeature.BikeActiveUntil > Now then
+			return true
+		end
+
+		if not Humanoid then
+			return false
+		end
+
+		SeatPart = Humanoid.SeatPart
+
+		if SeatPart and isBikeSeatPart(SeatPart) then
+			return true
+		end
+
+		if Humanoid.Sit and isNearBikeRemote() then
+			return true
+		end
+
+		return false
+	end
+
 	function AutoTrainFeature:TryBikeStart(Now)
 		local StartButton = nil
 		local Triggered = false
@@ -1143,6 +1192,7 @@ return function(Config)
 		local RootPart
 		local PromptPosition
 		local BikeMenuVisible
+		local BikeRideActive
 
 		if not self.Enabled then
 			return
@@ -1154,10 +1204,9 @@ return function(Config)
 		if self.SelectedType == "Bike" then
 			refreshBikeUiState(false)
 			BikeMenuVisible = self.CachedBikeActionMenuVisible
+			BikeRideActive = isBikeRideActive(Now)
 
-			if TrainingState.IsTraining
-				or TrainingState.IsSelectedMachine
-				or self.BikeActiveUntil > Now then
+			if BikeRideActive then
 				self:TryBikePressKey(Now)
 				return
 			end
@@ -1172,7 +1221,7 @@ return function(Config)
 			end
 		end
 
-		if TrainingState.IsTraining then
+		if self.SelectedType ~= "Bike" and TrainingState.IsTraining then
 			return
 		end
 
