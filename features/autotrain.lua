@@ -5,6 +5,7 @@ return function(Config)
 	local LocalPlayer = Players.LocalPlayer
 	local Notification = Config and Config.Notification
 	local Webhook = Config and Config.Webhook
+	local FoodFeature = Config and Config.FoodFeature
 
 	local AvailableTypes = {
 		"Bag",
@@ -82,6 +83,7 @@ return function(Config)
 	AutoTrainFeature.MaxFatigueAction = "Do nothing"
 	AutoTrainFeature.FatigueNotified = false
 	AutoTrainFeature.BedRecoveryNotified = false
+	AutoTrainFeature.EatingBreak = false
 	AutoTrainFeature.LastRideEndAt = 0
 	AutoTrainFeature.LastDebugNotifyAt = 0
 	AutoTrainFeature.LastDebugMessage = ""
@@ -1317,6 +1319,31 @@ return function(Config)
 		end
 
 		Now = os.clock()
+
+		if FoodFeature and FoodFeature.Enabled then
+			local IsHungry = FoodFeature:ShouldEat()
+
+			if IsHungry and not self.EatingBreak then
+				self.EatingBreak = true
+
+				if self.SelectedType == "Bike" and (self.BikeRideStartedAt > 0 or isBikeRideActive(Now)) then
+					self:TryBikeLeave()
+					self.BikeActiveUntil = 0
+					self.BikeRideStartedAt = 0
+					self.LastRideEndAt = Now
+				end
+			end
+
+			if self.EatingBreak then
+				if not IsHungry and not FoodFeature.IsEating then
+					self.EatingBreak = false
+					self.LastRideEndAt = Now
+				else
+					return
+				end
+			end
+		end
+
 		TrainingState = getTrainingState(self.SelectedType)
 
 		if self.SelectedType == "Bike" then

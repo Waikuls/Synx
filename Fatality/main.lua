@@ -541,7 +541,8 @@ local WebhookFeature = safeCreateModule("features/webhook.lua", CreateWebhookFea
 }, createFallbackWebhookFeature)
 local AutoTrainFeature = safeCreateModule("features/autotrain.lua", CreateAutoTrainFeature, {
 	Notification = Notification,
-	Webhook = WebhookFeature
+	Webhook = WebhookFeature,
+	FoodFeature = FoodFeature
 }, createFallbackAutoTrainFeature)
 local StaminaFeature = safeCreateModule("features/stamina.lua", CreateStaminaFeature, {
 	Notification = Notification

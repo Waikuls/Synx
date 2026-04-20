@@ -1626,6 +1626,10 @@ return function(Config)
 		end)
 	end
 
+	function FoodFeature:ShouldEat()
+		return shouldEat()
+	end
+
 	function FoodFeature:SetEnabled(Value)
 		self.Enabled = Value and true or false
 		self.HungerSnapshot = nil
