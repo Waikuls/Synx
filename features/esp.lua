@@ -216,6 +216,17 @@ return function(Config)
 		return table.concat(PlainParts, " "), table.concat(RichParts, " ")
 	end
 
+	local function createLine(Parent, Name, Color, ZIndex)
+		local Line = Instance.new("Frame")
+		Line.Name = Name
+		Line.BackgroundColor3 = Color
+		Line.BorderSizePixel = 0
+		Line.ZIndex = ZIndex
+		Line.Parent = Parent
+
+		return Line
+	end
+
 	function ESP:GetGuiRoot()
 		if self.GuiRoot and self.GuiRoot.Parent then
 			return self.GuiRoot
@@ -244,57 +255,46 @@ return function(Config)
 		Container.ZIndex = 500
 		Container.Parent = self:GetGuiRoot()
 
-		local Outline = Instance.new("Frame")
-		Outline.Name = "Outline"
-		Outline.BackgroundTransparency = 1
-		Outline.BorderColor3 = Color3.fromRGB(0, 0, 0)
-		Outline.BorderSizePixel = 1
-		Outline.Position = UDim2.new(0, -1, 0, -1)
-		Outline.Size = UDim2.new(1, 2, 1, 2)
-		Outline.ZIndex = 500
-		Outline.Parent = Container
+		local OutlineTop = createLine(Container, "OutlineTop", Color3.fromRGB(0, 0, 0), 500)
+		local OutlineBottom = createLine(Container, "OutlineBottom", Color3.fromRGB(0, 0, 0), 500)
+		local OutlineLeft = createLine(Container, "OutlineLeft", Color3.fromRGB(0, 0, 0), 500)
+		local OutlineRight = createLine(Container, "OutlineRight", Color3.fromRGB(0, 0, 0), 500)
 
-		local Box = Instance.new("Frame")
-		Box.Name = "Box"
-		Box.BackgroundTransparency = 1
-		Box.BorderColor3 = Theme.Main
-		Box.BorderSizePixel = 1
-		Box.Size = UDim2.new(1, 0, 1, 0)
-		Box.ZIndex = 501
-		Box.Parent = Container
-
-		local InfoFrame = Instance.new("Frame")
-		InfoFrame.Name = "InfoFrame"
-		InfoFrame.AnchorPoint = Vector2.new(0.5, 1)
-		InfoFrame.BackgroundColor3 = Theme.Black
-		InfoFrame.BorderColor3 = Theme.Border
-		InfoFrame.BorderSizePixel = 1
-		InfoFrame.Position = UDim2.new(0.5, 0, 0, -6)
-		InfoFrame.Size = UDim2.new(0, 120, 0, 18)
-		InfoFrame.Visible = false
-		InfoFrame.ZIndex = 502
-		InfoFrame.Parent = Container
+		local BoxTop = createLine(Container, "BoxTop", Theme.Main, 501)
+		local BoxBottom = createLine(Container, "BoxBottom", Theme.Main, 501)
+		local BoxLeft = createLine(Container, "BoxLeft", Theme.Main, 501)
+		local BoxRight = createLine(Container, "BoxRight", Theme.Main, 501)
 
 		local InfoLabel = Instance.new("TextLabel")
 		InfoLabel.Name = "InfoLabel"
+		InfoLabel.AnchorPoint = Vector2.new(0.5, 1)
 		InfoLabel.BackgroundTransparency = 1
 		InfoLabel.BorderSizePixel = 0
-		InfoLabel.Position = UDim2.new(0, 6, 0, 0)
-		InfoLabel.Size = UDim2.new(1, -12, 1, 0)
+		InfoLabel.Position = UDim2.new(0.5, 0, 0, -4)
+		InfoLabel.Size = UDim2.new(0, 120, 0, 18)
 		InfoLabel.Font = Enum.Font.GothamSemibold
 		InfoLabel.RichText = true
 		InfoLabel.Text = ""
 		InfoLabel.TextColor3 = Theme.Text
 		InfoLabel.TextSize = 13
-		InfoLabel.TextStrokeTransparency = 0.5
+		InfoLabel.TextStrokeColor3 = Theme.Black
+		InfoLabel.TextStrokeTransparency = 0.35
 		InfoLabel.TextWrapped = false
 		InfoLabel.TextXAlignment = Enum.TextXAlignment.Center
+		InfoLabel.Visible = false
 		InfoLabel.ZIndex = 503
-		InfoLabel.Parent = InfoFrame
+		InfoLabel.Parent = Container
 
 		self.Entries[Player] = {
 			Container = Container,
-			InfoFrame = InfoFrame,
+			OutlineTop = OutlineTop,
+			OutlineBottom = OutlineBottom,
+			OutlineLeft = OutlineLeft,
+			OutlineRight = OutlineRight,
+			BoxTop = BoxTop,
+			BoxBottom = BoxBottom,
+			BoxLeft = BoxLeft,
+			BoxRight = BoxRight,
 			InfoLabel = InfoLabel
 		}
 
@@ -313,7 +313,7 @@ return function(Config)
 		end
 
 		Entry.Container.Visible = false
-		Entry.InfoFrame.Visible = false
+		Entry.InfoLabel.Visible = false
 	end
 
 	function ESP:RemoveEntry(Player)
@@ -355,6 +355,24 @@ return function(Config)
 		Entry.Container.Size = UDim2.new(0, Width, 0, Height)
 		Entry.Container.Visible = true
 
+		Entry.OutlineTop.Position = UDim2.new(0, -1, 0, -1)
+		Entry.OutlineTop.Size = UDim2.new(0, Width + 2, 0, 1)
+		Entry.OutlineBottom.Position = UDim2.new(0, -1, 0, Height)
+		Entry.OutlineBottom.Size = UDim2.new(0, Width + 2, 0, 1)
+		Entry.OutlineLeft.Position = UDim2.new(0, -1, 0, -1)
+		Entry.OutlineLeft.Size = UDim2.new(0, 1, 0, Height + 2)
+		Entry.OutlineRight.Position = UDim2.new(0, Width, 0, -1)
+		Entry.OutlineRight.Size = UDim2.new(0, 1, 0, Height + 2)
+
+		Entry.BoxTop.Position = UDim2.new(0, 0, 0, 0)
+		Entry.BoxTop.Size = UDim2.new(0, Width, 0, 1)
+		Entry.BoxBottom.Position = UDim2.new(0, 0, 0, Height - 1)
+		Entry.BoxBottom.Size = UDim2.new(0, Width, 0, 1)
+		Entry.BoxLeft.Position = UDim2.new(0, 0, 0, 0)
+		Entry.BoxLeft.Size = UDim2.new(0, 1, 0, Height)
+		Entry.BoxRight.Position = UDim2.new(0, Width - 1, 0, 0)
+		Entry.BoxRight.Size = UDim2.new(0, 1, 0, Height)
+
 		if RichInfo ~= "" then
 			local TextBounds = TextService:GetTextSize(
 				PlainInfo,
@@ -364,11 +382,11 @@ return function(Config)
 			)
 
 			Entry.InfoLabel.Text = RichInfo
-			Entry.InfoFrame.Size = UDim2.new(0, math.max(TextBounds.X + 18, 76), 0, 18)
-			Entry.InfoFrame.Visible = true
+			Entry.InfoLabel.Size = UDim2.new(0, math.max(TextBounds.X + 8, 48), 0, 18)
+			Entry.InfoLabel.Visible = true
 		else
 			Entry.InfoLabel.Text = ""
-			Entry.InfoFrame.Visible = false
+			Entry.InfoLabel.Visible = false
 		end
 	end
 
