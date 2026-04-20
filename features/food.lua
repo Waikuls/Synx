@@ -85,6 +85,11 @@ return function(Config)
 		"pizza",
 		"kebab"
 	}
+	local SupplementBlacklist = {
+		"whey protein",
+		"fat burner",
+		"muscle burner"
+	}
 	local SlotKeyNames = {
 		"One",
 		"Two",
@@ -887,12 +892,18 @@ return function(Config)
 			return nil
 		end
 
+		local NameLower = string.lower(Tool.Name)
+		local ToolTipLower = string.lower(Tool.ToolTip or "")
+
+		for _, Supplement in ipairs(SupplementBlacklist) do
+			if string.find(NameLower, Supplement, 1, true) or string.find(ToolTipLower, Supplement, 1, true) then
+				return nil
+			end
+		end
+
 		if Tool:GetAttribute("Food") == true or Tool:GetAttribute("Consumable") == true then
 			return 0
 		end
-
-		local NameLower = string.lower(Tool.Name)
-		local ToolTipLower = string.lower(Tool.ToolTip or "")
 
 		for Index, Alias in ipairs(FoodToolAliases) do
 			if NameLower == Alias or ToolTipLower == Alias then
