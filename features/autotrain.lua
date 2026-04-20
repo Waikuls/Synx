@@ -45,13 +45,13 @@ return function(Config)
 	AutoTrainFeature.SelectedType = "Bike"
 	AutoTrainFeature.Connection = nil
 	AutoTrainFeature.Elapsed = 0
-	AutoTrainFeature.LoopInterval = 0.12
+	AutoTrainFeature.LoopInterval = 0.15
 	AutoTrainFeature.PromptCooldown = 0.75
 	AutoTrainFeature.StartCooldown = 0.35
 	AutoTrainFeature.KeyCooldown = 0.08
 	AutoTrainFeature.RepeatKeyCooldown = 0.3
 	AutoTrainFeature.BlindBikeKeyCooldown = 0.2
-	AutoTrainFeature.BikeUiRefreshCooldown = 0.1
+	AutoTrainFeature.BikeUiRefreshCooldown = 0.25
 	AutoTrainFeature.BikeAssumeActiveDuration = 12
 	AutoTrainFeature.DebugNotifyCooldown = 1
 	AutoTrainFeature.DesiredStandDistance = 4
@@ -1274,7 +1274,17 @@ return function(Config)
 		return false
 	end
 
+	local LeavePromptCache = {Prompt = nil, At = 0}
+
 	local function findLeavePrompt()
+		local Now = os.clock()
+
+		if LeavePromptCache.Prompt
+			and LeavePromptCache.Prompt.Parent
+			and (Now - LeavePromptCache.At) < 5 then
+			return LeavePromptCache.Prompt
+		end
+
 		local RootPart = getRootPart()
 		local Best = nil
 		local BestDist = math.huge
@@ -1285,25 +1295,31 @@ return function(Config)
 				local ObjectLower = string.lower(Desc.ObjectText or "")
 
 				if string.find(ActionLower, "leave", 1, true) or string.find(ObjectLower, "leave", 1, true) then
-					if RootPart then
+					local Dist = 999
+
+					if RootPart and Desc.Parent then
 						local Part = Desc.Parent
 						local Ok, Pos = pcall(function()
-							return Part and Part:IsA("BasePart") and Part.Position or Part and Part:FindFirstChildOfClass("BasePart") and Part:FindFirstChildOfClass("BasePart").Position
+							return Part:IsA("BasePart") and Part.Position
+								or Part:FindFirstChildOfClass("BasePart") and Part:FindFirstChildOfClass("BasePart").Position
+								or nil
 						end)
 
-						local Dist = (Ok and Pos) and (RootPart.Position - Pos).Magnitude or 999
-
-						if Dist < BestDist then
-							BestDist = Dist
-							Best = Desc
+						if Ok and Pos then
+							Dist = (RootPart.Position - Pos).Magnitude
 						end
-					else
+					end
+
+					if Dist < BestDist then
+						BestDist = Dist
 						Best = Desc
-						break
 					end
 				end
 			end
 		end
+
+		LeavePromptCache.Prompt = Best
+		LeavePromptCache.At = Now
 
 		return Best
 	end
