@@ -116,16 +116,25 @@ return function(Config)
 
 			if HotbarRemote then
 				pcall(function() HotbarRemote:FireServer(Tool.Name) end)
-				task.wait(0.2)
+
+				local Character = LocalPlayer.Character
+				if Character then
+					local Deadline = os.clock() + 1.5
+					repeat task.wait(0.05) until Tool.Parent == Character or os.clock() > Deadline
+				end
+
+				task.wait(0.1)
 				fireInputKey("LMB", true)
-				task.wait(0.05)
+				task.wait(0.1)
 				fireInputKey("LMB", false)
 			else
 				local Character = LocalPlayer.Character
 				local Humanoid = Character and Character:FindFirstChildOfClass("Humanoid")
 				if Character and Humanoid then
 					pcall(function() Humanoid:EquipTool(Tool) end)
-					task.wait(0.35)
+					local Deadline = os.clock() + 1.5
+					repeat task.wait(0.05) until Tool.Parent == Character or os.clock() > Deadline
+					task.wait(0.1)
 					pcall(function() Tool:Activate() end)
 				end
 			end

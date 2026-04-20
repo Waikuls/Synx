@@ -163,7 +163,7 @@ return function(Config)
 	local function debugBike(Message, ForceNotify)
 		local Now = os.clock()
 
-		warn("[KELV][AutoTrain][Bike] " .. tostring(Message))
+		warn("[KELV][AutoTrain][" .. tostring(AutoTrainFeature.SelectedType) .. "] " .. tostring(Message))
 
 		if not Notification then
 			return
