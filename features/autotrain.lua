@@ -1274,9 +1274,52 @@ return function(Config)
 		return false
 	end
 
+	local function findLeavePrompt()
+		local RootPart = getRootPart()
+		local Best = nil
+		local BestDist = math.huge
+
+		for _, Desc in ipairs(workspace:GetDescendants()) do
+			if Desc:IsA("ProximityPrompt") then
+				local ActionLower = string.lower(Desc.ActionText or "")
+				local ObjectLower = string.lower(Desc.ObjectText or "")
+
+				if string.find(ActionLower, "leave", 1, true) or string.find(ObjectLower, "leave", 1, true) then
+					if RootPart then
+						local Part = Desc.Parent
+						local Ok, Pos = pcall(function()
+							return Part and Part:IsA("BasePart") and Part.Position or Part and Part:FindFirstChildOfClass("BasePart") and Part:FindFirstChildOfClass("BasePart").Position
+						end)
+
+						local Dist = (Ok and Pos) and (RootPart.Position - Pos).Magnitude or 999
+
+						if Dist < BestDist then
+							BestDist = Dist
+							Best = Desc
+						end
+					else
+						Best = Desc
+						break
+					end
+				end
+			end
+		end
+
+		return Best
+	end
+
 	function AutoTrainFeature:TryBikeLeave()
 		if self.SelectedType ~= "Bike" then
 			return false
+		end
+
+		local LeavePrompt = findLeavePrompt()
+
+		if LeavePrompt then
+			local Ok = triggerPrompt(LeavePrompt)
+			if Ok then
+				return true
+			end
 		end
 
 		return fireBikeRemote("Leave")
