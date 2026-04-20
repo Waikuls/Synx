@@ -163,7 +163,7 @@ return function(Config)
 	local function debugBike(Message, ForceNotify)
 		local Now = os.clock()
 
-		warn("[KELV][AutoTrain][Bike] " .. tostring(Message))
+		warn("[KELV][AutoTrain][" .. tostring(AutoTrainFeature.SelectedType) .. "] " .. tostring(Message))
 
 		if not Notification then
 			return
@@ -865,23 +865,57 @@ return function(Config)
 		return Current
 	end
 
+	local MachineRemoteCache = {Remote = nil, At = 0, Type = nil}
+
 	local function getBikeRemote()
-		local Path = MachineRemotePaths[AutoTrainFeature.SelectedType] or BikeRemotePath
-		local Remote = resolvePath(Path)
+		local Now = os.clock()
+		local SelectedType = AutoTrainFeature.SelectedType
 
-		if not Remote then
-			return nil
+		if MachineRemoteCache.Remote
+			and MachineRemoteCache.Remote.Parent
+			and MachineRemoteCache.Type == SelectedType
+			and (Now - MachineRemoteCache.At) < 3 then
+			return MachineRemoteCache.Remote
 		end
 
-		if not Remote:IsA("RemoteEvent") then
-			return nil
+		local Aliases = getAliases(SelectedType)
+		local RootPart = getRootPart()
+		local Best = nil
+		local BestDist = math.huge
+
+		local TrainingSpots = workspace:FindFirstChild("TrainingSpots")
+		if TrainingSpots then
+			for _, Child in ipairs(TrainingSpots:GetChildren()) do
+				if containsAlias(Child.Name, Aliases) then
+					local Radio = Child:FindFirstChild("Radio")
+					local Remote = Radio and Radio:FindFirstChild("Remote")
+					if Remote and Remote:IsA("RemoteEvent") and Remote.Parent then
+						local Part = Child:IsA("BasePart") and Child
+							or (Child:IsA("Model") and (Child.PrimaryPart or Child:FindFirstChildWhichIsA("BasePart")))
+						local Dist = (RootPart and Part) and (RootPart.Position - Part.Position).Magnitude or 999
+						if Dist < BestDist then
+							BestDist = Dist
+							Best = Remote
+						end
+					end
+				end
+			end
 		end
 
-		if not Remote.Parent then
-			return nil
+		-- Fallback to hardcoded path
+		if not Best then
+			local Path = MachineRemotePaths[SelectedType] or BikeRemotePath
+			local Remote = resolvePath(Path)
+			if Remote and Remote:IsA("RemoteEvent") and Remote.Parent then
+				Best = Remote
+			end
 		end
 
-		return Remote
+		MachineRemoteCache.Remote = Best
+		MachineRemoteCache.At = Now
+		MachineRemoteCache.Type = SelectedType
+
+		return Best
 	end
 
 	local function getBikeRemotePosition()
@@ -1189,11 +1223,11 @@ return function(Config)
 			self.BikeRideStartedAt = Now
 			self.LastUiKeyAt = Now
 			self.LastBikeUiRefreshAt = 0
-			debugBike("Bike start sent via " .. tostring(TriggerSource), true)
+			debugBike("Start sent via " .. tostring(TriggerSource), true)
 			return true
 		end
 
-		debugBike("Bike start failed: no button/remote response", false)
+		debugBike("Start failed: no button/remote response", false)
 
 		return false
 	end
@@ -1255,7 +1289,7 @@ return function(Config)
 				self.LastKeySignatureAt = Now
 				self.BikeActiveUntil = Now + self.BikeAssumeActiveDuration
 				self.LastBikeUiRefreshAt = 0
-				debugBike("Bike key from UI: " .. tostring(Key), false)
+				debugBike("Key from UI: " .. tostring(Key), false)
 				return true
 			end
 		end
@@ -1293,11 +1327,11 @@ return function(Config)
 			self.LastKeySignatureAt = Now
 			self.BikeActiveUntil = Now + self.BikeAssumeActiveDuration
 			self.LastBikeUiRefreshAt = 0
-			debugBike("Bike blind key: " .. tostring(BlindKey), false)
+			debugBike("Blind key: " .. tostring(BlindKey), false)
 			return true
 		end
 
-		debugBike("Bike key send failed", false)
+		debugBike("Key send failed", false)
 
 		return false
 	end
@@ -1502,6 +1536,7 @@ return function(Config)
 			self.StrengthPunchIndex = 0
 			self.LastStrengthHitAt = Now
 			StrengthBagRemoteCache.At = 0
+			MachineRemoteCache.At = 0
 			return
 		end
 
