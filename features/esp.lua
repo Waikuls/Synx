@@ -162,7 +162,7 @@ return function(Config)
 
 		local Height = math.abs(BottomPoint.Y - TopPoint.Y)
 
-		if Height < 8 or Height > (ViewportSize.Y * 0.9) then
+		if Height < 2 or Height > (ViewportSize.Y * 0.9) then
 			return nil
 		end
 
@@ -488,7 +488,7 @@ return function(Config)
 	end
 
 	function ESP:SetDistanceLimit(Value)
-		self.Settings.DistanceLimit = math.max(Value or self.Settings.DistanceLimit, 1)
+		self.Settings.DistanceLimit = math.clamp(Value or self.Settings.DistanceLimit, 1, 1500)
 	end
 
 	function ESP:SetShowName(Value)
