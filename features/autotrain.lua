@@ -1384,12 +1384,28 @@ return function(Config)
 			if IsHungry and not self.EatingBreak then
 				self.EatingBreak = true
 				self.LastLeaveAttemptAt = 0
+
+				if Notification then
+					Notification:Notify({
+						Title = "Auto Eat",
+						Content = "Hungry — leaving machine",
+						Icon = "alert-circle"
+					})
+				end
 			end
 
 			if self.EatingBreak then
 				if not IsHungry and not FoodFeature.IsEating then
 					self.EatingBreak = false
 					self.LastRideEndAt = Now
+
+					if Notification then
+						Notification:Notify({
+							Title = "Auto Eat",
+							Content = "Done eating — re-entering machine",
+							Icon = "check-circle"
+						})
+					end
 				else
 					if self.SelectedType == "Bike" and (Now - (self.LastLeaveAttemptAt or 0)) > 1.5 then
 						self.LastLeaveAttemptAt = Now
