@@ -1382,9 +1382,10 @@ return function(Config)
 			triggerPrompt(LeavePrompt)
 		end
 
-		-- Teleport away from the bike to force physical dismount
+		-- Force dismount: unseat then move RootPart directly (PivotTo is ignored while seated)
 		local Character = getCharacter()
 		local RootPart = getRootPart()
+		local Humanoid = getHumanoid()
 		local BikePos = getBikeRemotePosition()
 
 		if Character and RootPart and BikePos then
@@ -1400,7 +1401,13 @@ return function(Config)
 			local TargetPos = BikePos + Dir * 15 + Vector3.new(0, 3, 0)
 
 			pcall(function()
-				Character:PivotTo(CFrame.new(TargetPos, TargetPos + Dir))
+				if Humanoid then
+					Humanoid.Sit = false
+				end
+			end)
+
+			pcall(function()
+				RootPart.CFrame = CFrame.new(TargetPos, TargetPos + Dir)
 			end)
 		end
 
