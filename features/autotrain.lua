@@ -1386,39 +1386,6 @@ return function(Config)
 		return true
 	end
 
-	function AutoTrainFeature:ForceBikeDismount()
-		local Character = getCharacter()
-		local RootPart = getRootPart()
-		local Humanoid = getHumanoid()
-		local BikePos = getBikeRemotePosition()
-
-		if not Character or not RootPart or not BikePos then
-			return
-		end
-
-		local Dir = (RootPart.Position - BikePos)
-		local DirLen = Dir.Magnitude
-
-		if DirLen < 0.5 then
-			Dir = Vector3.new(0, 0, 1)
-		else
-			Dir = Dir / DirLen
-		end
-
-		local TargetPos = BikePos + Dir * 12 + Vector3.new(0, 3, 0)
-
-		pcall(function()
-			if Humanoid then
-				Humanoid.Sit = false
-			end
-		end)
-
-		task.wait(0.1)
-
-		pcall(function()
-			RootPart.CFrame = CFrame.new(TargetPos, TargetPos + Dir)
-		end)
-	end
 
 	function AutoTrainFeature:Step()
 		local Now
@@ -1495,13 +1462,7 @@ return function(Config)
 						self.BikeRideStartedAt = 0
 						self.LastRideEndAt = Now
 
-						if not self.EatingBreakDismounted then
-							self.EatingBreakDismounted = true
-							task.spawn(function()
-								self:TryBikeLeave()
-								self:ForceBikeDismount()
-							end)
-						elseif (Now - (self.LastLeaveAttemptAt or 0)) > 1.5 then
+						if (Now - (self.LastLeaveAttemptAt or 0)) > 1.5 then
 							self.LastLeaveAttemptAt = Now
 							self:TryBikeLeave()
 						end
