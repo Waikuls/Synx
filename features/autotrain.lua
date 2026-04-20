@@ -1077,6 +1077,7 @@ return function(Config)
 										BestKeyScore = Score
 										BestKey = KeyText
 										BestKeySignature = KeyText
+										AutoTrainFeature._DebugKeySource = Descendant:GetFullName() .. " [" .. tostring(Descendant.ClassName) .. "] text=" .. tostring(getInstanceText(Descendant)) .. " size=" .. tostring(math.floor(Size.X)) .. "x" .. tostring(math.floor(Size.Y)) .. " dist=" .. tostring(math.floor(Distance))
 									end
 								end
 							end
@@ -1274,7 +1275,7 @@ return function(Config)
 				self.LastKeySignatureAt = Now
 				self.BikeActiveUntil = Now + self.BikeAssumeActiveDuration
 				self.LastBikeUiRefreshAt = 0
-				debugBike("Key from UI: " .. tostring(Key), false)
+				debugBike("Key from UI: " .. tostring(Key) .. " | src: " .. tostring(AutoTrainFeature._DebugKeySource), false)
 				return true
 			end
 		end
