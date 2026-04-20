@@ -407,6 +407,19 @@ return function(Config)
 			return false
 		end
 
+		-- VirtualInputManager injects into Roblox's input pipeline directly,
+		-- so it works even when the window is minimized or unfocused.
+		VirtualInputManager = getVirtualInputManager()
+
+		if VirtualInputManager then
+			pcall(function()
+				VirtualInputManager:SendKeyEvent(true, KeyCode, false, game)
+				task.wait(0.03)
+				VirtualInputManager:SendKeyEvent(false, KeyCode, false, game)
+				Triggered = true
+			end)
+		end
+
 		if type(keypress) == "function" and type(keyrelease) == "function" and VirtualKey then
 			pcall(function()
 				keypress(VirtualKey)
@@ -414,9 +427,7 @@ return function(Config)
 				keyrelease(VirtualKey)
 				Triggered = true
 			end)
-		end
-
-		if not Triggered and type(keytap) == "function" then
+		elseif type(keytap) == "function" then
 			pcall(function()
 				keytap(string.lower(Key))
 				Triggered = true
@@ -425,19 +436,6 @@ return function(Config)
 			if not Triggered then
 				pcall(function()
 					keytap(Key)
-					Triggered = true
-				end)
-			end
-		end
-
-		if not Triggered then
-			VirtualInputManager = getVirtualInputManager()
-
-			if VirtualInputManager then
-				pcall(function()
-					VirtualInputManager:SendKeyEvent(true, KeyCode, false, game)
-					task.wait(0.03)
-					VirtualInputManager:SendKeyEvent(false, KeyCode, false, game)
 					Triggered = true
 				end)
 			end
