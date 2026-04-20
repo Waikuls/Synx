@@ -1145,6 +1145,8 @@ return function(Config)
 		Key, Signature = getVisibleBikeKeyCandidate(false)
 
 		if Key then
+			self.LastUiKeyAt = Now
+
 			if Signature == self.LastKeySignature then
 				if (Now - self.LastKeySignatureAt) < self.RepeatKeyCooldown then
 					return false
@@ -1161,7 +1163,6 @@ return function(Config)
 
 			if Triggered then
 				self.LastKeyAt = Now
-				self.LastUiKeyAt = Now
 				self.LastKeySignature = Signature
 				self.LastKeySignatureAt = Now
 				self.BikeActiveUntil = Now + self.BikeAssumeActiveDuration
@@ -1171,7 +1172,7 @@ return function(Config)
 			end
 		end
 
-		if (Now - self.LastUiKeyAt) < 1.5 then
+		if (Now - self.LastUiKeyAt) < 4.0 then
 			return false
 		end
 
