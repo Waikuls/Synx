@@ -733,37 +733,144 @@ safeBuildBlock("Fatality/main.lua:LEGIT_STATIC", function()
 	})
 end)
 
+local function showWebhookInputPopup()
+	local GuiParent = MainWindowGui and MainWindowGui.Parent or game:GetService("CoreGui")
+
+	local Overlay = Instance.new("Frame")
+	Overlay.Name = "WebhookInputOverlay"
+	Overlay.Size = UDim2.new(1, 0, 1, 0)
+	Overlay.Position = UDim2.new(0, 0, 0, 0)
+	Overlay.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+	Overlay.BackgroundTransparency = 0.5
+	Overlay.BorderSizePixel = 0
+	Overlay.ZIndex = 9999
+	Overlay.Parent = GuiParent
+
+	local Panel = Instance.new("Frame")
+	Panel.Size = UDim2.new(0, 310, 0, 110)
+	Panel.AnchorPoint = Vector2.new(0.5, 0.5)
+	Panel.Position = UDim2.new(0.5, 0, 0.5, 0)
+	Panel.BackgroundColor3 = Color3.fromRGB(19, 19, 19)
+	Panel.BorderSizePixel = 0
+	Panel.ZIndex = 10000
+	Panel.Parent = Overlay
+
+	local PanelCorner = Instance.new("UICorner")
+	PanelCorner.CornerRadius = UDim.new(0, 4)
+	PanelCorner.Parent = Panel
+
+	local PanelStroke = Instance.new("UIStroke")
+	PanelStroke.Color = Color3.fromRGB(40, 40, 40)
+	PanelStroke.Parent = Panel
+
+	local Title = Instance.new("TextLabel")
+	Title.Size = UDim2.new(1, -12, 0, 22)
+	Title.Position = UDim2.new(0, 10, 0, 6)
+	Title.BackgroundTransparency = 1
+	Title.Text = "WEBHOOK URL"
+	Title.TextColor3 = Color3.fromRGB(255, 255, 255)
+	Title.TextTransparency = 0.3
+	Title.TextSize = 12
+	Title.Font = Enum.Font.GothamBold
+	Title.TextXAlignment = Enum.TextXAlignment.Left
+	Title.ZIndex = 10001
+	Title.Parent = Panel
+
+	local InputFrame = Instance.new("Frame")
+	InputFrame.Size = UDim2.new(1, -20, 0, 28)
+	InputFrame.Position = UDim2.new(0, 10, 0, 32)
+	InputFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+	InputFrame.BorderSizePixel = 0
+	InputFrame.ZIndex = 10001
+	InputFrame.Parent = Panel
+
+	local InputCorner = Instance.new("UICorner")
+	InputCorner.CornerRadius = UDim.new(0, 3)
+	InputCorner.Parent = InputFrame
+
+	local InputStroke = Instance.new("UIStroke")
+	InputStroke.Color = Color3.fromRGB(50, 50, 50)
+	InputStroke.Parent = InputFrame
+
+	local TextBox = Instance.new("TextBox")
+	TextBox.Size = UDim2.new(1, -10, 1, 0)
+	TextBox.Position = UDim2.new(0, 5, 0, 0)
+	TextBox.BackgroundTransparency = 1
+	TextBox.Text = (WebhookFeature and WebhookFeature:GetUrl()) or ""
+	TextBox.PlaceholderText = "https://discord.com/api/webhooks/..."
+	TextBox.PlaceholderColor3 = Color3.fromRGB(100, 100, 100)
+	TextBox.TextColor3 = Color3.fromRGB(220, 220, 220)
+	TextBox.TextSize = 11
+	TextBox.Font = Enum.Font.Gotham
+	TextBox.ClearTextOnFocus = false
+	TextBox.ZIndex = 10002
+	TextBox.Parent = InputFrame
+
+	local function makeBtn(Label, XPos, BgColor)
+		local Btn = Instance.new("TextButton")
+		Btn.Size = UDim2.new(0, 130, 0, 26)
+		Btn.Position = UDim2.new(0, XPos, 0, 74)
+		Btn.BackgroundColor3 = BgColor
+		Btn.BorderSizePixel = 0
+		Btn.Text = Label
+		Btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+		Btn.TextSize = 12
+		Btn.Font = Enum.Font.GothamBold
+		Btn.ZIndex = 10001
+		Btn.Parent = Panel
+
+		local BtnCorner = Instance.new("UICorner")
+		BtnCorner.CornerRadius = UDim.new(0, 3)
+		BtnCorner.Parent = Btn
+
+		return Btn
+	end
+
+	local OkBtn = makeBtn("Save", 10, Color3.fromRGB(88, 101, 242))
+	local CancelBtn = makeBtn("Cancel", 150, Color3.fromRGB(45, 45, 45))
+
+	local function close()
+		Overlay:Destroy()
+	end
+
+	OkBtn.MouseButton1Click:Connect(function()
+		if WebhookFeature then
+			WebhookFeature:SetUrl(TextBox.Text)
+		end
+		close()
+	end)
+
+	CancelBtn.MouseButton1Click:Connect(function()
+		close()
+	end)
+
+	TextBox.FocusLost:Connect(function(EnterPressed)
+		if EnterPressed then
+			if WebhookFeature then
+				WebhookFeature:SetUrl(TextBox.Text)
+			end
+			close()
+		end
+	end)
+
+	task.defer(function()
+		pcall(function()
+			TextBox:CaptureFocus()
+		end)
+	end)
+end
+
 safeBuildBlock("Fatality/main.lua:MISC_WEBHOOK", function()
 	local WebhookSection = Misc:AddSection({
 		Name = "DISCORD WEBHOOK",
 		Position = 'left',
-		Height = 75
+		Height = 50
 	})
 
 	WebhookSection:AddButton({
-		Name = "Paste Webhook URL",
+		Name = "Set Webhook URL",
 		Callback = function()
-			local Url = ""
-
-			if type(getclipboard) == "function" then
-				local Ok, Result = pcall(getclipboard)
-				if Ok and type(Result) == "string" then
-					Url = Result
-				end
-			end
-
-			if WebhookFeature then
-				WebhookFeature:SetUrl(Url)
-			end
-		end,
-	})
-
-	WebhookSection:AddButton({
-		Name = "Clear Webhook URL",
-		Callback = function()
-			if WebhookFeature then
-				WebhookFeature:SetUrl("")
-			end
+			showWebhookInputPopup()
 		end,
 	})
 
@@ -776,7 +883,7 @@ safeBuildBlock("Fatality/main.lua:MISC_WEBHOOK", function()
 			elseif Notification then
 				Notification:Notify({
 					Title = "Webhook",
-					Content = "No URL set. Paste a webhook URL first.",
+					Content = "No URL set. Click Set Webhook URL first.",
 					Icon = "alert-circle"
 				})
 			end
