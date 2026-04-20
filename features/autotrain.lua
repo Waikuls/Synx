@@ -1444,15 +1444,20 @@ return function(Config)
 		return Remote
 	end
 
-	local function fireStrengthBagRemote()
+	local function fireBagRemote(Arg)
 		local Remote = findNearestStrengthBagRemote()
 		if not Remote then return false end
 		return pcall(function()
-			Remote:FireServer("str")
+			Remote:FireServer(Arg)
 		end)
 	end
 
-	function AutoTrainFeature:StepStrength(Now)
+	local PunchingBagRemoteArgs = {
+		Strength = "str",
+		["Attack speed"] = "atkspd",
+	}
+
+	function AutoTrainFeature:StepPunchingBag(Now)
 		if self.EatingBreak then
 			self.StrengthGlovesActive = false
 			return
@@ -1463,13 +1468,11 @@ return function(Config)
 			return
 		end
 
-		-- Session timeout: re-equip if no hit for too long
 		if self.StrengthGlovesActive and (Now - self.LastStrengthHitAt) > self.StrengthSessionTimeout then
 			self.StrengthGlovesActive = false
 		end
 
 		if not self.StrengthGlovesActive then
-			-- Try proximity prompt first to get near the bag
 			if (Now - self.LastPromptAt) >= self.PromptCooldown then
 				local Prompt = self:GetTargetPrompt()
 				if Prompt then
@@ -1479,16 +1482,13 @@ return function(Config)
 						local Dist = (RootPart.Position - PromptPos).Magnitude
 						local MaxDist = math.max((Prompt.MaxActivationDistance or 10) - 1, 3)
 						if Dist > MaxDist then
-							if moveNearPrompt(Prompt) then
-								self.LastPromptAt = Now
-							end
+							if moveNearPrompt(Prompt) then self.LastPromptAt = Now end
 							return
 						end
 					end
 				end
 			end
 
-			-- Press E to equip gloves
 			if (Now - self.LastStrengthEquipAt) < self.StrengthEquipCooldown then return end
 			self.LastStrengthEquipAt = Now
 
@@ -1501,15 +1501,14 @@ return function(Config)
 			self.StrengthGlovesActive = true
 			self.StrengthPunchIndex = 0
 			self.LastStrengthHitAt = Now
+			StrengthBagRemoteCache.At = 0
 			return
 		end
 
 		if self.StaminaThreshold > 0 then
 			StaminaCache.At = 0
 			local StaminaPct = getStaminaPercent()
-			if StaminaPct <= self.StaminaThreshold then
-				self.StaminaPaused = true
-			end
+			if StaminaPct <= self.StaminaThreshold then self.StaminaPaused = true end
 			if self.StaminaPaused then
 				if StaminaPct >= self:GetContinueThreshold() then
 					self.StaminaPaused = false
@@ -1532,13 +1531,17 @@ return function(Config)
 			fireInputKey(KeyName, false)
 		end)
 
-		fireStrengthBagRemote()
+		fireBagRemote(PunchingBagRemoteArgs[self.SelectedType] or "str")
 		self.LastStrengthHitAt = Now
 
 		if WheyFeature and WheyFeature.Enabled and WheyFeature:ShouldConsume() then
 			local FoodBusy = FoodFeature and FoodFeature.IsEating
 			WheyFeature:TryConsume(FoodBusy)
 		end
+	end
+
+	function AutoTrainFeature:StepStrength(Now)
+		self:StepPunchingBag(Now)
 	end
 
 	local function findVisibleBikeLeaveButton()
@@ -1690,8 +1693,8 @@ return function(Config)
 			end
 		end
 
-		if self.SelectedType == "Strength" then
-			self:StepStrength(Now)
+		if self.SelectedType == "Strength" or self.SelectedType == "Attack speed" then
+			self:StepPunchingBag(Now)
 			return
 		end
 
