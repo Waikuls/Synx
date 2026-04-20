@@ -1352,8 +1352,6 @@ return function(Config)
 		return Best
 	end
 
-	local StrengthBagRemotePath = {"Punching bag", "PUNCHING BAG", "Ladder", "bag", "Bag", "RemoteEvent"}
-
 	local function getInputRemote()
 		local Character = getCharacter()
 		if not Character then return nil end
@@ -1375,9 +1373,45 @@ return function(Config)
 		end)
 	end
 
+	local function findNearestStrengthBagRemote()
+		local RootPart = getRootPart()
+		local Best = nil
+		local BestDist = math.huge
+
+		for _, Desc in ipairs(workspace:GetDescendants()) do
+			if Desc:IsA("RemoteEvent") and Desc.Name == "RemoteEvent" then
+				local Parent = Desc.Parent
+				if Parent and string.lower(Parent.Name) == "bag" then
+					local Pos = nil
+					local Current = Parent.Parent
+					while Current and Current ~= workspace do
+						local Ok, P = pcall(function()
+							return Current:IsA("BasePart") and Current.Position
+								or (Current:IsA("Model") and Current.PrimaryPart and Current.PrimaryPart.Position)
+						end)
+						if Ok and P then Pos = P break end
+						Current = Current.Parent
+					end
+
+					local Dist = 999
+					if RootPart and Pos then
+						Dist = (RootPart.Position - Pos).Magnitude
+					end
+
+					if Dist < BestDist then
+						BestDist = Dist
+						Best = Desc
+					end
+				end
+			end
+		end
+
+		return Best
+	end
+
 	local function fireStrengthBagRemote()
-		local Remote = resolvePath(StrengthBagRemotePath)
-		if not Remote or not Remote:IsA("RemoteEvent") then return false end
+		local Remote = findNearestStrengthBagRemote()
+		if not Remote then return false end
 		return pcall(function()
 			Remote:FireServer("str")
 		end)
