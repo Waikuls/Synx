@@ -2,6 +2,7 @@ return function(Config)
 	local Visual = Config.Visual
 	local Window = Config.Window
 	local ESP = Config.ESP
+	local FreecamFeature = Config.FreecamFeature
 
 	local Misc = Visual:AddSection({
 		Name = "MISC",
@@ -29,6 +30,28 @@ return function(Config)
 			end
 		end,
 		Flag = "ESP"
+	})
+
+	Misc:AddToggle({
+		Name = "Freecam",
+		Callback = function(Value)
+			if not FreecamFeature then
+				return
+			end
+
+			local Enabled = FreecamFeature:SetEnabled(Value)
+
+			if not Enabled and Value then
+				task.defer(function()
+					local Flag = Window:GetFlags().FreecamToggle
+
+					if Flag then
+						Flag:SetValue(false)
+					end
+				end)
+			end
+		end,
+		Flag = "Freecam"
 	})
 
 	Setting:AddSlider({

@@ -54,6 +54,7 @@ local function hasCompleteLocalProject()
 		"ui/visual.lua",
 		"ui/stats.lua",
 		"features/esp.lua",
+		"features/freecam.lua",
 		"features/food.lua",
 		"features/stamina.lua",
 		"features/stats.lua",
@@ -310,6 +311,18 @@ local function createFallbackESP(ErrorMessage)
 	}
 end
 
+local function createFallbackFreecamFeature(ErrorMessage)
+	notifyModuleFailure("features/freecam.lua", ErrorMessage)
+
+	return {
+		SetEnabled = function()
+			return false
+		end,
+		Destroy = function()
+		end
+	}
+end
+
 local function createFallbackFoodFeature(ErrorMessage)
 	notifyModuleFailure("features/food.lua", ErrorMessage)
 
@@ -530,6 +543,7 @@ local Skins = Window:AddMenu({
 })
 
 local CreateESP = safeLoadModule("features/esp.lua", createFallbackESP)
+local CreateFreecamFeature = safeLoadModule("features/freecam.lua", createFallbackFreecamFeature)
 local CreateFoodFeature = safeLoadModule("features/food.lua", createFallbackFoodFeature)
 local CreateAutoTrainFeature = safeLoadModule("features/autotrain.lua", createFallbackAutoTrainFeature)
 local CreateStaminaFeature = safeLoadModule("features/stamina.lua", createFallbackStaminaFeature)
@@ -551,6 +565,9 @@ end)
 local ESP = safeCreateModule("features/esp.lua", CreateESP, {
 	Notification = Notification
 }, createFallbackESP)
+local FreecamFeature = safeCreateModule("features/freecam.lua", CreateFreecamFeature, {
+	Notification = Notification
+}, createFallbackFreecamFeature)
 local FoodFeature = safeCreateModule("features/food.lua", CreateFoodFeature, {
 	Notification = Notification
 }, createFallbackFoodFeature)
@@ -589,7 +606,8 @@ safeRunModule("ui/main.lua", CreateMainUI, {
 safeRunModule("ui/visual.lua", CreateVisualUI, {
 	Visual = Visual,
 	Window = Window,
-	ESP = ESP
+	ESP = ESP,
+	FreecamFeature = FreecamFeature
 })
 
 safeBuildBlock("Fatality/main.lua:LEGIT_STATIC", function()
@@ -935,6 +953,7 @@ safeBuildBlock("Fatality/main.lua:MISC_STATIC", function()
 		Name = "Quit",
 		Callback = function()
 			ESP:Destroy()
+			FreecamFeature:Destroy()
 			FoodFeature:Destroy()
 			AutoTrainFeature:Destroy()
 			StaminaFeature:Destroy()
