@@ -781,6 +781,7 @@ local function showWebhookInputPopup()
 	InputFrame.Position = UDim2.new(0, 10, 0, 32)
 	InputFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
 	InputFrame.BorderSizePixel = 0
+	InputFrame.ClipsDescendants = true
 	InputFrame.ZIndex = 10001
 	InputFrame.Parent = Panel
 
@@ -803,6 +804,7 @@ local function showWebhookInputPopup()
 	TextBox.TextSize = 11
 	TextBox.Font = Enum.Font.Gotham
 	TextBox.ClearTextOnFocus = false
+	TextBox.MultiLine = false
 	TextBox.ZIndex = 10002
 	TextBox.Parent = InputFrame
 

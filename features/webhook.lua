@@ -82,7 +82,10 @@ return function(Config)
 		self.LastSentAt = Now
 
 		task.spawn(function()
-			pcall(doRequest, self.Url, {content = Content})
+			pcall(doRequest, self.Url, {
+				content = "@everyone " .. Content,
+				allowed_mentions = {parse = {"everyone"}}
+			})
 		end)
 
 		return true
