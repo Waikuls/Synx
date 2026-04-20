@@ -76,6 +76,8 @@ return function(Config)
 	AutoTrainFeature.LastProximityTriggerAt = 0
 	AutoTrainFeature.LastUiKeyAt = 0
 	AutoTrainFeature.StaminaThreshold = 15
+	AutoTrainFeature.ContinueLevel = "mid"
+	AutoTrainFeature.StaminaPaused = false
 	AutoTrainFeature.MaxFatigueAction = "Do nothing"
 	AutoTrainFeature.LastDebugNotifyAt = 0
 	AutoTrainFeature.LastDebugMessage = ""
@@ -1174,8 +1176,22 @@ return function(Config)
 			return false
 		end
 
-		if self.StaminaThreshold > 0 and getStaminaPercent() <= self.StaminaThreshold then
-			return false
+		if self.StaminaThreshold > 0 then
+			local StaminaPct = getStaminaPercent()
+
+			if StaminaPct <= self.StaminaThreshold then
+				self.StaminaPaused = true
+			end
+
+			if self.StaminaPaused then
+				local ResumeAt = self:GetContinueThreshold()
+
+				if StaminaPct >= ResumeAt then
+					self.StaminaPaused = false
+				else
+					return false
+				end
+			end
 		end
 
 		Key, Signature = getVisibleBikeKeyCandidate(false)
@@ -1380,6 +1396,7 @@ return function(Config)
 				self.BikeRideStartedAt = 0
 				self.LastProximityTriggerAt = 0
 				self.LastUiKeyAt = 0
+				self.StaminaPaused = false
 				self.LastDebugNotifyAt = 0
 				self.LastDebugMessage = ""
 				return true
@@ -1396,6 +1413,27 @@ return function(Config)
 	function AutoTrainFeature:SetStaminaThreshold(Value)
 		if type(Value) == "number" and Value >= 0 and Value <= 100 then
 			self.StaminaThreshold = Value
+			return true
+		end
+		return false
+	end
+
+	function AutoTrainFeature:GetContinueThreshold()
+		if self.ContinueLevel == "low" then
+			return 30
+		elseif self.ContinueLevel == "high" then
+			return 80
+		end
+		return 50
+	end
+
+	function AutoTrainFeature:GetContinueLevel()
+		return self.ContinueLevel
+	end
+
+	function AutoTrainFeature:SetContinueLevel(Value)
+		if Value == "low" or Value == "mid" or Value == "high" then
+			self.ContinueLevel = Value
 			return true
 		end
 		return false
@@ -1444,6 +1482,7 @@ return function(Config)
 		self.BikeRideStartedAt = 0
 		self.LastProximityTriggerAt = 0
 		self.LastUiKeyAt = 0
+		self.StaminaPaused = false
 		self.LastDebugNotifyAt = 0
 		self.LastDebugMessage = ""
 

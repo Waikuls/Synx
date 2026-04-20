@@ -83,9 +83,12 @@ return function(Config)
 
 	AutoTrain:AddDropdown({
 		Name = "Continue",
-		Default = "mid",
+		Default = AutoTrainFeature and AutoTrainFeature:GetContinueLevel() or "mid",
 		Values = {"low", "mid", "high"},
 		Callback = function(Value)
+			if AutoTrainFeature then
+				AutoTrainFeature:SetContinueLevel(Value)
+			end
 		end,
 		Flag = "AutoTrainContinue"
 	})
