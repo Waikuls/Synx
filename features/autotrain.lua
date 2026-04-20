@@ -1383,45 +1383,65 @@ return function(Config)
 			return StrengthBagRemoteCache.Remote
 		end
 
-		local RootPart = getRootPart()
-		local Aliases = MachineAliases["Strength"] or {}
-		local Best = nil
-		local BestDist = math.huge
+		-- Find root model of nearest bag via its proximity prompt
+		local Prompt = AutoTrainFeature:GetTargetPrompt()
+		local BagRoot = Prompt and Prompt.Parent
+		while BagRoot and BagRoot ~= workspace do
+			if BagRoot:IsA("Model") then break end
+			BagRoot = BagRoot.Parent
+		end
 
-		for _, Desc in ipairs(workspace:GetDescendants()) do
-			if Desc:IsA("RemoteEvent") and Desc.Name == "RemoteEvent" then
-				local IsBagRemote = false
-				local Pos = nil
-				local Current = Desc.Parent
+		local Remote = nil
 
-				for _ = 1, 8 do
-					if not Current or Current == workspace then break end
-					if containsAlias(Current.Name, Aliases) then
-						IsBagRemote = true
-					end
-					if not Pos then
-						if Current:IsA("BasePart") then
-							Pos = Current.Position
-						elseif Current:IsA("Model") and Current.PrimaryPart then
-							Pos = Current.PrimaryPart.Position
-						end
-					end
-					Current = Current.Parent
+		if BagRoot and BagRoot ~= workspace then
+			for _, Desc in ipairs(BagRoot:GetDescendants()) do
+				if Desc:IsA("RemoteEvent") and Desc.Name == "RemoteEvent" then
+					Remote = Desc
+					break
 				end
+			end
+		end
 
-				if IsBagRemote then
-					local Dist = (RootPart and Pos) and (RootPart.Position - Pos).Magnitude or 999
-					if Dist < BestDist then
-						BestDist = Dist
-						Best = Desc
+		-- Fallback: scan all workspace for the nearest bag remote by distance
+		if not Remote then
+			local RootPart = getRootPart()
+			local Aliases = MachineAliases["Strength"] or {}
+			local BestDist = math.huge
+
+			for _, Desc in ipairs(workspace:GetDescendants()) do
+				if Desc:IsA("RemoteEvent") and Desc.Name == "RemoteEvent" then
+					local Current = Desc.Parent
+					local IsBag = false
+					local Pos = nil
+
+					for _ = 1, 8 do
+						if not Current or Current == workspace then break end
+						if containsAlias(Current.Name, Aliases) then IsBag = true end
+						if not Pos then
+							if Current:IsA("BasePart") then
+								Pos = Current.Position
+							elseif Current:IsA("Model") then
+								local Part = Current.PrimaryPart or Current:FindFirstChildWhichIsA("BasePart")
+								if Part then Pos = Part.Position end
+							end
+						end
+						Current = Current.Parent
+					end
+
+					if IsBag then
+						local Dist = (RootPart and Pos) and (RootPart.Position - Pos).Magnitude or 999
+						if Dist < BestDist then
+							BestDist = Dist
+							Remote = Desc
+						end
 					end
 				end
 			end
 		end
 
-		StrengthBagRemoteCache.Remote = Best
+		StrengthBagRemoteCache.Remote = Remote
 		StrengthBagRemoteCache.At = Now
-		return Best
+		return Remote
 	end
 
 	local function fireStrengthBagRemote()
