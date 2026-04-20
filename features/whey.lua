@@ -92,16 +92,34 @@ return function(Config)
 			end
 
 			pcall(function() Humanoid:EquipTool(Tool) end)
-			task.wait(0.35)
 
-			pcall(function() Tool:Activate() end)
+			local Equipped = false
+			local Deadline = os.clock() + 0.5
+			repeat
+				task.wait(0.05)
+				Equipped = Tool.Parent == Character
+			until Equipped or os.clock() > Deadline
 
-			if type(firesignal) == "function" then
-				pcall(function() firesignal(Tool.Activated) end)
+			if Equipped then
+				task.wait(0.1)
+				pcall(function() Tool:Activate() end)
+				if type(firesignal) == "function" then
+					pcall(function() firesignal(Tool.Activated) end)
+				end
+				local Ok, Vim = pcall(game.GetService, game, "VirtualInputManager")
+				if Ok and Vim then
+					local Camera = workspace.CurrentCamera
+					local Vp = Camera and Camera.ViewportSize or Vector2.new(1280, 720)
+					local Cx, Cy = math.floor(Vp.X * 0.5), math.floor(Vp.Y * 0.5)
+					pcall(function()
+						Vim:SendMouseButtonEvent(Cx, Cy, 0, true, game, 0)
+						task.wait(0.05)
+						Vim:SendMouseButtonEvent(Cx, Cy, 0, false, game, 0)
+					end)
+				end
 			end
 
-			task.wait(0.5)
-
+			task.wait(0.3)
 			pcall(function() Humanoid:UnequipTools() end)
 
 			WheyFeature.IsConsuming = false
