@@ -35,18 +35,27 @@ return function(Config)
 	AutoTrainFeature.StartCooldown = 0.35
 	AutoTrainFeature.KeyCooldown = 0.08
 	AutoTrainFeature.RepeatKeyCooldown = 0.3
+	AutoTrainFeature.BlindBikeKeyCooldown = 0.2
+	AutoTrainFeature.BikeUiRefreshCooldown = 0.2
 	AutoTrainFeature.DesiredStandDistance = 4
 	AutoTrainFeature.VerticalOffset = 2.5
 	AutoTrainFeature.MaxRemoteStartDistance = 18
 	AutoTrainFeature.LastPromptAt = 0
 	AutoTrainFeature.LastStartAt = 0
 	AutoTrainFeature.LastKeyAt = 0
+	AutoTrainFeature.LastBlindBikeKeyAt = 0
 	AutoTrainFeature.LastKeySignature = nil
 	AutoTrainFeature.LastKeySignatureAt = 0
 	AutoTrainFeature.CachedPrompt = nil
 	AutoTrainFeature.CachedPromptType = nil
 	AutoTrainFeature.LastPromptRefreshAt = 0
 	AutoTrainFeature.PromptRefreshInterval = 2
+	AutoTrainFeature.LastBikeUiRefreshAt = 0
+	AutoTrainFeature.CachedBikeActionMenuVisible = false
+	AutoTrainFeature.CachedBikeStartButton = nil
+	AutoTrainFeature.CachedBikeKey = nil
+	AutoTrainFeature.CachedBikeKeySignature = nil
+	AutoTrainFeature.BlindBikeKeyIndex = 0
 
 	local function trimString(Value)
 		if typeof(Value) ~= "string" then
@@ -721,93 +730,30 @@ return function(Config)
 		end)
 	end
 
-	local function isBikeActionMenuVisible()
-		local Containers = getGuiContainers()
-
-		for ContainerIndex = 1, #Containers do
-			local Descendants = Containers[ContainerIndex]:GetDescendants()
-
-			for Index = 1, #Descendants do
-				local Descendant = Descendants[Index]
-
-				if isVisibleGuiObject(Descendant) then
-					local Text = normalizeText(getInstanceText(Descendant))
-
-					if Text == "start" then
-						return true
-					end
-
-					if string.find(Text, "choose an action", 1, true) then
-						return true
-					end
-
-					if string.find(Text, "start with macro", 1, true) then
-						return true
-					end
-				end
-			end
-		end
-
-		return false
-	end
-
-	local function findVisibleBikeStartButton()
-		local Containers = getGuiContainers()
+	local function refreshBikeUiState(ForceRefresh)
+		local Now = os.clock()
+		local Containers
 		local ScreenCenter
 		local ViewportSize
-		local MaxDistance
-		local BestButton = nil
-		local BestScore = -math.huge
-
-		ScreenCenter, ViewportSize = getScreenCenter()
-		MaxDistance = math.max(ViewportSize.X, ViewportSize.Y) * 0.42
-
-		for ContainerIndex = 1, #Containers do
-			local Descendants = Containers[ContainerIndex]:GetDescendants()
-
-			for Index = 1, #Descendants do
-				local Descendant = Descendants[Index]
-				local Button = nil
-				local Text = normalizeText(getInstanceText(Descendant))
-
-				if Text == "start" and isVisibleGuiObject(Descendant) then
-					Button = getGuiButtonFromInstance(Descendant)
-
-					if Button and isVisibleGuiObject(Button) then
-						local Center, Size = getGuiCenter(Button)
-
-						if Center and Size and Size.X >= 80 and Size.Y >= 20 then
-							local Distance = (Center - ScreenCenter).Magnitude
-
-							if Distance <= MaxDistance then
-								local Score = math.min(Size.X * Size.Y, 20000)
-								Score = Score + math.max(0, 450 - Distance)
-
-								if Score > BestScore then
-									BestScore = Score
-									BestButton = Button
-								end
-							end
-						end
-					end
-				end
-			end
-		end
-
-		return BestButton
-	end
-
-	local function getVisibleBikeKeyCandidate()
-		local Containers = getGuiContainers()
-		local ScreenCenter
-		local ViewportSize
-		local MaxDistance
+		local StartMaxDistance
+		local KeyMaxDistance
+		local BestStartButton = nil
+		local BestStartScore = -math.huge
 		local BestKey = nil
-		local BestSignature = nil
-		local BestScore = -math.huge
+		local BestKeySignature = nil
+		local BestKeyScore = -math.huge
+		local ActionMenuVisible = false
 
+		if not ForceRefresh then
+			if (Now - AutoTrainFeature.LastBikeUiRefreshAt) < AutoTrainFeature.BikeUiRefreshCooldown then
+				return
+			end
+		end
+
+		Containers = getGuiContainers()
 		ScreenCenter, ViewportSize = getScreenCenter()
-		MaxDistance = math.max(ViewportSize.X, ViewportSize.Y) * 0.38
+		StartMaxDistance = math.max(ViewportSize.X, ViewportSize.Y) * 0.42
+		KeyMaxDistance = math.max(ViewportSize.X, ViewportSize.Y) * 0.38
 
 		for ContainerIndex = 1, #Containers do
 			local Descendants = Containers[ContainerIndex]:GetDescendants()
@@ -816,31 +762,61 @@ return function(Config)
 				local Descendant = Descendants[Index]
 
 				if Descendant:IsA("GuiObject") and isVisibleGuiObject(Descendant) then
-					local Text = string.upper(normalizeText(getInstanceText(Descendant)))
-					local IsKey = false
+					local Text = normalizeText(getInstanceText(Descendant))
 
-					for KeyIndex = 1, #BikeKeys do
-						if Text == BikeKeys[KeyIndex] then
-							IsKey = true
-							break
+					if Text == "start"
+						or string.find(Text, "choose an action", 1, true)
+						or string.find(Text, "start with macro", 1, true) then
+						ActionMenuVisible = true
+					end
+
+					if Text == "start" then
+						local Button = getGuiButtonFromInstance(Descendant)
+
+						if Button and isVisibleGuiObject(Button) then
+							local Center, Size = getGuiCenter(Button)
+
+							if Center and Size and Size.X >= 80 and Size.Y >= 20 then
+								local Distance = (Center - ScreenCenter).Magnitude
+
+								if Distance <= StartMaxDistance then
+									local Score = math.min(Size.X * Size.Y, 20000)
+									Score = Score + math.max(0, 450 - Distance)
+
+									if Score > BestStartScore then
+										BestStartScore = Score
+										BestStartButton = Button
+									end
+								end
+							end
 						end
 					end
 
-					if IsKey then
-						local Center, Size = getGuiCenter(Descendant)
+					do
+						local KeyText = string.upper(Text)
+						local IsKey = false
 
-						if Center and Size then
-							if Size.X >= 18 and Size.Y >= 18 then
+						for KeyIndex = 1, #BikeKeys do
+							if KeyText == BikeKeys[KeyIndex] then
+								IsKey = true
+								break
+							end
+						end
+
+						if IsKey then
+							local Center, Size = getGuiCenter(Descendant)
+
+							if Center and Size and Size.X >= 18 and Size.Y >= 18 then
 								local Distance = (Center - ScreenCenter).Magnitude
 
-								if Distance <= MaxDistance then
+								if Distance <= KeyMaxDistance then
 									local Score = math.min(Size.X * Size.Y, 5000)
 									Score = Score + math.max(0, 250 - Distance)
 
-									if Score > BestScore then
-										BestScore = Score
-										BestKey = Text
-										BestSignature = Text
+									if Score > BestKeyScore then
+										BestKeyScore = Score
+										BestKey = KeyText
+										BestKeySignature = KeyText
 									end
 								end
 							end
@@ -850,7 +826,26 @@ return function(Config)
 			end
 		end
 
-		return BestKey, BestSignature
+		AutoTrainFeature.LastBikeUiRefreshAt = Now
+		AutoTrainFeature.CachedBikeActionMenuVisible = ActionMenuVisible
+		AutoTrainFeature.CachedBikeStartButton = BestStartButton
+		AutoTrainFeature.CachedBikeKey = BestKey
+		AutoTrainFeature.CachedBikeKeySignature = BestKeySignature
+	end
+
+	local function isBikeActionMenuVisible(ForceRefresh)
+		refreshBikeUiState(ForceRefresh)
+		return AutoTrainFeature.CachedBikeActionMenuVisible and true or false
+	end
+
+	local function findVisibleBikeStartButton(ForceRefresh)
+		refreshBikeUiState(ForceRefresh)
+		return AutoTrainFeature.CachedBikeStartButton
+	end
+
+	local function getVisibleBikeKeyCandidate(ForceRefresh)
+		refreshBikeUiState(ForceRefresh)
+		return AutoTrainFeature.CachedBikeKey, AutoTrainFeature.CachedBikeKeySignature
 	end
 
 	local function isNearBikeRemote()
@@ -903,6 +898,7 @@ return function(Config)
 	function AutoTrainFeature:TryBikePressKey(Now)
 		local Key
 		local Signature
+		local BlindKey = nil
 
 		if self.SelectedType ~= "Bike" then
 			return false
@@ -912,21 +908,39 @@ return function(Config)
 			return false
 		end
 
-		Key, Signature = getVisibleBikeKeyCandidate()
+		Key, Signature = getVisibleBikeKeyCandidate(false)
 
-		if not Key then
-			return false
-		end
+		if Key then
+			if Signature == self.LastKeySignature then
+				if (Now - self.LastKeySignatureAt) < self.RepeatKeyCooldown then
+					return false
+				end
+			end
 
-		if Signature == self.LastKeySignature then
-			if (Now - self.LastKeySignatureAt) < self.RepeatKeyCooldown then
-				return false
+			if fireBikeRemote("PressKey", {Key = Key}) then
+				self.LastKeyAt = Now
+				self.LastKeySignature = Signature
+				self.LastKeySignatureAt = Now
+				return true
 			end
 		end
 
-		if fireBikeRemote("PressKey", {Key = Key}) then
+		if (Now - self.LastBlindBikeKeyAt) < self.BlindBikeKeyCooldown then
+			return false
+		end
+
+		self.BlindBikeKeyIndex = self.BlindBikeKeyIndex + 1
+
+		if self.BlindBikeKeyIndex > #BikeKeys then
+			self.BlindBikeKeyIndex = 1
+		end
+
+		BlindKey = BikeKeys[self.BlindBikeKeyIndex]
+
+		if fireBikeRemote("PressKey", {Key = BlindKey}) then
 			self.LastKeyAt = Now
-			self.LastKeySignature = Signature
+			self.LastBlindBikeKeyAt = Now
+			self.LastKeySignature = "blind:" .. BlindKey
 			self.LastKeySignatureAt = Now
 			return true
 		end
@@ -958,15 +972,17 @@ return function(Config)
 		TrainingState = getTrainingState(self.SelectedType)
 
 		if self.SelectedType == "Bike" then
-			BikeMenuVisible = isBikeActionMenuVisible()
+			BikeMenuVisible = isBikeActionMenuVisible(false)
 
 			if BikeMenuVisible then
 				self:TryBikeStart(Now)
 				return
 			end
 
-			if self:TryBikePressKey(Now) then
-				return
+			if TrainingState.IsTraining or TrainingState.IsSelectedMachine then
+				if self:TryBikePressKey(Now) then
+					return
+				end
 			end
 
 			if self:TryBikeStart(Now) then
@@ -1029,8 +1045,15 @@ return function(Config)
 				self.CachedPrompt = nil
 				self.CachedPromptType = nil
 				self.LastPromptRefreshAt = 0
+				self.LastBlindBikeKeyAt = 0
 				self.LastKeySignature = nil
 				self.LastKeySignatureAt = 0
+				self.LastBikeUiRefreshAt = 0
+				self.CachedBikeActionMenuVisible = false
+				self.CachedBikeStartButton = nil
+				self.CachedBikeKey = nil
+				self.CachedBikeKeySignature = nil
+				self.BlindBikeKeyIndex = 0
 				return true
 			end
 		end
@@ -1053,11 +1076,18 @@ return function(Config)
 		self.LastPromptAt = 0
 		self.LastStartAt = 0
 		self.LastKeyAt = 0
+		self.LastBlindBikeKeyAt = 0
 		self.LastKeySignature = nil
 		self.LastKeySignatureAt = 0
 		self.CachedPrompt = nil
 		self.CachedPromptType = nil
 		self.LastPromptRefreshAt = 0
+		self.LastBikeUiRefreshAt = 0
+		self.CachedBikeActionMenuVisible = false
+		self.CachedBikeStartButton = nil
+		self.CachedBikeKey = nil
+		self.CachedBikeKeySignature = nil
+		self.BlindBikeKeyIndex = 0
 
 		if self.Connection then
 			self.Connection:Disconnect()
