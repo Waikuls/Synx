@@ -303,6 +303,8 @@ local function createFallbackESP(ErrorMessage)
 		end,
 		SetShowHealth = function()
 		end,
+		SetShowDistance = function()
+		end,
 		Destroy = function()
 		end
 	}

@@ -57,4 +57,12 @@ return function(Config)
 			ESP:SetShowHealth(Value)
 		end
 	})
+
+	Setting:AddToggle({
+		Name = "Distance",
+		Default = true,
+		Callback = function(Value)
+			ESP:SetShowDistance(Value)
+		end
+	})
 end

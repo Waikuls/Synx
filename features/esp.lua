@@ -21,7 +21,8 @@ return function(Config)
 		Settings = {
 			DistanceLimit = 1500,
 			ShowName = true,
-			ShowHealth = true
+			ShowHealth = true,
+			ShowDistance = true
 		}
 	}
 
@@ -87,6 +88,14 @@ return function(Config)
 		return Character:FindFirstChildOfClass("Humanoid")
 	end
 
+	local function getHead(Character, RootPart)
+		if not Character then
+			return RootPart
+		end
+
+		return Character:FindFirstChild("Head") or RootPart
+	end
+
 	local function getLocalRootPart()
 		return getCharacterRoot(LocalPlayer and LocalPlayer.Character)
 	end
@@ -100,76 +109,44 @@ return function(Config)
 		return Text
 	end
 
-	local function getCharacterBounds(Character)
+	local function getCharacterBounds(Character, Humanoid, RootPart)
 		local Camera = getCurrentCamera()
-		local RootPart = getCharacterRoot(Character)
+		local Head = getHead(Character, RootPart)
 
-		if not Camera or not RootPart then
+		if not Camera or not RootPart or not Head then
 			return nil
 		end
 
-		local Success, BoundingCFrame, BoundingSize = pcall(function()
-			return Character:GetBoundingBox()
-		end)
-
-		if not Success or not BoundingCFrame or not BoundingSize then
-			BoundingCFrame = RootPart.CFrame
-			BoundingSize = RootPart.Size + Vector3.new(4, 5, 4)
-		end
-
-		local HalfSize = BoundingSize * 0.5
 		local ViewportSize = Camera.ViewportSize
-		local MinX = math.huge
-		local MinY = math.huge
-		local MaxX = -math.huge
-		local MaxY = -math.huge
-		local VisiblePoints = 0
-		local OnScreenPoints = 0
-		local Signs = {-1, 1}
+		local TopOffset = Head == RootPart and math.max(RootPart.Size.Y * 0.9, 2.4) or 0.6
+		local BottomOffset = Humanoid and math.max(Humanoid.HipHeight + 2.6, 2.8) or math.max(RootPart.Size.Y * 1.5, 3)
+		local TopWorld = Head.Position + Vector3.new(0, TopOffset, 0)
+		local BottomWorld = RootPart.Position - Vector3.new(0, BottomOffset, 0)
+		local TopPoint, TopOnScreen = Camera:WorldToViewportPoint(TopWorld)
+		local BottomPoint, BottomOnScreen = Camera:WorldToViewportPoint(BottomWorld)
+		local RootPoint, RootOnScreen = Camera:WorldToViewportPoint(RootPart.Position)
 
-		for _, XFactor in ipairs(Signs) do
-			for _, YFactor in ipairs(Signs) do
-				for _, ZFactor in ipairs(Signs) do
-					local Corner = BoundingCFrame:PointToWorldSpace(
-						Vector3.new(
-							HalfSize.X * XFactor,
-							HalfSize.Y * YFactor,
-							HalfSize.Z * ZFactor
-						)
-					)
-					local ScreenPoint, OnScreen = Camera:WorldToViewportPoint(Corner)
-
-					if ScreenPoint.Z > 0 then
-						VisiblePoints = VisiblePoints + 1
-						MinX = math.min(MinX, ScreenPoint.X)
-						MinY = math.min(MinY, ScreenPoint.Y)
-						MaxX = math.max(MaxX, ScreenPoint.X)
-						MaxY = math.max(MaxY, ScreenPoint.Y)
-
-						if OnScreen then
-							OnScreenPoints = OnScreenPoints + 1
-						end
-					end
-				end
-			end
-		end
-
-		if VisiblePoints < 2 or OnScreenPoints == 0 then
+		if TopPoint.Z <= 0 or BottomPoint.Z <= 0 or RootPoint.Z <= 0 then
 			return nil
 		end
 
-		if MaxX < -32 or MinX > ViewportSize.X + 32 or MaxY < -32 or MinY > ViewportSize.Y + 32 then
+		if not TopOnScreen and not BottomOnScreen and not RootOnScreen then
 			return nil
 		end
 
-		local Width = MaxX - MinX
-		local Height = MaxY - MinY
+		local Height = math.abs(BottomPoint.Y - TopPoint.Y)
 
-		if Width < 2 or Height < 2 then
+		if Height < 8 or Height > (ViewportSize.Y * 0.9) then
 			return nil
 		end
 
-		if Width > (ViewportSize.X * 1.5) or Height > (ViewportSize.Y * 1.5) then
+		local Width = math.max(Height * 0.58, 10)
+		local MinX = RootPoint.X - (Width * 0.5)
+		local MinY = math.min(TopPoint.Y, BottomPoint.Y)
+		local MaxX = RootPoint.X + (Width * 0.5)
+		local MaxY = math.max(TopPoint.Y, BottomPoint.Y)
+
+		if MaxX < -24 or MinX > ViewportSize.X + 24 or MaxY < -24 or MinY > ViewportSize.Y + 24 then
 			return nil
 		end
 
@@ -295,7 +272,8 @@ return function(Config)
 			BoxBottom = BoxBottom,
 			BoxLeft = BoxLeft,
 			BoxRight = BoxRight,
-			InfoLabel = InfoLabel
+			InfoLabel = InfoLabel,
+			LastBounds = nil
 		}
 
 		return self.Entries[Player]
@@ -314,6 +292,7 @@ return function(Config)
 
 		Entry.Container.Visible = false
 		Entry.InfoLabel.Visible = false
+		Entry.LastBounds = nil
 	end
 
 	function ESP:RemoveEntry(Player)
@@ -335,11 +314,10 @@ return function(Config)
 
 	function ESP:UpdateEntry(Player, Humanoid, MinX, MinY, MaxX, MaxY, Distance)
 		local Entry = self:GetEntry(Player)
-		local Width = math.max(math.floor((MaxX - MinX) + 0.5), 2)
-		local Height = math.max(math.floor((MaxY - MinY) + 0.5), 2)
 		local NameText = self.Settings.ShowName and (Player.DisplayName or Player.Name) or nil
 		local HealthText = nil
-		local DistanceText = Distance and string.format("%d studs", math.floor(Distance + 0.5)) or nil
+		local DistanceText = self.Settings.ShowDistance and Distance and string.format("%d studs", math.floor(Distance + 0.5)) or nil
+		local SmoothedBounds = Entry.LastBounds
 
 		if self.Settings.ShowHealth and Humanoid then
 			HealthText = string.format(
@@ -349,9 +327,41 @@ return function(Config)
 			)
 		end
 
+		if not SmoothedBounds then
+			SmoothedBounds = {
+				MinX = MinX,
+				MinY = MinY,
+				MaxX = MaxX,
+				MaxY = MaxY
+			}
+		else
+			local SmoothAlpha = 0.28
+			local SnapDistance = 90
+
+			if math.abs(SmoothedBounds.MinX - MinX) > SnapDistance
+				or math.abs(SmoothedBounds.MinY - MinY) > SnapDistance
+				or math.abs(SmoothedBounds.MaxX - MaxX) > SnapDistance
+				or math.abs(SmoothedBounds.MaxY - MaxY) > SnapDistance then
+				SmoothedBounds.MinX = MinX
+				SmoothedBounds.MinY = MinY
+				SmoothedBounds.MaxX = MaxX
+				SmoothedBounds.MaxY = MaxY
+			else
+				SmoothedBounds.MinX = SmoothedBounds.MinX + ((MinX - SmoothedBounds.MinX) * SmoothAlpha)
+				SmoothedBounds.MinY = SmoothedBounds.MinY + ((MinY - SmoothedBounds.MinY) * SmoothAlpha)
+				SmoothedBounds.MaxX = SmoothedBounds.MaxX + ((MaxX - SmoothedBounds.MaxX) * SmoothAlpha)
+				SmoothedBounds.MaxY = SmoothedBounds.MaxY + ((MaxY - SmoothedBounds.MaxY) * SmoothAlpha)
+			end
+		end
+
+		Entry.LastBounds = SmoothedBounds
+
+		local Width = math.max(math.floor((SmoothedBounds.MaxX - SmoothedBounds.MinX) + 0.5), 2)
+		local Height = math.max(math.floor((SmoothedBounds.MaxY - SmoothedBounds.MinY) + 0.5), 2)
+
 		local PlainInfo, RichInfo = buildInfoText(NameText, HealthText, DistanceText)
 
-		Entry.Container.Position = UDim2.new(0, math.floor(MinX + 0.5), 0, math.floor(MinY + 0.5))
+		Entry.Container.Position = UDim2.new(0, math.floor(SmoothedBounds.MinX + 0.5), 0, math.floor(SmoothedBounds.MinY + 0.5))
 		Entry.Container.Size = UDim2.new(0, Width, 0, Height)
 		Entry.Container.Visible = true
 
@@ -421,7 +431,7 @@ return function(Config)
 			end
 		end
 
-		local MinX, MinY, MaxX, MaxY = getCharacterBounds(Character)
+		local MinX, MinY, MaxX, MaxY = getCharacterBounds(Character, Humanoid, RootPart)
 
 		if not MinX then
 			self:HideEntry(Player)
@@ -495,6 +505,10 @@ return function(Config)
 
 	function ESP:SetShowHealth(Value)
 		self.Settings.ShowHealth = Value and true or false
+	end
+
+	function ESP:SetShowDistance(Value)
+		self.Settings.ShowDistance = Value and true or false
 	end
 
 	return ESP
