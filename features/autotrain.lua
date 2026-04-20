@@ -9,11 +9,12 @@ return function(Config)
 	local WheyFeature = Config and Config.WheyFeature
 
 	local AvailableTypes = {
-		"Bag",
+		"Attack speed",
 		"Bar",
 		"Bench",
 		"Bike",
 		"Squat machine",
+		"Strength",
 		"Treadmill"
 	}
 
