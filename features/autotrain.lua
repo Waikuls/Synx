@@ -1543,8 +1543,8 @@ return function(Config)
 		if (Now - self.LastStrengthPunchAt) < self.StrengthPunchCooldown then return end
 		self.LastStrengthPunchAt = Now
 
-		self.StrengthPunchIndex = (self.StrengthPunchIndex % 5) + 1
-		local KeyName = self.StrengthPunchIndex <= 4 and "LMB" or "RMB"
+		self.StrengthPunchIndex = self.StrengthPunchIndex + 1
+		local KeyName = "LMB"
 
 		task.spawn(function()
 			fireInputKey(KeyName, true)
