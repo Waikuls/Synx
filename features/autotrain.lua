@@ -71,6 +71,9 @@ return function(Config)
 	AutoTrainFeature.CachedBikeKeySignature = nil
 	AutoTrainFeature.BlindBikeKeyIndex = 0
 	AutoTrainFeature.BikeActiveUntil = 0
+	AutoTrainFeature.BikeRideStartedAt = 0
+	AutoTrainFeature.MaxBikeRideDuration = 90
+	AutoTrainFeature.LastProximityTriggerAt = 0
 	AutoTrainFeature.LastDebugNotifyAt = 0
 	AutoTrainFeature.LastDebugMessage = ""
 
@@ -1029,6 +1032,11 @@ return function(Config)
 		local SeatPart = nil
 
 		if AutoTrainFeature.BikeActiveUntil > Now then
+			if AutoTrainFeature.BikeRideStartedAt > 0 and (Now - AutoTrainFeature.BikeRideStartedAt) > AutoTrainFeature.MaxBikeRideDuration then
+				AutoTrainFeature.BikeActiveUntil = 0
+				AutoTrainFeature.BikeRideStartedAt = 0
+				return false
+			end
 			return true
 		end
 
@@ -1062,7 +1070,8 @@ return function(Config)
 			return false
 		end
 
-		if not isBikeActionMenuVisible() and not isNearBikeRemote() then
+		local RecentTrigger = (Now - self.LastProximityTriggerAt) < 8
+		if not isBikeActionMenuVisible() and not (isNearBikeRemote() and RecentTrigger) then
 			return false
 		end
 
@@ -1087,6 +1096,7 @@ return function(Config)
 		if Triggered then
 			self.LastStartAt = Now
 			self.BikeActiveUntil = Now + self.BikeAssumeActiveDuration
+			self.BikeRideStartedAt = Now
 			self.LastBikeUiRefreshAt = 0
 			debugBike("Bike start sent via " .. tostring(TriggerSource), true)
 			return true
@@ -1256,6 +1266,7 @@ return function(Config)
 
 		if triggerPrompt(Prompt) then
 			self.LastPromptAt = Now
+			self.LastProximityTriggerAt = Now
 		else
 			self.CachedPrompt = nil
 			self.CachedPromptType = nil
@@ -1287,6 +1298,8 @@ return function(Config)
 				self.CachedBikeKeySignature = nil
 				self.BlindBikeKeyIndex = 0
 				self.BikeActiveUntil = 0
+				self.BikeRideStartedAt = 0
+				self.LastProximityTriggerAt = 0
 				self.LastDebugNotifyAt = 0
 				self.LastDebugMessage = ""
 				return true
@@ -1324,6 +1337,8 @@ return function(Config)
 		self.CachedBikeKeySignature = nil
 		self.BlindBikeKeyIndex = 0
 		self.BikeActiveUntil = 0
+		self.BikeRideStartedAt = 0
+		self.LastProximityTriggerAt = 0
 		self.LastDebugNotifyAt = 0
 		self.LastDebugMessage = ""
 
