@@ -1326,13 +1326,7 @@ return function(Config)
 
 			if IsHungry and not self.EatingBreak then
 				self.EatingBreak = true
-
-				if self.SelectedType == "Bike" and (self.BikeRideStartedAt > 0 or isBikeRideActive(Now)) then
-					self:TryBikeLeave()
-					self.BikeActiveUntil = 0
-					self.BikeRideStartedAt = 0
-					self.LastRideEndAt = Now
-				end
+				self.LastLeaveAttemptAt = 0
 			end
 
 			if self.EatingBreak then
@@ -1340,6 +1334,19 @@ return function(Config)
 					self.EatingBreak = false
 					self.LastRideEndAt = Now
 				else
+					if self.SelectedType == "Bike" then
+						local OnBike = self.BikeRideStartedAt > 0
+							or isBikeRideActive(Now)
+							or self.CachedBikeActionMenuVisible
+
+						if OnBike and (Now - (self.LastLeaveAttemptAt or 0)) > 1.5 then
+							self.LastLeaveAttemptAt = Now
+							self:TryBikeLeave()
+							self.BikeActiveUntil = 0
+							self.BikeRideStartedAt = 0
+							self.LastRideEndAt = Now
+						end
+					end
 					return
 				end
 			end
