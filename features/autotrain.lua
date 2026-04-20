@@ -1427,6 +1427,20 @@ return function(Config)
 			return
 		end
 
+		if self.StaminaThreshold > 0 then
+			local StaminaPct = getStaminaPercent()
+			if StaminaPct <= self.StaminaThreshold then
+				self.StaminaPaused = true
+			end
+			if self.StaminaPaused then
+				if StaminaPct >= self:GetContinueThreshold() then
+					self.StaminaPaused = false
+				else
+					return
+				end
+			end
+		end
+
 		if (Now - self.LastStrengthPunchAt) < self.StrengthPunchCooldown then return end
 		self.LastStrengthPunchAt = Now
 
