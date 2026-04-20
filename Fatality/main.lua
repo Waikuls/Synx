@@ -53,6 +53,7 @@ local function hasCompleteLocalProject()
 		"ui/main.lua",
 		"ui/visual.lua",
 		"ui/stats.lua",
+		"features/antiafk.lua",
 		"features/esp.lua",
 		"features/freecam.lua",
 		"features/food.lua",
@@ -323,6 +324,18 @@ local function createFallbackFreecamFeature(ErrorMessage)
 	}
 end
 
+local function createFallbackAntiAfkFeature(ErrorMessage)
+	notifyModuleFailure("features/antiafk.lua", ErrorMessage)
+
+	return {
+		SetEnabled = function()
+			return false
+		end,
+		Destroy = function()
+		end
+	}
+end
+
 local function createFallbackFoodFeature(ErrorMessage)
 	notifyModuleFailure("features/food.lua", ErrorMessage)
 
@@ -542,6 +555,7 @@ local Skins = Window:AddMenu({
 	Icon = "palette"
 })
 
+local CreateAntiAfkFeature = safeLoadModule("features/antiafk.lua", createFallbackAntiAfkFeature)
 local CreateESP = safeLoadModule("features/esp.lua", createFallbackESP)
 local CreateFreecamFeature = safeLoadModule("features/freecam.lua", createFallbackFreecamFeature)
 local CreateFoodFeature = safeLoadModule("features/food.lua", createFallbackFoodFeature)
@@ -562,6 +576,9 @@ local CreateStatsUI = safeLoadModule("ui/stats.lua", function(ErrorMessage)
 	end
 end)
 
+local AntiAfkFeature = safeCreateModule("features/antiafk.lua", CreateAntiAfkFeature, {
+	Notification = Notification
+}, createFallbackAntiAfkFeature)
 local ESP = safeCreateModule("features/esp.lua", CreateESP, {
 	Notification = Notification
 }, createFallbackESP)
@@ -594,6 +611,7 @@ local StatsUI = safeCreateModule("ui/stats.lua", CreateStatsUI, {
 	Fatality = Fatality,
 	StatsFeature = StatsFeature
 }, createFallbackStatsUI)
+local DefaultAntiAfkEnabled = AntiAfkFeature:SetEnabled(true)
 
 safeRunModule("ui/main.lua", CreateMainUI, {
 	Main = Main,
@@ -953,6 +971,7 @@ safeBuildBlock("Fatality/main.lua:MISC_STATIC", function()
 		Name = "Quit",
 		Callback = function()
 			ESP:Destroy()
+			AntiAfkFeature:Destroy()
 			FreecamFeature:Destroy()
 			FoodFeature:Destroy()
 			AutoTrainFeature:Destroy()
@@ -976,5 +995,24 @@ safeBuildBlock("Fatality/main.lua:MISC_STATIC", function()
 
 			table.clear(Fatality.Windows)
 		end,
+	})
+
+	General:AddToggle({
+		Name = "Anti Afk",
+		Default = DefaultAntiAfkEnabled,
+		Callback = function(Value)
+			local Enabled = AntiAfkFeature:SetEnabled(Value)
+
+			if not Enabled and Value then
+				task.defer(function()
+					local Flag = Window:GetFlags().AntiAfkToggle
+
+					if Flag then
+						Flag:SetValue(false)
+					end
+				end)
+			end
+		end,
+		Flag = "AntiAfk"
 	})
 end)
