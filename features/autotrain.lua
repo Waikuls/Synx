@@ -1485,6 +1485,7 @@ return function(Config)
 		end
 
 		if self.StaminaThreshold > 0 then
+			StaminaCache.At = 0
 			local StaminaPct = getStaminaPercent()
 			if StaminaPct <= self.StaminaThreshold then
 				self.StaminaPaused = true
