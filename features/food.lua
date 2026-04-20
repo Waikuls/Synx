@@ -1568,17 +1568,10 @@ return function(Config)
 					break
 				end
 
-				local Equipped = equipFoodTool(Tool, Character, Humanoid)
+				equipFoodTool(Tool, Character, Humanoid)
+				task.wait(FoodFeature.HoldBeforeUseDelay)
 
-				if not Equipped then
-					task.wait(FoodFeature.EquipDelay)
-					Equipped = isToolEquipped(Tool, Character)
-				end
-
-				if Equipped then
-					task.wait(FoodFeature.HoldBeforeUseDelay)
-					triggerToolUse(Tool)
-				end
+				triggerToolUse(Tool)
 
 				task.wait(FoodFeature.ActivationDelay)
 

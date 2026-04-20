@@ -59,8 +59,7 @@ local function hasCompleteLocalProject()
 		"features/stamina.lua",
 		"features/stats.lua",
 		"features/webhook.lua",
-		"features/whey.lua",
-		"features/autotrain.lua"
+		"features/whey.lua"
 	}
 
 	for _, LocalPath in ipairs(RequiredLocalFiles) do
