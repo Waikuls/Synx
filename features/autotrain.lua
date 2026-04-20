@@ -1313,16 +1313,14 @@ return function(Config)
 			return false
 		end
 
-		local LeavePrompt = findLeavePrompt()
+		fireBikeRemote("Leave")
 
+		local LeavePrompt = findLeavePrompt()
 		if LeavePrompt then
-			local Ok = triggerPrompt(LeavePrompt)
-			if Ok then
-				return true
-			end
+			triggerPrompt(LeavePrompt)
 		end
 
-		return fireBikeRemote("Leave")
+		return true
 	end
 
 	function AutoTrainFeature:Step()
@@ -1377,18 +1375,12 @@ return function(Config)
 					self.EatingBreak = false
 					self.LastRideEndAt = Now
 				else
-					if self.SelectedType == "Bike" then
-						local OnBike = self.BikeRideStartedAt > 0
-							or isBikeRideActive(Now)
-							or self.CachedBikeActionMenuVisible
-
-						if OnBike and (Now - (self.LastLeaveAttemptAt or 0)) > 1.5 then
-							self.LastLeaveAttemptAt = Now
-							self:TryBikeLeave()
-							self.BikeActiveUntil = 0
-							self.BikeRideStartedAt = 0
-							self.LastRideEndAt = Now
-						end
+					if self.SelectedType == "Bike" and (Now - (self.LastLeaveAttemptAt or 0)) > 1.5 then
+						self.LastLeaveAttemptAt = Now
+						self:TryBikeLeave()
+						self.BikeActiveUntil = 0
+						self.BikeRideStartedAt = 0
+						self.LastRideEndAt = Now
 					end
 					return
 				end
