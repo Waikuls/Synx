@@ -20,6 +20,8 @@ return function(Config)
 
 	local MachineAliases = {}
 	MachineAliases["Bag"] = {"bag", "punching bag"}
+	MachineAliases["Strength"] = {"strength", "punching bag", "boxing bag"}
+	MachineAliases["Attack speed"] = {"attack speed", "speed bag", "speed ball"}
 	MachineAliases["Bar"] = {"bar", "barbell", "pullup", "pull up", "pull-up"}
 	MachineAliases["Bench"] = {"bench", "bench press"}
 	MachineAliases["Bike"] = {"bike", "cycling", "cycle"}
@@ -101,6 +103,14 @@ return function(Config)
 	AutoTrainFeature.EatingBreak = false
 	AutoTrainFeature.EatingBreakDismounted = false
 	AutoTrainFeature.LastRideEndAt = 0
+	AutoTrainFeature.StrengthGlovesActive = false
+	AutoTrainFeature.StrengthPunchIndex = 0
+	AutoTrainFeature.LastStrengthPunchAt = 0
+	AutoTrainFeature.LastStrengthEquipAt = 0
+	AutoTrainFeature.LastStrengthHitAt = 0
+	AutoTrainFeature.StrengthPunchCooldown = 0.35
+	AutoTrainFeature.StrengthEquipCooldown = 2.0
+	AutoTrainFeature.StrengthSessionTimeout = 8
 	AutoTrainFeature.LastDebugNotifyAt = 0
 	AutoTrainFeature.LastDebugMessage = ""
 
@@ -1342,6 +1352,102 @@ return function(Config)
 		return Best
 	end
 
+	local StrengthBagRemotePath = {"Punching bag", "PUNCHING BAG", "Ladder", "bag", "Bag", "RemoteEvent"}
+
+	local function getInputRemote()
+		local Character = getCharacter()
+		if not Character then return nil end
+		local MainScript = Character:FindFirstChild("MainScript")
+		if not MainScript then return nil end
+		local Remote = MainScript:FindFirstChild("Input")
+		if not Remote or not Remote:IsA("RemoteEvent") then return nil end
+		return Remote
+	end
+
+	local function fireInputKey(KeyName, IsDown)
+		local Remote = getInputRemote()
+		if not Remote then return false end
+		return pcall(function()
+			Remote:FireServer({
+				KeyInfo = {Direction = "None", Name = KeyName, Airborne = false},
+				IsDown = IsDown
+			})
+		end)
+	end
+
+	local function fireStrengthBagRemote()
+		local Remote = resolvePath(StrengthBagRemotePath)
+		if not Remote or not Remote:IsA("RemoteEvent") then return false end
+		return pcall(function()
+			Remote:FireServer("str")
+		end)
+	end
+
+	function AutoTrainFeature:StepStrength(Now)
+		if self.EatingBreak then return end
+
+		-- Session timeout: re-equip if no hit for too long
+		if self.StrengthGlovesActive and (Now - self.LastStrengthHitAt) > self.StrengthSessionTimeout then
+			self.StrengthGlovesActive = false
+		end
+
+		if not self.StrengthGlovesActive then
+			-- Try proximity prompt first to get near the bag
+			if (Now - self.LastPromptAt) >= self.PromptCooldown then
+				local Prompt = self:GetTargetPrompt()
+				if Prompt then
+					local RootPart = getRootPart()
+					local PromptPos = getPromptPosition(Prompt)
+					if RootPart and PromptPos then
+						local Dist = (RootPart.Position - PromptPos).Magnitude
+						local MaxDist = math.max((Prompt.MaxActivationDistance or 10) - 1, 3)
+						if Dist > MaxDist then
+							if moveNearPrompt(Prompt) then
+								self.LastPromptAt = Now
+							end
+							return
+						end
+					end
+				end
+			end
+
+			-- Press E to equip gloves
+			if (Now - self.LastStrengthEquipAt) < self.StrengthEquipCooldown then return end
+			self.LastStrengthEquipAt = Now
+
+			task.spawn(function()
+				fireInputKey("E", true)
+				task.wait(0.05)
+				fireInputKey("E", false)
+			end)
+
+			self.StrengthGlovesActive = true
+			self.StrengthPunchIndex = 0
+			self.LastStrengthHitAt = Now
+			return
+		end
+
+		if (Now - self.LastStrengthPunchAt) < self.StrengthPunchCooldown then return end
+		self.LastStrengthPunchAt = Now
+
+		self.StrengthPunchIndex = (self.StrengthPunchIndex % 5) + 1
+		local KeyName = self.StrengthPunchIndex <= 4 and "LMB" or "RMB"
+
+		task.spawn(function()
+			fireInputKey(KeyName, true)
+			task.wait(0.05)
+			fireInputKey(KeyName, false)
+		end)
+
+		fireStrengthBagRemote()
+		self.LastStrengthHitAt = Now
+
+		if WheyFeature and WheyFeature.Enabled and WheyFeature:ShouldConsume() then
+			local FoodBusy = FoodFeature and FoodFeature.IsEating
+			WheyFeature:TryConsume(FoodBusy)
+		end
+	end
+
 	local function findVisibleBikeLeaveButton()
 		local Containers = getGuiContainers(false)
 		local ScreenCenter, ViewportSize = getScreenCenter()
@@ -1451,6 +1557,7 @@ return function(Config)
 				self.EatingBreakDismounted = false
 				self.LastLeaveAttemptAt = 0
 				LeavePromptCache.At = 0
+				self.StrengthGlovesActive = false
 
 				if Notification then
 					Notification:Notify({
@@ -1487,6 +1594,11 @@ return function(Config)
 					return
 				end
 			end
+		end
+
+		if self.SelectedType == "Strength" then
+			self:StepStrength(Now)
+			return
 		end
 
 		TrainingState = getTrainingState(self.SelectedType)
@@ -1603,6 +1715,11 @@ return function(Config)
 				self.LastRideEndAt = 0
 				self.LastDebugNotifyAt = 0
 				self.LastDebugMessage = ""
+				self.StrengthGlovesActive = false
+				self.StrengthPunchIndex = 0
+				self.LastStrengthPunchAt = 0
+				self.LastStrengthEquipAt = 0
+				self.LastStrengthHitAt = 0
 				return true
 			end
 		end
@@ -1690,6 +1807,11 @@ return function(Config)
 		self.LastRideEndAt = 0
 		self.LastDebugNotifyAt = 0
 		self.LastDebugMessage = ""
+		self.StrengthGlovesActive = false
+		self.StrengthPunchIndex = 0
+		self.LastStrengthPunchAt = 0
+		self.LastStrengthEquipAt = 0
+		self.LastStrengthHitAt = 0
 
 		if self.Connection then
 			self.Connection:Disconnect()
