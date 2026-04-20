@@ -72,7 +72,7 @@ return function(Config)
 	AutoTrainFeature.BlindBikeKeyIndex = 0
 	AutoTrainFeature.BikeActiveUntil = 0
 	AutoTrainFeature.BikeRideStartedAt = 0
-	AutoTrainFeature.MaxBikeRideDuration = 90
+	AutoTrainFeature.MaxBikeRideDuration = 65
 	AutoTrainFeature.LastProximityTriggerAt = 0
 	AutoTrainFeature.LastUiKeyAt = 0
 	AutoTrainFeature.StaminaThreshold = 15
