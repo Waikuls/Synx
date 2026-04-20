@@ -25,6 +25,16 @@ return function(Config)
 	MachineAliases["Squat machine"] = {"squat machine", "squat", "leg press"}
 	MachineAliases["Treadmill"] = {"treadmill", "running machine"}
 
+	local RemoteMachineTypes = {Bike = true, Treadmill = true}
+	local MachineRemotePaths = {
+		Bike = {"TrainingSpots", "Bike", "Radio", "Remote"},
+		Treadmill = {"TrainingSpots", "Treadmill", "Radio", "Remote"},
+	}
+
+	local function isRemoteMachine(Type)
+		return RemoteMachineTypes[Type] == true
+	end
+
 	local BikeRemotePath = {"TrainingSpots", "Bike", "Radio", "Remote"}
 	local BikeKeys = {"W", "A", "S", "D"}
 	local BikeKeyCodes = {
@@ -842,7 +852,8 @@ return function(Config)
 	end
 
 	local function getBikeRemote()
-		local Remote = resolvePath(BikeRemotePath)
+		local Path = MachineRemotePaths[AutoTrainFeature.SelectedType] or BikeRemotePath
+		local Remote = resolvePath(Path)
 
 		if not Remote then
 			return nil
@@ -1079,8 +1090,10 @@ return function(Config)
 		local Current = SeatPart
 
 		while Current do
-			if containsAlias(Current.Name, MachineAliases["Bike"]) then
-				return true
+			for Type in pairs(RemoteMachineTypes) do
+				if containsAlias(Current.Name, MachineAliases[Type] or {}) then
+					return true
+				end
 			end
 
 			Current = Current.Parent
@@ -1125,7 +1138,7 @@ return function(Config)
 		local Triggered = false
 		local TriggerSource = nil
 
-		if self.SelectedType ~= "Bike" then
+		if not isRemoteMachine(self.SelectedType) then
 			return false
 		end
 
@@ -1177,7 +1190,7 @@ return function(Config)
 		local BlindKey = nil
 		local Triggered = false
 
-		if self.SelectedType ~= "Bike" then
+		if not isRemoteMachine(self.SelectedType) then
 			return false
 		end
 
@@ -1365,7 +1378,7 @@ return function(Config)
 	end
 
 	function AutoTrainFeature:TryBikeLeave()
-		if self.SelectedType ~= "Bike" then
+		if not isRemoteMachine(self.SelectedType) then
 			return false
 		end
 
@@ -1457,7 +1470,7 @@ return function(Config)
 						})
 					end
 				else
-					if self.SelectedType == "Bike" then
+					if isRemoteMachine(self.SelectedType) then
 						self.BikeActiveUntil = 0
 						self.BikeRideStartedAt = 0
 						self.LastRideEndAt = Now
@@ -1474,7 +1487,7 @@ return function(Config)
 
 		TrainingState = getTrainingState(self.SelectedType)
 
-		if self.SelectedType == "Bike" then
+		if isRemoteMachine(self.SelectedType) then
 			if self.BikeRideStartedAt > 0 and (Now - self.BikeRideStartedAt) > 5 then
 				if not TrainingState.IsTraining then
 					self.BikeActiveUntil = 0
@@ -1513,7 +1526,7 @@ return function(Config)
 			end
 		end
 
-		if self.SelectedType ~= "Bike" and TrainingState.IsTraining then
+		if not isRemoteMachine(self.SelectedType) and TrainingState.IsTraining then
 			return
 		end
 
@@ -1695,8 +1708,8 @@ return function(Config)
 			if Notification then
 				local Message = "Enabled (" .. tostring(self.SelectedType) .. ")"
 
-				if self.SelectedType == "Bike" then
-					Message = "Enabled (Bike) - direct remote active"
+				if isRemoteMachine(self.SelectedType) then
+					Message = "Enabled (" .. tostring(self.SelectedType) .. ") - direct remote active"
 				end
 
 				Notification:Notify({
@@ -1706,11 +1719,11 @@ return function(Config)
 				})
 			end
 
-			if self.SelectedType == "Bike" then
-				debugBike("Bike debug active", true)
+			if isRemoteMachine(self.SelectedType) then
+				debugBike(tostring(self.SelectedType) .. " debug active", true)
 			end
 		else
-			if self.SelectedType == "Bike" then
+			if isRemoteMachine(self.SelectedType) then
 				self:TryBikeLeave()
 			end
 
