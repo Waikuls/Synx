@@ -1,5 +1,4 @@
 return function(Config)
-	local Players = game:GetService("Players")
 	local RunService = game:GetService("RunService")
 	local UserInputService = game:GetService("UserInputService")
 	local ContextActionService = game:GetService("ContextActionService")
@@ -221,6 +220,7 @@ return function(Config)
 		end
 
 		if UserInputService:GetFocusedTextBox() then
+			resetMoveState()
 			Camera.CameraType = Enum.CameraType.Scriptable
 			local LookVector = getLookVector(FreecamFeature.Yaw, FreecamFeature.Pitch)
 			Camera.CFrame = CFrame.lookAt(FreecamFeature.Position, FreecamFeature.Position + LookVector)
@@ -228,6 +228,7 @@ return function(Config)
 			return
 		end
 
+		refreshMoveState()
 		Camera.CameraType = Enum.CameraType.Scriptable
 
 		local LookVector = getLookVector(FreecamFeature.Yaw, FreecamFeature.Pitch)
