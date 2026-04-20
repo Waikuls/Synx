@@ -1295,20 +1295,21 @@ return function(Config)
 		local CurrentBodyFatigue = getBodyFatigue()
 
 		if CurrentBodyFatigue >= 100 then
+			if not self.FatigueNotified and Webhook and Webhook:IsConfigured() then
+				self.FatigueNotified = true
+				Webhook:Send(string.format(
+					"[KELV] %s — Body Fatigue is full (100%%). Auto train stopped.",
+					LocalPlayer.Name
+				))
+			end
+
 			if self.MaxFatigueAction == "Kick" then
 				pcall(function()
 					LocalPlayer:Kick()
 				end)
-				return
 			end
 
-			if not self.FatigueNotified and Webhook and Webhook:IsConfigured() then
-				self.FatigueNotified = true
-				Webhook:Send(string.format(
-					"[KELV] %s — Body Fatigue is full (100%%).",
-					LocalPlayer.Name
-				))
-			end
+			return
 		else
 			if CurrentBodyFatigue < 90 then
 				self.FatigueNotified = false
