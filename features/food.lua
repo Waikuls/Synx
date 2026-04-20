@@ -72,23 +72,18 @@ return function(Config)
 		"IsHungry"
 	}
 	local FoodToolAliases = {
-		"burger",
-		"fries",
 		"ramen",
 		"onigiri",
+		"taco",
+		"hotdog",
+		"cola",
+		"donut",
+		"chocolate croissant",
+		"caramel milkshake",
+		"burger",
+		"fries",
 		"pizza",
-		"kebab",
-		"food",
-		"apple",
-		"bread",
-		"sandwich",
-		"meat",
-		"steak",
-		"fish",
-		"rice",
-		"soup",
-		"meal",
-		"snack"
+		"kebab"
 	}
 	local SlotKeyNames = {
 		"One",
