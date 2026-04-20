@@ -1396,8 +1396,6 @@ return function(Config)
 				end)
 			end
 
-			selectToolFromHotbar(Tool)
-
 			if waitForToolEquipped(Tool, Character, FoodFeature.EquipDelay) then
 				return true
 			end
@@ -1571,32 +1569,10 @@ return function(Config)
 					break
 				end
 
-				local UsedRemote = false
-				local EquippedNow = equipFoodTool(Tool, Character, Humanoid)
+				equipFoodTool(Tool, Character, Humanoid)
+				task.wait(FoodFeature.HoldBeforeUseDelay)
 
-				if EquippedNow then
-					task.wait(FoodFeature.HoldBeforeUseDelay)
-				end
-
-				if selectToolFromHotbar(Tool) then
-					UsedRemote = true
-				end
-
-				if sendServerInput("LMB", true) then
-					UsedRemote = true
-				end
-
-				task.wait(FoodFeature.InputPressDelay)
-
-				if sendServerInput("LMB", false) then
-					UsedRemote = true
-				end
-
-				if EquippedNow or isToolEquipped(Tool, Character) then
-					triggerToolUse(Tool)
-				elseif not UsedRemote then
-					break
-				end
+				triggerToolUse(Tool)
 
 				task.wait(FoodFeature.ActivationDelay)
 
@@ -1614,13 +1590,9 @@ return function(Config)
 			end
 
 			if PreviouslyEquippedTool and PreviouslyEquippedTool.Parent then
-				selectToolFromHotbar(PreviouslyEquippedTool)
-
-				if PreviouslyEquippedTool.Parent ~= Character then
-					pcall(function()
-						Humanoid:EquipTool(PreviouslyEquippedTool)
-					end)
-				end
+				pcall(function()
+					Humanoid:EquipTool(PreviouslyEquippedTool)
+				end)
 			end
 
 			FoodFeature.IsEating = false
