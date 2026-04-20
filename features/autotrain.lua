@@ -1384,7 +1384,15 @@ return function(Config)
 	end
 
 	function AutoTrainFeature:StepStrength(Now)
-		if self.EatingBreak then return end
+		if self.EatingBreak then
+			self.StrengthGlovesActive = false
+			return
+		end
+
+		if FoodFeature and FoodFeature.Enabled and FoodFeature:ShouldEat() then
+			self.StrengthGlovesActive = false
+			return
+		end
 
 		-- Session timeout: re-equip if no hit for too long
 		if self.StrengthGlovesActive and (Now - self.LastStrengthHitAt) > self.StrengthSessionTimeout then
