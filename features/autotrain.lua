@@ -975,6 +975,7 @@ return function(Config)
 		if Triggered then
 			self.LastStartAt = Now
 			self.BikeActiveUntil = Now + self.BikeAssumeActiveDuration
+			self.LastBikeUiRefreshAt = 0
 			debugBike("Bike start sent via " .. tostring(TriggerSource), true)
 			return true
 		end
@@ -1011,6 +1012,7 @@ return function(Config)
 				self.LastKeySignature = Signature
 				self.LastKeySignatureAt = Now
 				self.BikeActiveUntil = Now + self.BikeAssumeActiveDuration
+				self.LastBikeUiRefreshAt = 0
 				debugBike("Bike key from UI: " .. tostring(Key), false)
 				return true
 			end
@@ -1034,6 +1036,7 @@ return function(Config)
 			self.LastKeySignature = "blind:" .. BlindKey
 			self.LastKeySignatureAt = Now
 			self.BikeActiveUntil = Now + self.BikeAssumeActiveDuration
+			self.LastBikeUiRefreshAt = 0
 			debugBike("Bike blind key: " .. tostring(BlindKey), false)
 			return true
 		end
@@ -1058,6 +1061,7 @@ return function(Config)
 		local RootPart
 		local PromptPosition
 		local BikeMenuVisible
+		local BikeKeyVisible
 
 		if not self.Enabled then
 			return
@@ -1067,20 +1071,27 @@ return function(Config)
 		TrainingState = getTrainingState(self.SelectedType)
 
 		if self.SelectedType == "Bike" then
-			BikeMenuVisible = isBikeActionMenuVisible(false)
+			refreshBikeUiState(false)
+			BikeMenuVisible = self.CachedBikeActionMenuVisible
+			BikeKeyVisible = self.CachedBikeKey ~= nil
 
-			if BikeMenuVisible then
-				self:TryBikeStart(Now)
-				return
+			if BikeKeyVisible then
+				if self:TryBikePressKey(Now) then
+					return
+				end
 			end
 
 			if TrainingState.IsTraining
 				or TrainingState.IsSelectedMachine
-				or self.BikeActiveUntil > Now
-				or self.CachedBikeKey ~= nil then
+				or self.BikeActiveUntil > Now then
 				if self:TryBikePressKey(Now) then
 					return
 				end
+			end
+
+			if BikeMenuVisible then
+				self:TryBikeStart(Now)
+				return
 			end
 
 			if self:TryBikeStart(Now) then
