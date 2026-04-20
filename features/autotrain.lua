@@ -81,6 +81,7 @@ return function(Config)
 	AutoTrainFeature.StaminaPaused = false
 	AutoTrainFeature.MaxFatigueAction = "Do nothing"
 	AutoTrainFeature.FatigueNotified = false
+	AutoTrainFeature.BedRecoveryNotified = false
 	AutoTrainFeature.LastRideEndAt = 0
 	AutoTrainFeature.LastDebugNotifyAt = 0
 	AutoTrainFeature.LastDebugMessage = ""
@@ -1569,6 +1570,46 @@ return function(Config)
 		self:SetEnabled(false)
 		self.CachedPrompt = nil
 		self.CachedPromptType = nil
+
+		if self.FatigueMonitorConnection then
+			self.FatigueMonitorConnection:Disconnect()
+			self.FatigueMonitorConnection = nil
+		end
+	end
+
+	do
+		local FatigueMonitorInterval = 2
+		local FatigueMonitorLast = 0
+
+		AutoTrainFeature.FatigueMonitorConnection = RunService.Heartbeat:Connect(function()
+			if not Webhook or not Webhook:IsConfigured() then
+				return
+			end
+
+			local Now = os.clock()
+
+			if (Now - FatigueMonitorLast) < FatigueMonitorInterval then
+				return
+			end
+
+			FatigueMonitorLast = Now
+
+			local Fatigue = getBodyFatigue()
+
+			if Fatigue <= 2 then
+				if not AutoTrainFeature.BedRecoveryNotified then
+					AutoTrainFeature.BedRecoveryNotified = true
+					Webhook:Send(string.format(
+						"[KELV] %s — Body Fatigue recovered to 0%%! Ready to train.",
+						LocalPlayer.Name
+					))
+				end
+			else
+				if Fatigue > 10 then
+					AutoTrainFeature.BedRecoveryNotified = false
+				end
+			end
+		end)
 	end
 
 	return AutoTrainFeature
