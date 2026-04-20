@@ -520,21 +520,30 @@ return function(Config)
 		return nil
 	end
 
+	local StaminaCache = {Value = 100, At = 0}
+
 	local function getStaminaPercent()
+		local Now = os.clock()
+
+		if (Now - StaminaCache.At) < 0.5 then
+			return StaminaCache.Value
+		end
+
 		local Stats = findStatsContainer()
+		local Percent = 100
 
-		if not Stats then
-			return 100
+		if Stats then
+			local Stamina = readStatsValue(Stats, "Stamina") or readStatsValue(Stats, "StaminaInStat")
+			local MaxStamina = readStatsValue(Stats, "MaxStamina")
+
+			if type(Stamina) == "number" and type(MaxStamina) == "number" and MaxStamina > 0 then
+				Percent = (Stamina / MaxStamina) * 100
+			end
 		end
 
-		local Stamina = readStatsValue(Stats, "Stamina") or readStatsValue(Stats, "StaminaInStat")
-		local MaxStamina = readStatsValue(Stats, "MaxStamina")
-
-		if type(Stamina) ~= "number" or type(MaxStamina) ~= "number" or MaxStamina <= 0 then
-			return 100
-		end
-
-		return (Stamina / MaxStamina) * 100
+		StaminaCache.Value = Percent
+		StaminaCache.At = Now
+		return Percent
 	end
 
 	local function valueToBool(Value)
