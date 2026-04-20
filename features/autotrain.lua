@@ -1,6 +1,7 @@
 return function(Config)
 	local Players = game:GetService("Players")
 	local RunService = game:GetService("RunService")
+	local CoreGui = game:GetService("CoreGui")
 	local LocalPlayer = Players.LocalPlayer
 	local Notification = Config and Config.Notification
 
@@ -137,6 +138,21 @@ return function(Config)
 
 	local function getPlayerGui()
 		return LocalPlayer:FindFirstChildOfClass("PlayerGui")
+	end
+
+	local function getGuiContainers()
+		local Containers = {}
+		local PlayerGui = getPlayerGui()
+
+		if PlayerGui then
+			table.insert(Containers, PlayerGui)
+		end
+
+		if CoreGui then
+			table.insert(Containers, CoreGui)
+		end
+
+		return Containers
 	end
 
 	local function isVisibleGuiObject(Instance)
@@ -706,31 +722,28 @@ return function(Config)
 	end
 
 	local function isBikeActionMenuVisible()
-		local PlayerGui = getPlayerGui()
-		local Descendants
+		local Containers = getGuiContainers()
 
-		if not PlayerGui then
-			return false
-		end
+		for ContainerIndex = 1, #Containers do
+			local Descendants = Containers[ContainerIndex]:GetDescendants()
 
-		Descendants = PlayerGui:GetDescendants()
+			for Index = 1, #Descendants do
+				local Descendant = Descendants[Index]
 
-		for Index = 1, #Descendants do
-			local Descendant = Descendants[Index]
+				if isVisibleGuiObject(Descendant) then
+					local Text = normalizeText(getInstanceText(Descendant))
 
-			if isVisibleGuiObject(Descendant) then
-				local Text = normalizeText(getInstanceText(Descendant))
+					if Text == "start" then
+						return true
+					end
 
-				if Text == "start" then
-					return true
-				end
+					if string.find(Text, "choose an action", 1, true) then
+						return true
+					end
 
-				if string.find(Text, "choose an action", 1, true) then
-					return true
-				end
-
-				if string.find(Text, "start with macro", 1, true) then
-					return true
+					if string.find(Text, "start with macro", 1, true) then
+						return true
+					end
 				end
 			end
 		end
@@ -739,43 +752,41 @@ return function(Config)
 	end
 
 	local function findVisibleBikeStartButton()
-		local PlayerGui = getPlayerGui()
-		local Descendants
+		local Containers = getGuiContainers()
 		local ScreenCenter
 		local ViewportSize
 		local MaxDistance
 		local BestButton = nil
 		local BestScore = -math.huge
 
-		if not PlayerGui then
-			return nil
-		end
-
 		ScreenCenter, ViewportSize = getScreenCenter()
 		MaxDistance = math.max(ViewportSize.X, ViewportSize.Y) * 0.42
-		Descendants = PlayerGui:GetDescendants()
 
-		for Index = 1, #Descendants do
-			local Descendant = Descendants[Index]
-			local Button = nil
-			local Text = normalizeText(getInstanceText(Descendant))
+		for ContainerIndex = 1, #Containers do
+			local Descendants = Containers[ContainerIndex]:GetDescendants()
 
-			if Text == "start" and isVisibleGuiObject(Descendant) then
-				Button = getGuiButtonFromInstance(Descendant)
+			for Index = 1, #Descendants do
+				local Descendant = Descendants[Index]
+				local Button = nil
+				local Text = normalizeText(getInstanceText(Descendant))
 
-				if Button and isVisibleGuiObject(Button) then
-					local Center, Size = getGuiCenter(Button)
+				if Text == "start" and isVisibleGuiObject(Descendant) then
+					Button = getGuiButtonFromInstance(Descendant)
 
-					if Center and Size and Size.X >= 80 and Size.Y >= 20 then
-						local Distance = (Center - ScreenCenter).Magnitude
+					if Button and isVisibleGuiObject(Button) then
+						local Center, Size = getGuiCenter(Button)
 
-						if Distance <= MaxDistance then
-							local Score = math.min(Size.X * Size.Y, 20000)
-							Score = Score + math.max(0, 450 - Distance)
+						if Center and Size and Size.X >= 80 and Size.Y >= 20 then
+							local Distance = (Center - ScreenCenter).Magnitude
 
-							if Score > BestScore then
-								BestScore = Score
-								BestButton = Button
+							if Distance <= MaxDistance then
+								local Score = math.min(Size.X * Size.Y, 20000)
+								Score = Score + math.max(0, 450 - Distance)
+
+								if Score > BestScore then
+									BestScore = Score
+									BestButton = Button
+								end
 							end
 						end
 					end
@@ -787,8 +798,7 @@ return function(Config)
 	end
 
 	local function getVisibleBikeKeyCandidate()
-		local PlayerGui = getPlayerGui()
-		local Descendants
+		local Containers = getGuiContainers()
 		local ScreenCenter
 		local ViewportSize
 		local MaxDistance
@@ -796,43 +806,42 @@ return function(Config)
 		local BestSignature = nil
 		local BestScore = -math.huge
 
-		if not PlayerGui then
-			return nil, nil
-		end
-
 		ScreenCenter, ViewportSize = getScreenCenter()
 		MaxDistance = math.max(ViewportSize.X, ViewportSize.Y) * 0.38
-		Descendants = PlayerGui:GetDescendants()
 
-		for Index = 1, #Descendants do
-			local Descendant = Descendants[Index]
+		for ContainerIndex = 1, #Containers do
+			local Descendants = Containers[ContainerIndex]:GetDescendants()
 
-			if Descendant:IsA("GuiObject") and isVisibleGuiObject(Descendant) then
-				local Text = string.upper(normalizeText(getInstanceText(Descendant)))
-				local IsKey = false
+			for Index = 1, #Descendants do
+				local Descendant = Descendants[Index]
 
-				for KeyIndex = 1, #BikeKeys do
-					if Text == BikeKeys[KeyIndex] then
-						IsKey = true
-						break
+				if Descendant:IsA("GuiObject") and isVisibleGuiObject(Descendant) then
+					local Text = string.upper(normalizeText(getInstanceText(Descendant)))
+					local IsKey = false
+
+					for KeyIndex = 1, #BikeKeys do
+						if Text == BikeKeys[KeyIndex] then
+							IsKey = true
+							break
+						end
 					end
-				end
 
-				if IsKey then
-					local Center, Size = getGuiCenter(Descendant)
+					if IsKey then
+						local Center, Size = getGuiCenter(Descendant)
 
-					if Center and Size then
-						if Size.X >= 18 and Size.Y >= 18 then
-							local Distance = (Center - ScreenCenter).Magnitude
+						if Center and Size then
+							if Size.X >= 18 and Size.Y >= 18 then
+								local Distance = (Center - ScreenCenter).Magnitude
 
-							if Distance <= MaxDistance then
-								local Score = math.min(Size.X * Size.Y, 5000)
-								Score = Score + math.max(0, 250 - Distance)
+								if Distance <= MaxDistance then
+									local Score = math.min(Size.X * Size.Y, 5000)
+									Score = Score + math.max(0, 250 - Distance)
 
-								if Score > BestScore then
-									BestScore = Score
-									BestKey = Text
-									BestSignature = Text
+									if Score > BestScore then
+										BestScore = Score
+										BestKey = Text
+										BestSignature = Text
+									end
 								end
 							end
 						end
@@ -857,6 +866,7 @@ return function(Config)
 
 	function AutoTrainFeature:TryBikeStart(Now)
 		local StartButton = nil
+		local Triggered = false
 
 		if self.SelectedType ~= "Bike" then
 			return false
@@ -872,12 +882,17 @@ return function(Config)
 
 		StartButton = findVisibleBikeStartButton()
 
-		if StartButton and clickGuiButton(StartButton) then
-			self.LastStartAt = Now
-			return true
+		if StartButton then
+			if clickGuiButton(StartButton) then
+				Triggered = true
+			end
 		end
 
 		if fireBikeRemote("Start", {Macro = false}) then
+			Triggered = true
+		end
+
+		if Triggered then
 			self.LastStartAt = Now
 			return true
 		end
