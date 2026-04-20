@@ -747,11 +747,12 @@ local function showWebhookInputPopup()
 	Overlay.Parent = GuiParent
 
 	local Panel = Instance.new("Frame")
-	Panel.Size = UDim2.new(0, 310, 0, 110)
+	Panel.Size = UDim2.new(0, 340, 0, 110)
 	Panel.AnchorPoint = Vector2.new(0.5, 0.5)
 	Panel.Position = UDim2.new(0.5, 0, 0.5, 0)
 	Panel.BackgroundColor3 = Color3.fromRGB(19, 19, 19)
 	Panel.BorderSizePixel = 0
+	Panel.ClipsDescendants = true
 	Panel.ZIndex = 10000
 	Panel.Parent = Overlay
 
@@ -760,7 +761,7 @@ local function showWebhookInputPopup()
 	PanelCorner.Parent = Panel
 
 	local PanelStroke = Instance.new("UIStroke")
-	PanelStroke.Color = Color3.fromRGB(40, 40, 40)
+	PanelStroke.Color = Color3.fromRGB(29, 29, 29)
 	PanelStroke.Parent = Panel
 
 	local Title = Instance.new("TextLabel")
@@ -779,7 +780,7 @@ local function showWebhookInputPopup()
 	local InputFrame = Instance.new("Frame")
 	InputFrame.Size = UDim2.new(1, -20, 0, 28)
 	InputFrame.Position = UDim2.new(0, 10, 0, 32)
-	InputFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+	InputFrame.BackgroundColor3 = Color3.fromRGB(16, 16, 16)
 	InputFrame.BorderSizePixel = 0
 	InputFrame.ClipsDescendants = true
 	InputFrame.ZIndex = 10001
@@ -790,7 +791,7 @@ local function showWebhookInputPopup()
 	InputCorner.Parent = InputFrame
 
 	local InputStroke = Instance.new("UIStroke")
-	InputStroke.Color = Color3.fromRGB(50, 50, 50)
+	InputStroke.Color = Color3.fromRGB(29, 29, 29)
 	InputStroke.Parent = InputFrame
 
 	local TextBox = Instance.new("TextBox")
@@ -799,18 +800,24 @@ local function showWebhookInputPopup()
 	TextBox.BackgroundTransparency = 1
 	TextBox.Text = (WebhookFeature and WebhookFeature:GetUrl()) or ""
 	TextBox.PlaceholderText = "https://discord.com/api/webhooks/..."
-	TextBox.PlaceholderColor3 = Color3.fromRGB(100, 100, 100)
-	TextBox.TextColor3 = Color3.fromRGB(220, 220, 220)
+	TextBox.PlaceholderColor3 = Color3.fromRGB(80, 80, 80)
+	TextBox.TextColor3 = Color3.fromRGB(200, 200, 200)
 	TextBox.TextSize = 11
 	TextBox.Font = Enum.Font.Gotham
 	TextBox.ClearTextOnFocus = false
 	TextBox.MultiLine = false
+	TextBox.TextTruncate = Enum.TextTruncate.AtEnd
+	TextBox.TextXAlignment = Enum.TextXAlignment.Left
 	TextBox.ZIndex = 10002
 	TextBox.Parent = InputFrame
 
+	TextBox.Focused:Connect(function()
+		TextBox.TextTruncate = Enum.TextTruncate.None
+	end)
+
 	local function makeBtn(Label, XPos, BgColor)
 		local Btn = Instance.new("TextButton")
-		Btn.Size = UDim2.new(0, 130, 0, 26)
+		Btn.Size = UDim2.new(0, 150, 0, 26)
 		Btn.Position = UDim2.new(0, XPos, 0, 74)
 		Btn.BackgroundColor3 = BgColor
 		Btn.BorderSizePixel = 0
@@ -828,8 +835,8 @@ local function showWebhookInputPopup()
 		return Btn
 	end
 
-	local OkBtn = makeBtn("Save", 10, Color3.fromRGB(88, 101, 242))
-	local CancelBtn = makeBtn("Cancel", 150, Color3.fromRGB(45, 45, 45))
+	local OkBtn = makeBtn("Save", 10, Color3.fromRGB(255, 106, 133))
+	local CancelBtn = makeBtn("Cancel", 170, Color3.fromRGB(24, 24, 24))
 
 	local function close()
 		Overlay:Destroy()
@@ -847,6 +854,7 @@ local function showWebhookInputPopup()
 	end)
 
 	TextBox.FocusLost:Connect(function(EnterPressed)
+		TextBox.TextTruncate = Enum.TextTruncate.AtEnd
 		if EnterPressed then
 			if WebhookFeature then
 				WebhookFeature:SetUrl(TextBox.Text)
