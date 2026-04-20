@@ -1602,7 +1602,7 @@ return function(Config)
 					Webhook:Send(string.format(
 						"[KELV] %s — Body Fatigue recovered to 0%%! Ready to train.",
 						LocalPlayer.Name
-					))
+					), true)
 				end
 			else
 				if Fatigue > 10 then

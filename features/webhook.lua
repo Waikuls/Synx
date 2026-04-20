@@ -68,14 +68,14 @@ return function(Config)
 		end
 	end
 
-	function WebhookFeature:Send(Content)
+	function WebhookFeature:Send(Content, Force)
 		local Now = os.clock()
 
 		if self.Url == "" then
 			return false
 		end
 
-		if (Now - self.LastSentAt) < self.SendCooldown then
+		if not Force and (Now - self.LastSentAt) < self.SendCooldown then
 			return false
 		end
 
