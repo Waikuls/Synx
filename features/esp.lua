@@ -2,13 +2,17 @@ return function(Config)
 	local Notification = Config.Notification
 	local Players = game:GetService("Players")
 	local RunService = game:GetService("RunService")
-	local Camera = workspace.CurrentCamera
+	local CoreGui = game:GetService("CoreGui")
 	local LocalPlayer = Players.LocalPlayer
+	local SupportsDrawing = type(Drawing) == "table" and type(Drawing.new) == "function"
 
 	local ESP = {
 		Enabled = false,
-		Boxes = {},
+		Entries = {},
 		Connection = nil,
+		GuiRoot = nil,
+		UseDrawing = SupportsDrawing,
+		FallbackNotified = false,
 		Settings = {
 			DistanceLimit = 1500,
 			ShowName = true,
@@ -16,8 +20,28 @@ return function(Config)
 		}
 	}
 
+	local function getGuiParent()
+		local Success, Result = pcall(function()
+			if type(gethui) == "function" then
+				return gethui()
+			end
+
+			return CoreGui
+		end)
+
+		if Success and Result then
+			return Result
+		end
+
+		return CoreGui
+	end
+
+	local function getCurrentCamera()
+		return workspace.CurrentCamera
+	end
+
 	local function getLocalRootPart()
-		local Character = LocalPlayer.Character
+		local Character = LocalPlayer and LocalPlayer.Character
 
 		if not Character then
 			return nil
@@ -26,55 +50,118 @@ return function(Config)
 		return Character:FindFirstChild("HumanoidRootPart")
 	end
 
+	local function getHealthColor(Health, MaxHealth)
+		local Ratio = math.clamp(Health / math.max(MaxHealth, 1), 0, 1)
+
+		return Color3.fromRGB(
+			math.floor(255 * (1 - Ratio)),
+			math.floor(255 * Ratio),
+			90
+		)
+	end
+
 	local function hideDrawing(DrawingObject)
 		if DrawingObject then
 			DrawingObject.Visible = false
 		end
 	end
 
-	local function getCharacterBounds(Character, Humanoid, RootPart)
-		local Head = Character:FindFirstChild("Head")
+	local function hideInstance(InstanceObject)
+		if InstanceObject and InstanceObject:IsA("Highlight") then
+			InstanceObject.Enabled = false
+		elseif InstanceObject and InstanceObject:IsA("BillboardGui") then
+			InstanceObject.Enabled = false
+		elseif InstanceObject and InstanceObject:IsA("GuiObject") then
+			InstanceObject.Visible = false
+		end
+	end
+
+	local function getCharacterBounds(Character)
+		local Camera = getCurrentCamera()
+
+		if not Camera then
+			return nil
+		end
+
+		local Success, BoundingCFrame, BoundingSize = pcall(function()
+			return Character:GetBoundingBox()
+		end)
+
+		if not Success or not BoundingCFrame or not BoundingSize then
+			return nil
+		end
+
+		local HalfSize = BoundingSize * 0.5
 		local ViewportSize = Camera.ViewportSize
+		local MinX = math.huge
+		local MinY = math.huge
+		local MaxX = -math.huge
+		local MaxY = -math.huge
+		local AnyVisible = false
+		local Signs = {-1, 1}
 
-		if not Head then
-			return nil
+		for _, XFactor in ipairs(Signs) do
+			for _, YFactor in ipairs(Signs) do
+				for _, ZFactor in ipairs(Signs) do
+					local Corner = BoundingCFrame:PointToWorldSpace(
+						Vector3.new(
+							HalfSize.X * XFactor,
+							HalfSize.Y * YFactor,
+							HalfSize.Z * ZFactor
+						)
+					)
+					local ScreenPoint, OnScreen = Camera:WorldToViewportPoint(Corner)
+
+					if ScreenPoint.Z <= 0 then
+						return nil
+					end
+
+					MinX = math.min(MinX, ScreenPoint.X)
+					MinY = math.min(MinY, ScreenPoint.Y)
+					MaxX = math.max(MaxX, ScreenPoint.X)
+					MaxY = math.max(MaxY, ScreenPoint.Y)
+					AnyVisible = AnyVisible or OnScreen
+				end
+			end
 		end
 
-		local TopWorld = Head.Position + Vector3.new(0, 0.6, 0)
-		local BottomWorld = RootPart.Position - Vector3.new(0, Humanoid.HipHeight + 2.6, 0)
-
-		local TopPoint, TopOnScreen = Camera:WorldToViewportPoint(TopWorld)
-		local BottomPoint, BottomOnScreen = Camera:WorldToViewportPoint(BottomWorld)
-		local RootPoint, RootOnScreen = Camera:WorldToViewportPoint(RootPart.Position)
-
-		if TopPoint.Z <= 0 or BottomPoint.Z <= 0 or RootPoint.Z <= 0 then
+		if not AnyVisible then
 			return nil
 		end
-
-		if not RootOnScreen and not TopOnScreen and not BottomOnScreen then
-			return nil
-		end
-
-		local Height = math.abs(BottomPoint.Y - TopPoint.Y)
-
-		if Height < 6 or Height > ViewportSize.Y * 0.9 then
-			return nil
-		end
-
-		local Width = math.max(Height * 0.6, 4)
-		local MinX = RootPoint.X - (Width * 0.5)
-		local MinY = math.min(TopPoint.Y, BottomPoint.Y)
-		local MaxX = RootPoint.X + (Width * 0.5)
-		local MaxY = math.max(TopPoint.Y, BottomPoint.Y)
 
 		if MaxX < 0 or MinX > ViewportSize.X or MaxY < 0 or MinY > ViewportSize.Y then
+			return nil
+		end
+
+		local Width = MaxX - MinX
+		local Height = MaxY - MinY
+
+		if Width < 2 or Height < 2 then
 			return nil
 		end
 
 		return MinX, MinY, MaxX, MaxY
 	end
 
-	function ESP:CreateBox(Player)
+	function ESP:GetGuiRoot()
+		if self.GuiRoot and self.GuiRoot.Parent then
+			return self.GuiRoot
+		end
+
+		local ScreenGui = Instance.new("ScreenGui")
+		ScreenGui.Name = "FatalityESP"
+		ScreenGui.ResetOnSpawn = false
+		ScreenGui.IgnoreGuiInset = true
+		ScreenGui.DisplayOrder = 999
+		ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+		ScreenGui.Parent = getGuiParent()
+
+		self.GuiRoot = ScreenGui
+
+		return ScreenGui
+	end
+
+	function ESP:CreateDrawingEntry(Player)
 		local Outline = Drawing.new("Square")
 		Outline.Visible = false
 		Outline.Color = Color3.fromRGB(0, 0, 0)
@@ -107,52 +194,243 @@ return function(Config)
 		Health.Color = Color3.fromRGB(110, 255, 140)
 		Health.Transparency = 1
 
-		self.Boxes[Player] = {
+		self.Entries[Player] = {
+			Mode = "drawing",
 			Outline = Outline,
 			Box = Box,
 			Name = Name,
 			Health = Health
 		}
 
-		return self.Boxes[Player]
+		return self.Entries[Player]
 	end
 
-	function ESP:HideBox(Player)
-		local Drawings = self.Boxes[Player]
+	function ESP:CreateInstanceEntry(Player)
+		local Highlight = Instance.new("Highlight")
+		Highlight.Name = "FatalityESPHighlight"
+		Highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+		Highlight.FillTransparency = 1
+		Highlight.OutlineTransparency = 0
+		Highlight.OutlineColor = Color3.fromRGB(245, 49, 116)
+		Highlight.Enabled = false
+		Highlight.Parent = workspace
 
-		if not Drawings then
+		local Billboard = Instance.new("BillboardGui")
+		Billboard.Name = "FatalityESPBillboard"
+		Billboard.AlwaysOnTop = true
+		Billboard.LightInfluence = 0
+		Billboard.ResetOnSpawn = false
+		Billboard.Size = UDim2.new(0, 180, 0, 36)
+		Billboard.StudsOffset = Vector3.new(0, 3.25, 0)
+		Billboard.Enabled = false
+		Billboard.Parent = self:GetGuiRoot()
+
+		local Name = Instance.new("TextLabel")
+		Name.Name = "Name"
+		Name.BackgroundTransparency = 1
+		Name.Size = UDim2.new(1, 0, 0, 18)
+		Name.Position = UDim2.new(0, 0, 0, 0)
+		Name.Font = Enum.Font.GothamSemibold
+		Name.TextColor3 = Color3.fromRGB(255, 255, 255)
+		Name.TextSize = 13
+		Name.TextStrokeTransparency = 0.35
+		Name.TextXAlignment = Enum.TextXAlignment.Center
+		Name.Visible = false
+		Name.Parent = Billboard
+
+		local Health = Instance.new("TextLabel")
+		Health.Name = "Health"
+		Health.BackgroundTransparency = 1
+		Health.Size = UDim2.new(1, 0, 0, 18)
+		Health.Position = UDim2.new(0, 0, 0, 16)
+		Health.Font = Enum.Font.GothamSemibold
+		Health.TextColor3 = Color3.fromRGB(110, 255, 140)
+		Health.TextSize = 13
+		Health.TextStrokeTransparency = 0.35
+		Health.TextXAlignment = Enum.TextXAlignment.Center
+		Health.Visible = false
+		Health.Parent = Billboard
+
+		self.Entries[Player] = {
+			Mode = "instance",
+			Highlight = Highlight,
+			Billboard = Billboard,
+			Name = Name,
+			Health = Health
+		}
+
+		return self.Entries[Player]
+	end
+
+	function ESP:GetEntry(Player)
+		local Entry = self.Entries[Player]
+
+		if Entry then
+			return Entry
+		end
+
+		if self.UseDrawing then
+			local Success, Result = pcall(self.CreateDrawingEntry, self, Player)
+
+			if Success and Result then
+				return Result
+			end
+
+			self.UseDrawing = false
+			self:Clear()
+
+			if Notification and not self.FallbackNotified then
+				self.FallbackNotified = true
+				Notification:Notify({
+					Title = "ESP",
+					Content = "Drawing failed, switching to Highlight ESP.",
+					Duration = 4,
+					Icon = "info"
+				})
+			end
+		end
+
+		return self:CreateInstanceEntry(Player)
+	end
+
+	function ESP:HideEntry(Player)
+		local Entry = self.Entries[Player]
+
+		if not Entry then
 			return
 		end
 
-		hideDrawing(Drawings.Outline)
-		hideDrawing(Drawings.Box)
-		hideDrawing(Drawings.Name)
-		hideDrawing(Drawings.Health)
-	end
-
-	function ESP:RemoveBox(Player)
-		local Drawings = self.Boxes[Player]
-
-		if not Drawings then
+		if Entry.Mode == "drawing" then
+			hideDrawing(Entry.Outline)
+			hideDrawing(Entry.Box)
+			hideDrawing(Entry.Name)
+			hideDrawing(Entry.Health)
 			return
 		end
 
-		Drawings.Outline:Remove()
-		Drawings.Box:Remove()
-		Drawings.Name:Remove()
-		Drawings.Health:Remove()
-		self.Boxes[Player] = nil
+		hideInstance(Entry.Highlight)
+		hideInstance(Entry.Billboard)
+		hideInstance(Entry.Name)
+		hideInstance(Entry.Health)
+	end
+
+	function ESP:RemoveEntry(Player)
+		local Entry = self.Entries[Player]
+
+		if not Entry then
+			return
+		end
+
+		if Entry.Mode == "drawing" then
+			Entry.Outline:Remove()
+			Entry.Box:Remove()
+			Entry.Name:Remove()
+			Entry.Health:Remove()
+		else
+			if Entry.Highlight then
+				Entry.Highlight:Destroy()
+			end
+
+			if Entry.Billboard then
+				Entry.Billboard:Destroy()
+			end
+		end
+
+		self.Entries[Player] = nil
 	end
 
 	function ESP:Clear()
-		for Player in pairs(self.Boxes) do
-			self:RemoveBox(Player)
+		for Player in pairs(self.Entries) do
+			self:RemoveEntry(Player)
+		end
+	end
+
+	function ESP:UpdateBillboardLayout(Entry)
+		local ShowName = self.Settings.ShowName
+		local ShowHealth = self.Settings.ShowHealth
+
+		if ShowName and ShowHealth then
+			Entry.Billboard.Size = UDim2.new(0, 180, 0, 36)
+			Entry.Name.Position = UDim2.new(0, 0, 0, 0)
+			Entry.Health.Position = UDim2.new(0, 0, 0, 16)
+		elseif ShowName or ShowHealth then
+			Entry.Billboard.Size = UDim2.new(0, 180, 0, 20)
+			Entry.Name.Position = UDim2.new(0, 0, 0, 1)
+			Entry.Health.Position = UDim2.new(0, 0, 0, 1)
+		else
+			Entry.Billboard.Size = UDim2.new(0, 180, 0, 0)
+		end
+	end
+
+	function ESP:UpdateDrawingEntry(Player, Humanoid, MinX, MinY, MaxX, MaxY)
+		local Width = math.max(MaxX - MinX, 2)
+		local Height = math.max(MaxY - MinY, 2)
+		local Entry = self:GetEntry(Player)
+
+		Entry.Outline.Size = Vector2.new(Width, Height)
+		Entry.Outline.Position = Vector2.new(MinX, MinY)
+		Entry.Outline.Visible = true
+
+		Entry.Box.Size = Vector2.new(Width, Height)
+		Entry.Box.Position = Vector2.new(MinX, MinY)
+		Entry.Box.Visible = true
+
+		if self.Settings.ShowName then
+			Entry.Name.Text = Player.DisplayName or Player.Name
+			Entry.Name.Position = Vector2.new(MinX + (Width * 0.5), MinY - 14)
+			Entry.Name.Visible = true
+		else
+			hideDrawing(Entry.Name)
+		end
+
+		if self.Settings.ShowHealth then
+			Entry.Health.Text = string.format(
+				"%d / %d",
+				math.floor(Humanoid.Health + 0.5),
+				math.floor(Humanoid.MaxHealth + 0.5)
+			)
+			Entry.Health.Color = getHealthColor(Humanoid.Health, Humanoid.MaxHealth)
+			Entry.Health.Position = Vector2.new(MinX + (Width * 0.5), MaxY + 2)
+			Entry.Health.Visible = true
+		else
+			hideDrawing(Entry.Health)
+		end
+	end
+
+	function ESP:UpdateInstanceEntry(Player, Character, Humanoid, RootPart)
+		local Entry = self:GetEntry(Player)
+		local DisplayPart = Character:FindFirstChild("Head") or RootPart
+
+		self:UpdateBillboardLayout(Entry)
+
+		Entry.Highlight.Adornee = Character
+		Entry.Highlight.Enabled = true
+		Entry.Billboard.Adornee = DisplayPart
+		Entry.Billboard.Enabled = self.Settings.ShowName or self.Settings.ShowHealth
+
+		if self.Settings.ShowName then
+			Entry.Name.Text = Player.DisplayName or Player.Name
+			Entry.Name.Visible = true
+		else
+			hideInstance(Entry.Name)
+		end
+
+		if self.Settings.ShowHealth then
+			Entry.Health.Text = string.format(
+				"%d / %d",
+				math.floor(Humanoid.Health + 0.5),
+				math.floor(Humanoid.MaxHealth + 0.5)
+			)
+			Entry.Health.TextColor3 = getHealthColor(Humanoid.Health, Humanoid.MaxHealth)
+			Entry.Health.Visible = true
+		else
+			hideInstance(Entry.Health)
 		end
 	end
 
 	function ESP:UpdatePlayer(Player)
 		if Player == LocalPlayer then
-			self:RemoveBox(Player)
+			self:RemoveEntry(Player)
 			return false
 		end
 
@@ -160,78 +438,38 @@ return function(Config)
 		local Humanoid = Character and Character:FindFirstChildOfClass("Humanoid")
 		local RootPart = Character and Character:FindFirstChild("HumanoidRootPart")
 		local LocalRootPart = getLocalRootPart()
-		local Distance
 
 		if not Character or not Humanoid or not RootPart or Humanoid.Health <= 0 then
-			self:HideBox(Player)
+			self:HideEntry(Player)
 			return false
 		end
 
 		if LocalRootPart then
-			Distance = (LocalRootPart.Position - RootPart.Position).Magnitude
+			local Distance = (LocalRootPart.Position - RootPart.Position).Magnitude
 
 			if Distance > self.Settings.DistanceLimit then
-				self:HideBox(Player)
+				self:HideEntry(Player)
 				return false
 			end
 		end
 
-		local MinX, MinY, MaxX, MaxY = getCharacterBounds(Character, Humanoid, RootPart)
+		if self.UseDrawing then
+			local MinX, MinY, MaxX, MaxY = getCharacterBounds(Character)
 
-		if not MinX then
-			self:HideBox(Player)
-			return false
+			if not MinX then
+				self:HideEntry(Player)
+				return false
+			end
+
+			self:UpdateDrawingEntry(Player, Humanoid, MinX, MinY, MaxX, MaxY)
+			return true
 		end
 
-		local Width = math.max(MaxX - MinX, 2)
-		local Height = math.max(MaxY - MinY, 2)
-		local Drawings = self.Boxes[Player] or self:CreateBox(Player)
-
-		Drawings.Outline.Size = Vector2.new(Width, Height)
-		Drawings.Outline.Position = Vector2.new(MinX, MinY)
-		Drawings.Outline.Visible = true
-
-		Drawings.Box.Size = Vector2.new(Width, Height)
-		Drawings.Box.Position = Vector2.new(MinX, MinY)
-		Drawings.Box.Visible = true
-
-		local InfoParts = {}
-
-		if self.Settings.ShowName then
-			table.insert(InfoParts, Player.DisplayName)
-		end
-
-		if self.Settings.ShowHealth then
-			table.insert(
-				InfoParts,
-				string.format(
-					"[%d/%d]",
-					math.floor(Humanoid.Health + 0.5),
-					math.floor(Humanoid.MaxHealth + 0.5)
-				)
-			)
-		end
-
-		if Distance then
-			table.insert(InfoParts, string.format("[%d studs]", math.floor(Distance + 0.5)))
-		end
-
-		if #InfoParts > 0 then
-			Drawings.Name.Text = table.concat(InfoParts, " ")
-			Drawings.Name.Position = Vector2.new(MinX + (Width * 0.5), MinY - 14)
-			Drawings.Name.Visible = true
-		else
-			hideDrawing(Drawings.Name)
-		end
-
-		hideDrawing(Drawings.Health)
-
+		self:UpdateInstanceEntry(Player, Character, Humanoid, RootPart)
 		return true
 	end
 
 	function ESP:Update()
-		Camera = workspace.CurrentCamera
-
 		local SeenPlayers = {}
 
 		for _, Player in ipairs(Players:GetPlayers()) do
@@ -240,29 +478,16 @@ return function(Config)
 			end
 		end
 
-		for Player in pairs(self.Boxes) do
+		for Player in pairs(self.Entries) do
 			if not Players:FindFirstChild(Player.Name) then
-				self:RemoveBox(Player)
+				self:RemoveEntry(Player)
 			elseif not SeenPlayers[Player] then
-				self:HideBox(Player)
+				self:HideEntry(Player)
 			end
 		end
 	end
 
 	function ESP:SetEnabled(State)
-		if State and not Drawing then
-			if Notification then
-				Notification:Notify({
-					Title = "ESP",
-					Content = "Your executor does not support Drawing.",
-					Duration = 5,
-					Icon = "info"
-				})
-			end
-
-			return false
-		end
-
 		if self.Enabled == State then
 			return State
 		end
@@ -275,6 +500,15 @@ return function(Config)
 		end
 
 		if State then
+			if not self.UseDrawing and Notification then
+				Notification:Notify({
+					Title = "ESP",
+					Content = "Drawing unavailable, using Highlight ESP.",
+					Duration = 4,
+					Icon = "info"
+				})
+			end
+
 			self.Connection = RunService.RenderStepped:Connect(function()
 				self:Update()
 			end)
@@ -288,6 +522,11 @@ return function(Config)
 	function ESP:Destroy()
 		self:SetEnabled(false)
 		self:Clear()
+
+		if self.GuiRoot then
+			self.GuiRoot:Destroy()
+			self.GuiRoot = nil
+		end
 	end
 
 	function ESP:SetDistanceLimit(Value)
@@ -297,9 +536,29 @@ return function(Config)
 	function ESP:SetShowName(Value)
 		self.Settings.ShowName = Value and true or false
 
-		if not self.Settings.ShowName then
-			for _, Drawings in pairs(self.Boxes) do
-				hideDrawing(Drawings.Name)
+		for Player, Entry in pairs(self.Entries) do
+			if Entry.Mode == "drawing" then
+				if not self.Settings.ShowName then
+					hideDrawing(Entry.Name)
+				end
+			else
+				self:UpdateBillboardLayout(Entry)
+
+				if not self.Settings.ShowName then
+					hideInstance(Entry.Name)
+				elseif self.Enabled then
+					local CurrentPlayer = Players:FindFirstChild(Player.Name)
+
+					if CurrentPlayer then
+						local Character = CurrentPlayer.Character
+						local Humanoid = Character and Character:FindFirstChildOfClass("Humanoid")
+						local RootPart = Character and Character:FindFirstChild("HumanoidRootPart")
+
+						if Character and Humanoid and RootPart and Humanoid.Health > 0 then
+							self:UpdateInstanceEntry(CurrentPlayer, Character, Humanoid, RootPart)
+						end
+					end
+				end
 			end
 		end
 	end
@@ -307,9 +566,29 @@ return function(Config)
 	function ESP:SetShowHealth(Value)
 		self.Settings.ShowHealth = Value and true or false
 
-		if not self.Settings.ShowHealth then
-			for _, Drawings in pairs(self.Boxes) do
-				hideDrawing(Drawings.Health)
+		for Player, Entry in pairs(self.Entries) do
+			if Entry.Mode == "drawing" then
+				if not self.Settings.ShowHealth then
+					hideDrawing(Entry.Health)
+				end
+			else
+				self:UpdateBillboardLayout(Entry)
+
+				if not self.Settings.ShowHealth then
+					hideInstance(Entry.Health)
+				elseif self.Enabled then
+					local CurrentPlayer = Players:FindFirstChild(Player.Name)
+
+					if CurrentPlayer then
+						local Character = CurrentPlayer.Character
+						local Humanoid = Character and Character:FindFirstChildOfClass("Humanoid")
+						local RootPart = Character and Character:FindFirstChild("HumanoidRootPart")
+
+						if Character and Humanoid and RootPart and Humanoid.Health > 0 then
+							self:UpdateInstanceEntry(CurrentPlayer, Character, Humanoid, RootPart)
+						end
+					end
+				end
 			end
 		end
 	end
