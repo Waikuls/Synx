@@ -17,6 +17,7 @@ return function(Config)
 		Enum.KeyCode.RightControl
 	}
 	local BlockActionName = "KELVFreecamBlock"
+	local BlockActionPriority = Enum.ContextActionPriority.High.Value + 1000
 
 	local FreecamFeature = {
 		Enabled = false,
@@ -39,7 +40,9 @@ return function(Config)
 		SavedCameraState = nil,
 		SavedMouseBehavior = nil,
 		SavedMouseIconEnabled = nil,
-		ControlsBound = false
+		ControlsBound = false,
+		KeyState = {},
+		TextInputPaused = false
 	}
 
 	local function getCurrentCamera()
@@ -66,41 +69,76 @@ return function(Config)
 		FreecamFeature.MoveState.Slow = false
 	end
 
+	local function clearKeyState()
+		table.clear(FreecamFeature.KeyState)
+	end
+
 	local function refreshMoveState()
 		local MoveState = FreecamFeature.MoveState
+		local KeyState = FreecamFeature.KeyState
 		local Forward = 0
 		local Right = 0
 		local Up = 0
 
-		if UserInputService:IsKeyDown(Enum.KeyCode.W) then
+		if KeyState[Enum.KeyCode.W] then
 			Forward = Forward + 1
 		end
 
-		if UserInputService:IsKeyDown(Enum.KeyCode.S) then
+		if KeyState[Enum.KeyCode.S] then
 			Forward = Forward - 1
 		end
 
-		if UserInputService:IsKeyDown(Enum.KeyCode.D) then
+		if KeyState[Enum.KeyCode.D] then
 			Right = Right + 1
 		end
 
-		if UserInputService:IsKeyDown(Enum.KeyCode.A) then
+		if KeyState[Enum.KeyCode.A] then
 			Right = Right - 1
 		end
 
-		if UserInputService:IsKeyDown(Enum.KeyCode.E) or UserInputService:IsKeyDown(Enum.KeyCode.Space) then
+		if KeyState[Enum.KeyCode.E] or KeyState[Enum.KeyCode.Space] then
 			Up = Up + 1
 		end
 
-		if UserInputService:IsKeyDown(Enum.KeyCode.Q) then
+		if KeyState[Enum.KeyCode.Q] then
 			Up = Up - 1
 		end
 
 		MoveState.Forward = math.clamp(Forward, -1, 1)
 		MoveState.Right = math.clamp(Right, -1, 1)
 		MoveState.Up = math.clamp(Up, -1, 1)
-		MoveState.Fast = UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) or UserInputService:IsKeyDown(Enum.KeyCode.RightShift)
-		MoveState.Slow = UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) or UserInputService:IsKeyDown(Enum.KeyCode.RightControl)
+		MoveState.Fast = KeyState[Enum.KeyCode.LeftShift] or KeyState[Enum.KeyCode.RightShift] or false
+		MoveState.Slow = KeyState[Enum.KeyCode.LeftControl] or KeyState[Enum.KeyCode.RightControl] or false
+	end
+
+	local function synchronizeMoveState()
+		for _, KeyCode in ipairs(BlockedControls) do
+			FreecamFeature.KeyState[KeyCode] = UserInputService:IsKeyDown(KeyCode)
+		end
+
+		refreshMoveState()
+	end
+
+	local function handleControlAction(_, InputState, InputObject)
+		if not FreecamFeature.Enabled then
+			return Enum.ContextActionResult.Pass
+		end
+
+		local KeyCode = InputObject and InputObject.KeyCode
+
+		if not KeyCode or KeyCode == Enum.KeyCode.Unknown then
+			return Enum.ContextActionResult.Sink
+		end
+
+		if InputState == Enum.UserInputState.Begin then
+			FreecamFeature.KeyState[KeyCode] = true
+			refreshMoveState()
+		elseif InputState == Enum.UserInputState.End or InputState == Enum.UserInputState.Cancel then
+			FreecamFeature.KeyState[KeyCode] = false
+			refreshMoveState()
+		end
+
+		return Enum.ContextActionResult.Sink
 	end
 
 	local function disconnectAll()
@@ -109,10 +147,6 @@ return function(Config)
 		end
 
 		FreecamFeature.Connections = {}
-	end
-
-	local function sinkControlAction()
-		return Enum.ContextActionResult.Sink
 	end
 
 	local function bindControls()
@@ -126,9 +160,9 @@ return function(Config)
 			Bound = pcall(function()
 				ContextActionService:BindActionAtPriority(
 					BlockActionName,
-					sinkControlAction,
+					handleControlAction,
 					false,
-					Enum.ContextActionPriority.High.Value,
+					BlockActionPriority,
 					table.unpack(BlockedControls)
 				)
 			end)
@@ -138,7 +172,7 @@ return function(Config)
 			Bound = pcall(function()
 				ContextActionService:BindAction(
 					BlockActionName,
-					sinkControlAction,
+					handleControlAction,
 					false,
 					table.unpack(BlockedControls)
 				)
@@ -220,6 +254,8 @@ return function(Config)
 		end
 
 		if UserInputService:GetFocusedTextBox() then
+			FreecamFeature.TextInputPaused = true
+			clearKeyState()
 			resetMoveState()
 			Camera.CameraType = Enum.CameraType.Scriptable
 			local LookVector = getLookVector(FreecamFeature.Yaw, FreecamFeature.Pitch)
@@ -228,7 +264,11 @@ return function(Config)
 			return
 		end
 
-		refreshMoveState()
+		if FreecamFeature.TextInputPaused then
+			FreecamFeature.TextInputPaused = false
+			synchronizeMoveState()
+		end
+
 		Camera.CameraType = Enum.CameraType.Scriptable
 
 		local LookVector = getLookVector(FreecamFeature.Yaw, FreecamFeature.Pitch)
@@ -274,7 +314,7 @@ return function(Config)
 	local function setupConnections()
 		disconnectAll()
 
-		table.insert(FreecamFeature.Connections, UserInputService.InputBegan:Connect(function(Input, GameProcessed)
+		table.insert(FreecamFeature.Connections, UserInputService.InputBegan:Connect(function(Input)
 			if not FreecamFeature.Enabled then
 				return
 			end
@@ -283,12 +323,6 @@ return function(Config)
 				setLooking(true)
 				return
 			end
-
-			if GameProcessed then
-				return
-			end
-
-			refreshMoveState()
 		end))
 
 		table.insert(FreecamFeature.Connections, UserInputService.InputEnded:Connect(function(Input)
@@ -300,8 +334,6 @@ return function(Config)
 				setLooking(false)
 				return
 			end
-
-			refreshMoveState()
 		end))
 
 		table.insert(FreecamFeature.Connections, UserInputService.InputChanged:Connect(function(Input, GameProcessed)
@@ -342,8 +374,10 @@ return function(Config)
 			self.Yaw = math.atan2(LookVector.X, -LookVector.Z)
 			self.Pitch = clampPitch(math.asin(math.clamp(LookVector.Y, -1, 1)))
 
+			clearKeyState()
 			resetMoveState()
-			refreshMoveState()
+			synchronizeMoveState()
+			self.TextInputPaused = false
 			bindControls()
 			setupConnections()
 			updateMouseCapture()
@@ -360,6 +394,8 @@ return function(Config)
 		end
 
 		self.Enabled = false
+		self.TextInputPaused = false
+		clearKeyState()
 		resetMoveState()
 		disconnectAll()
 		unbindControls()
