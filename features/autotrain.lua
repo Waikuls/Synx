@@ -1338,6 +1338,28 @@ return function(Config)
 			triggerPrompt(LeavePrompt)
 		end
 
+		-- Teleport away from the bike to force physical dismount
+		local Character = getCharacter()
+		local RootPart = getRootPart()
+		local BikePos = getBikeRemotePosition()
+
+		if Character and RootPart and BikePos then
+			local Dir = (RootPart.Position - BikePos)
+			local DirLen = Dir.Magnitude
+
+			if DirLen < 0.5 then
+				Dir = Vector3.new(0, 0, 1)
+			else
+				Dir = Dir / DirLen
+			end
+
+			local TargetPos = BikePos + Dir * 15 + Vector3.new(0, 3, 0)
+
+			pcall(function()
+				Character:PivotTo(CFrame.new(TargetPos, TargetPos + Dir))
+			end)
+		end
+
 		return true
 	end
 
