@@ -87,8 +87,11 @@ return function(Config)
 	}
 	local SupplementBlacklist = {
 		"whey protein",
+		"whey",
 		"fat burner",
-		"muscle burner"
+		"muscle burner",
+		"protein shake",
+		"supplement"
 	}
 	local SlotKeyNames = {
 		"One",
@@ -893,7 +896,8 @@ return function(Config)
 		end
 
 		local NameLower = string.lower(Tool.Name)
-		local ToolTipLower = string.lower(Tool.ToolTip or "")
+		local Ok, Tip = pcall(function() return Tool.ToolTip end)
+		local ToolTipLower = string.lower((Ok and type(Tip) == "string" and Tip) or "")
 
 		for _, Supplement in ipairs(SupplementBlacklist) do
 			if string.find(NameLower, Supplement, 1, true) or string.find(ToolTipLower, Supplement, 1, true) then
