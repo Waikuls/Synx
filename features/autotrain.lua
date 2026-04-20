@@ -1373,31 +1373,44 @@ return function(Config)
 		end)
 	end
 
+	local StrengthBagRemoteCache = {Remote = nil, At = 0}
+
 	local function findNearestStrengthBagRemote()
+		local Now = os.clock()
+		if StrengthBagRemoteCache.Remote
+			and StrengthBagRemoteCache.Remote.Parent
+			and (Now - StrengthBagRemoteCache.At) < 3 then
+			return StrengthBagRemoteCache.Remote
+		end
+
 		local RootPart = getRootPart()
+		local Aliases = MachineAliases["Strength"] or {}
 		local Best = nil
 		local BestDist = math.huge
 
 		for _, Desc in ipairs(workspace:GetDescendants()) do
 			if Desc:IsA("RemoteEvent") and Desc.Name == "RemoteEvent" then
-				local Parent = Desc.Parent
-				if Parent and string.lower(Parent.Name) == "bag" then
-					local Pos = nil
-					local Current = Parent.Parent
-					while Current and Current ~= workspace do
-						local Ok, P = pcall(function()
-							return Current:IsA("BasePart") and Current.Position
-								or (Current:IsA("Model") and Current.PrimaryPart and Current.PrimaryPart.Position)
-						end)
-						if Ok and P then Pos = P break end
-						Current = Current.Parent
-					end
+				local IsBagRemote = false
+				local Pos = nil
+				local Current = Desc.Parent
 
-					local Dist = 999
-					if RootPart and Pos then
-						Dist = (RootPart.Position - Pos).Magnitude
+				for _ = 1, 8 do
+					if not Current or Current == workspace then break end
+					if containsAlias(Current.Name, Aliases) then
+						IsBagRemote = true
 					end
+					if not Pos then
+						if Current:IsA("BasePart") then
+							Pos = Current.Position
+						elseif Current:IsA("Model") and Current.PrimaryPart then
+							Pos = Current.PrimaryPart.Position
+						end
+					end
+					Current = Current.Parent
+				end
 
+				if IsBagRemote then
+					local Dist = (RootPart and Pos) and (RootPart.Position - Pos).Magnitude or 999
 					if Dist < BestDist then
 						BestDist = Dist
 						Best = Desc
@@ -1406,6 +1419,8 @@ return function(Config)
 			end
 		end
 
+		StrengthBagRemoteCache.Remote = Best
+		StrengthBagRemoteCache.At = Now
 		return Best
 	end
 
@@ -1478,6 +1493,7 @@ return function(Config)
 				if StaminaPct >= self:GetContinueThreshold() then
 					self.StaminaPaused = false
 				else
+					self.LastStrengthHitAt = Now
 					return
 				end
 			end
@@ -1628,6 +1644,7 @@ return function(Config)
 				if not IsHungry and not FoodFeature.IsEating then
 					self.EatingBreak = false
 					self.LastRideEndAt = Now
+					StrengthBagRemoteCache.At = 0
 
 					if Notification then
 						Notification:Notify({

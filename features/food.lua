@@ -1529,7 +1529,6 @@ return function(Config)
 
 		FoodFeature.IsEating = true
 		FoodFeature.StopRequested = false
-		FoodFeature.LastEatAt = os.clock()
 
 		task.spawn(function()
 			local PreviouslyEquippedTool = getEquippedTool(Character)
@@ -1597,6 +1596,7 @@ return function(Config)
 
 			FoodFeature.IsEating = false
 			FoodFeature.StopRequested = false
+			FoodFeature.LastEatAt = os.clock()
 		end)
 	end
 
