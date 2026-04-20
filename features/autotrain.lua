@@ -79,6 +79,7 @@ return function(Config)
 	AutoTrainFeature.ContinueLevel = "mid"
 	AutoTrainFeature.StaminaPaused = false
 	AutoTrainFeature.MaxFatigueAction = "Do nothing"
+	AutoTrainFeature.LastRideEndAt = 0
 	AutoTrainFeature.LastDebugNotifyAt = 0
 	AutoTrainFeature.LastDebugMessage = ""
 
@@ -1089,6 +1090,7 @@ return function(Config)
 			if AutoTrainFeature.BikeRideStartedAt > 0 and (Now - AutoTrainFeature.BikeRideStartedAt) > AutoTrainFeature.MaxBikeRideDuration then
 				AutoTrainFeature.BikeActiveUntil = 0
 				AutoTrainFeature.BikeRideStartedAt = 0
+				AutoTrainFeature.LastRideEndAt = Now
 				return false
 			end
 			return true
@@ -1304,6 +1306,7 @@ return function(Config)
 				if not TrainingState.IsTraining then
 					self.BikeActiveUntil = 0
 					self.BikeRideStartedAt = 0
+					self.LastRideEndAt = Now
 				end
 			end
 
@@ -1319,6 +1322,10 @@ return function(Config)
 
 			if BikeRideActive then
 				self:TryBikePressKey(Now)
+				return
+			end
+
+			if (Now - self.LastRideEndAt) < 1.0 then
 				return
 			end
 
@@ -1397,6 +1404,7 @@ return function(Config)
 				self.LastProximityTriggerAt = 0
 				self.LastUiKeyAt = 0
 				self.StaminaPaused = false
+				self.LastRideEndAt = 0
 				self.LastDebugNotifyAt = 0
 				self.LastDebugMessage = ""
 				return true
@@ -1483,6 +1491,7 @@ return function(Config)
 		self.LastProximityTriggerAt = 0
 		self.LastUiKeyAt = 0
 		self.StaminaPaused = false
+		self.LastRideEndAt = 0
 		self.LastDebugNotifyAt = 0
 		self.LastDebugMessage = ""
 
