@@ -1749,10 +1749,13 @@ return function(Config)
 				return
 			end
 
-			if WheyFeature and WheyFeature.Enabled and WheyFeature:ShouldConsume() then
-				local FoodBusy = FoodFeature and FoodFeature.IsEating
-				WheyFeature:TryConsume(FoodBusy)
-				return
+			if WheyFeature and WheyFeature.Enabled then
+				if WheyFeature.IsConsuming then return end
+				if WheyFeature:ShouldConsume() then
+					local FoodBusy = FoodFeature and FoodFeature.IsEating
+					WheyFeature:TryConsume(FoodBusy)
+					return
+				end
 			end
 
 			if self:TryBikeStart(Now) then
