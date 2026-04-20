@@ -75,7 +75,7 @@ return function(Config)
 	AutoTrainFeature.MaxBikeRideDuration = 65
 	AutoTrainFeature.LastProximityTriggerAt = 0
 	AutoTrainFeature.LastUiKeyAt = 0
-	AutoTrainFeature.StaminaThreshold = 15
+	AutoTrainFeature.StaminaThreshold = 3
 	AutoTrainFeature.ContinueLevel = "mid"
 	AutoTrainFeature.StaminaPaused = false
 	AutoTrainFeature.MaxFatigueAction = "Do nothing"
