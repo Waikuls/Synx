@@ -1143,7 +1143,6 @@ return function(Config)
 		local RootPart
 		local PromptPosition
 		local BikeMenuVisible
-		local BikeKeyVisible
 
 		if not self.Enabled then
 			return
@@ -1155,12 +1154,6 @@ return function(Config)
 		if self.SelectedType == "Bike" then
 			refreshBikeUiState(false)
 			BikeMenuVisible = self.CachedBikeActionMenuVisible
-			BikeKeyVisible = self.CachedBikeKey ~= nil
-
-			if BikeKeyVisible then
-				self:TryBikePressKey(Now)
-				return
-			end
 
 			if TrainingState.IsTraining
 				or TrainingState.IsSelectedMachine
