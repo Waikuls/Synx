@@ -215,7 +215,7 @@ return function(Config)
 		return LocalPlayer:FindFirstChildOfClass("PlayerGui")
 	end
 
-	local function getGuiContainers()
+	local function getGuiContainers(IncludeCoreGui)
 		local Containers = {}
 		local PlayerGui = getPlayerGui()
 
@@ -223,7 +223,7 @@ return function(Config)
 			table.insert(Containers, PlayerGui)
 		end
 
-		if CoreGui then
+		if IncludeCoreGui and CoreGui then
 			table.insert(Containers, CoreGui)
 		end
 
@@ -909,7 +909,7 @@ return function(Config)
 			end
 		end
 
-		Containers = getGuiContainers()
+		Containers = getGuiContainers(false)
 		ScreenCenter, ViewportSize = getScreenCenter()
 		StartMaxDistance = math.max(ViewportSize.X, ViewportSize.Y) * 0.42
 		KeyMaxDistance = math.max(ViewportSize.X, ViewportSize.Y) * 0.38
@@ -1204,15 +1204,16 @@ return function(Config)
 		if self.SelectedType == "Bike" then
 			refreshBikeUiState(false)
 			BikeMenuVisible = self.CachedBikeActionMenuVisible
+
+			if BikeMenuVisible then
+				self:TryBikeStart(Now)
+				return
+			end
+
 			BikeRideActive = isBikeRideActive(Now)
 
 			if BikeRideActive then
 				self:TryBikePressKey(Now)
-				return
-			end
-
-			if BikeMenuVisible then
-				self:TryBikeStart(Now)
 				return
 			end
 
