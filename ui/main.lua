@@ -56,7 +56,7 @@ return function(Config)
 	local AutoTrain = Main:AddSection({
 		Name = "AUTO TRAIN",
 		Position = "center",
-		Height = 115
+		Height = 145
 	})
 
 	AutoTrain:AddToggle({
@@ -79,5 +79,14 @@ return function(Config)
 			end
 		end,
 		Flag = "AutoTrainType"
+	})
+
+	AutoTrain:AddDropdown({
+		Name = "Continue",
+		Default = "mid",
+		Values = {"low", "mid", "high"},
+		Callback = function(Value)
+		end,
+		Flag = "AutoTrainContinue"
 	})
 end

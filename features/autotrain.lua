@@ -74,6 +74,8 @@ return function(Config)
 	AutoTrainFeature.BikeRideStartedAt = 0
 	AutoTrainFeature.MaxBikeRideDuration = 90
 	AutoTrainFeature.LastProximityTriggerAt = 0
+	AutoTrainFeature.LastUiKeyAt = 0
+	AutoTrainFeature.FatigueThreshold = 90
 	AutoTrainFeature.LastDebugNotifyAt = 0
 	AutoTrainFeature.LastDebugMessage = ""
 
@@ -516,6 +518,22 @@ return function(Config)
 		end
 
 		return nil
+	end
+
+	local function getBodyFatigue()
+		local Stats = findStatsContainer()
+
+		if not Stats then
+			return 0
+		end
+
+		local Value = readStatsValue(Stats, "BodyFatigue") or readStatsValue(Stats, "BodyFatique")
+
+		if type(Value) ~= "number" then
+			return 0
+		end
+
+		return Value
 	end
 
 	local function valueToBool(Value)
@@ -1119,6 +1137,10 @@ return function(Config)
 			return false
 		end
 
+		if self.FatigueThreshold > 0 and getBodyFatigue() >= self.FatigueThreshold then
+			return false
+		end
+
 		Key, Signature = getVisibleBikeKeyCandidate(false)
 
 		if Key then
@@ -1138,6 +1160,7 @@ return function(Config)
 
 			if Triggered then
 				self.LastKeyAt = Now
+				self.LastUiKeyAt = Now
 				self.LastKeySignature = Signature
 				self.LastKeySignatureAt = Now
 				self.BikeActiveUntil = Now + self.BikeAssumeActiveDuration
@@ -1145,6 +1168,10 @@ return function(Config)
 				debugBike("Bike key from UI: " .. tostring(Key), false)
 				return true
 			end
+		end
+
+		if (Now - self.LastUiKeyAt) < 1.5 then
+			return false
 		end
 
 		if (Now - self.LastBlindBikeKeyAt) < self.BlindBikeKeyCooldown then
@@ -1298,12 +1325,25 @@ return function(Config)
 				self.BikeActiveUntil = 0
 				self.BikeRideStartedAt = 0
 				self.LastProximityTriggerAt = 0
+				self.LastUiKeyAt = 0
 				self.LastDebugNotifyAt = 0
 				self.LastDebugMessage = ""
 				return true
 			end
 		end
 
+		return false
+	end
+
+	function AutoTrainFeature:GetFatigueThreshold()
+		return self.FatigueThreshold
+	end
+
+	function AutoTrainFeature:SetFatigueThreshold(Value)
+		if type(Value) == "number" and Value >= 0 and Value <= 100 then
+			self.FatigueThreshold = Value
+			return true
+		end
 		return false
 	end
 
@@ -1337,6 +1377,7 @@ return function(Config)
 		self.BikeActiveUntil = 0
 		self.BikeRideStartedAt = 0
 		self.LastProximityTriggerAt = 0
+		self.LastUiKeyAt = 0
 		self.LastDebugNotifyAt = 0
 		self.LastDebugMessage = ""
 
