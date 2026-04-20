@@ -1596,7 +1596,7 @@ return function(Config)
 
 			local Fatigue = getBodyFatigue()
 
-			if Fatigue <= 2 then
+			if Fatigue <= 0 then
 				if not AutoTrainFeature.BedRecoveryNotified then
 					AutoTrainFeature.BedRecoveryNotified = true
 					Webhook:Send(string.format(
