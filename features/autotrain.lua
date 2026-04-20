@@ -1329,6 +1329,8 @@ return function(Config)
 			return false
 		end
 
+		LeavePromptCache.At = 0
+
 		fireBikeRemote("Leave")
 
 		local LeavePrompt = findLeavePrompt()
@@ -1384,6 +1386,7 @@ return function(Config)
 			if IsHungry and not self.EatingBreak then
 				self.EatingBreak = true
 				self.LastLeaveAttemptAt = 0
+				LeavePromptCache.At = 0
 
 				if Notification then
 					Notification:Notify({
@@ -1407,7 +1410,7 @@ return function(Config)
 						})
 					end
 				else
-					if self.SelectedType == "Bike" and (Now - (self.LastLeaveAttemptAt or 0)) > 1.5 then
+					if self.SelectedType == "Bike" and (Now - (self.LastLeaveAttemptAt or 0)) > 0.8 then
 						self.LastLeaveAttemptAt = Now
 						self:TryBikeLeave()
 						self.BikeActiveUntil = 0
