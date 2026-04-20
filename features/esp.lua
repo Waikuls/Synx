@@ -22,6 +22,14 @@ return function(Config)
 				return gethui()
 			end
 
+			if LocalPlayer then
+				local PlayerGui = LocalPlayer:FindFirstChildOfClass("PlayerGui")
+
+				if PlayerGui then
+					return PlayerGui
+				end
+			end
+
 			return CoreGui
 		end)
 
@@ -29,11 +37,15 @@ return function(Config)
 			return Result
 		end
 
-		return CoreGui
-	end
+		if LocalPlayer then
+			local PlayerGui = LocalPlayer:FindFirstChildOfClass("PlayerGui")
 
-	local function getCurrentCamera()
-		return workspace.CurrentCamera
+			if PlayerGui then
+				return PlayerGui
+			end
+		end
+
+		return CoreGui
 	end
 
 	local function getCharacterRoot(Character)
@@ -49,6 +61,22 @@ return function(Config)
 			or Character:FindFirstChildWhichIsA("BasePart")
 	end
 
+	local function getDisplayPart(Character)
+		if not Character then
+			return nil
+		end
+
+		return Character:FindFirstChild("Head") or getCharacterRoot(Character)
+	end
+
+	local function getHumanoid(Character)
+		if not Character then
+			return nil
+		end
+
+		return Character:FindFirstChildOfClass("Humanoid")
+	end
+
 	local function getLocalRootPart()
 		return getCharacterRoot(LocalPlayer and LocalPlayer.Character)
 	end
@@ -61,92 +89,6 @@ return function(Config)
 			math.floor(255 * Ratio),
 			90
 		)
-	end
-
-	local function getCharacterBounds(Character)
-		local Camera = getCurrentCamera()
-		local RootPart = getCharacterRoot(Character)
-
-		if not Camera or not RootPart then
-			return nil
-		end
-
-		local Success, BoundingCFrame, BoundingSize = pcall(function()
-			return Character:GetBoundingBox()
-		end)
-
-		if not Success or not BoundingCFrame or not BoundingSize then
-			BoundingCFrame = RootPart.CFrame
-			BoundingSize = RootPart.Size + Vector3.new(2.5, 3.5, 2.5)
-		end
-
-		local HalfSize = BoundingSize * 0.5
-		local ViewportSize = Camera.ViewportSize
-		local MinX = math.huge
-		local MinY = math.huge
-		local MaxX = -math.huge
-		local MaxY = -math.huge
-		local VisiblePoints = 0
-		local OnScreenPoints = 0
-		local Signs = {-1, 1}
-
-		for _, XFactor in ipairs(Signs) do
-			for _, YFactor in ipairs(Signs) do
-				for _, ZFactor in ipairs(Signs) do
-					local Corner = BoundingCFrame:PointToWorldSpace(
-						Vector3.new(
-							HalfSize.X * XFactor,
-							HalfSize.Y * YFactor,
-							HalfSize.Z * ZFactor
-						)
-					)
-					local ScreenPoint, OnScreen = Camera:WorldToViewportPoint(Corner)
-
-					if ScreenPoint.Z > 0 then
-						VisiblePoints = VisiblePoints + 1
-						MinX = math.min(MinX, ScreenPoint.X)
-						MinY = math.min(MinY, ScreenPoint.Y)
-						MaxX = math.max(MaxX, ScreenPoint.X)
-						MaxY = math.max(MaxY, ScreenPoint.Y)
-
-						if OnScreen then
-							OnScreenPoints = OnScreenPoints + 1
-						end
-					end
-				end
-			end
-		end
-
-		if VisiblePoints < 2 or OnScreenPoints == 0 then
-			return nil
-		end
-
-		if MaxX < -32 or MinX > ViewportSize.X + 32 or MaxY < -32 or MinY > ViewportSize.Y + 32 then
-			return nil
-		end
-
-		local Width = MaxX - MinX
-		local Height = MaxY - MinY
-
-		if Width < 2 or Height < 2 then
-			return nil
-		end
-
-		if Width > (ViewportSize.X * 1.5) or Height > (ViewportSize.Y * 1.5) then
-			return nil
-		end
-
-		return MinX, MinY, MaxX, MaxY
-	end
-
-	local function createStroke(Parent, Thickness, Color)
-		local Stroke = Instance.new("UIStroke")
-		Stroke.Thickness = Thickness
-		Stroke.Color = Color
-		Stroke.Transparency = 0
-		Stroke.Parent = Parent
-
-		return Stroke
 	end
 
 	function ESP:GetGuiRoot()
@@ -168,39 +110,32 @@ return function(Config)
 	end
 
 	function ESP:CreateEntry(Player)
-		local Container = Instance.new("Frame")
-		Container.Name = string.format("ESP_%s", tostring(Player.UserId))
-		Container.BackgroundTransparency = 1
-		Container.BorderSizePixel = 0
-		Container.Visible = false
-		Container.ZIndex = 500
-		Container.Parent = self:GetGuiRoot()
+		local SelectionBox = Instance.new("SelectionBox")
+		SelectionBox.Name = string.format("ESP_%s_Box", tostring(Player.UserId))
+		SelectionBox.Adornee = nil
+		SelectionBox.Color3 = Color3.fromRGB(245, 49, 116)
+		SelectionBox.LineThickness = 0.05
+		SelectionBox.SurfaceColor3 = Color3.fromRGB(245, 49, 116)
+		SelectionBox.SurfaceTransparency = 1
+		SelectionBox.Transparency = 0
+		SelectionBox.Parent = workspace
 
-		local Outline = Instance.new("Frame")
-		Outline.Name = "Outline"
-		Outline.BackgroundTransparency = 1
-		Outline.BorderSizePixel = 0
-		Outline.Size = UDim2.new(1, 0, 1, 0)
-		Outline.ZIndex = 500
-		Outline.Parent = Container
-		createStroke(Outline, 3, Color3.fromRGB(0, 0, 0))
-
-		local Box = Instance.new("Frame")
-		Box.Name = "Box"
-		Box.BackgroundTransparency = 1
-		Box.BorderSizePixel = 0
-		Box.Size = UDim2.new(1, 0, 1, 0)
-		Box.ZIndex = 501
-		Box.Parent = Container
-		createStroke(Box, 1, Color3.fromRGB(245, 49, 116))
+		local Billboard = Instance.new("BillboardGui")
+		Billboard.Name = string.format("ESP_%s_Info", tostring(Player.UserId))
+		Billboard.AlwaysOnTop = true
+		Billboard.LightInfluence = 0
+		Billboard.ResetOnSpawn = false
+		Billboard.Size = UDim2.new(0, 180, 0, 36)
+		Billboard.StudsOffset = Vector3.new(0, 3.4, 0)
+		Billboard.Enabled = false
+		Billboard.Parent = self:GetGuiRoot()
 
 		local Name = Instance.new("TextLabel")
 		Name.Name = "Name"
-		Name.AnchorPoint = Vector2.new(0, 1)
 		Name.BackgroundTransparency = 1
 		Name.BorderSizePixel = 0
-		Name.Position = UDim2.new(0, 0, 0, -4)
-		Name.Size = UDim2.new(1, 0, 0, 16)
+		Name.Position = UDim2.new(0, 0, 0, 0)
+		Name.Size = UDim2.new(1, 0, 0, 18)
 		Name.Font = Enum.Font.GothamSemibold
 		Name.Text = ""
 		Name.TextColor3 = Color3.fromRGB(255, 255, 255)
@@ -208,15 +143,14 @@ return function(Config)
 		Name.TextStrokeTransparency = 0.35
 		Name.TextXAlignment = Enum.TextXAlignment.Center
 		Name.Visible = false
-		Name.ZIndex = 502
-		Name.Parent = Container
+		Name.Parent = Billboard
 
 		local Health = Instance.new("TextLabel")
 		Health.Name = "Health"
 		Health.BackgroundTransparency = 1
 		Health.BorderSizePixel = 0
-		Health.Position = UDim2.new(0, 0, 1, 4)
-		Health.Size = UDim2.new(1, 0, 0, 16)
+		Health.Position = UDim2.new(0, 0, 0, 16)
+		Health.Size = UDim2.new(1, 0, 0, 18)
 		Health.Font = Enum.Font.GothamSemibold
 		Health.Text = ""
 		Health.TextColor3 = Color3.fromRGB(110, 255, 140)
@@ -224,11 +158,11 @@ return function(Config)
 		Health.TextStrokeTransparency = 0.35
 		Health.TextXAlignment = Enum.TextXAlignment.Center
 		Health.Visible = false
-		Health.ZIndex = 502
-		Health.Parent = Container
+		Health.Parent = Billboard
 
 		self.Entries[Player] = {
-			Container = Container,
+			SelectionBox = SelectionBox,
+			Billboard = Billboard,
 			Name = Name,
 			Health = Health
 		}
@@ -247,7 +181,9 @@ return function(Config)
 			return
 		end
 
-		Entry.Container.Visible = false
+		Entry.SelectionBox.Adornee = nil
+		Entry.Billboard.Adornee = nil
+		Entry.Billboard.Enabled = false
 		Entry.Name.Visible = false
 		Entry.Health.Visible = false
 	end
@@ -259,7 +195,8 @@ return function(Config)
 			return
 		end
 
-		Entry.Container:Destroy()
+		Entry.SelectionBox:Destroy()
+		Entry.Billboard:Destroy()
 		self.Entries[Player] = nil
 	end
 
@@ -269,14 +206,37 @@ return function(Config)
 		end
 	end
 
-	function ESP:UpdateEntry(Player, Humanoid, MinX, MinY, MaxX, MaxY)
-		local Entry = self:GetEntry(Player)
-		local Width = math.max(math.floor((MaxX - MinX) + 0.5), 2)
-		local Height = math.max(math.floor((MaxY - MinY) + 0.5), 2)
+	function ESP:UpdateBillboardLayout(Entry)
+		local ShowName = self.Settings.ShowName
+		local ShowHealth = self.Settings.ShowHealth
 
-		Entry.Container.Position = UDim2.new(0, math.floor(MinX + 0.5), 0, math.floor(MinY + 0.5))
-		Entry.Container.Size = UDim2.new(0, Width, 0, Height)
-		Entry.Container.Visible = true
+		if ShowName and ShowHealth then
+			Entry.Billboard.Size = UDim2.new(0, 180, 0, 36)
+			Entry.Name.Position = UDim2.new(0, 0, 0, 0)
+			Entry.Health.Position = UDim2.new(0, 0, 0, 16)
+		elseif ShowName or ShowHealth then
+			Entry.Billboard.Size = UDim2.new(0, 180, 0, 20)
+			Entry.Name.Position = UDim2.new(0, 0, 0, 1)
+			Entry.Health.Position = UDim2.new(0, 0, 0, 1)
+		else
+			Entry.Billboard.Size = UDim2.new(0, 180, 0, 0)
+		end
+	end
+
+	function ESP:UpdateEntry(Player, Character, Humanoid)
+		local Entry = self:GetEntry(Player)
+		local DisplayPart = getDisplayPart(Character)
+
+		Entry.SelectionBox.Adornee = Character
+		self:UpdateBillboardLayout(Entry)
+
+		if DisplayPart and (self.Settings.ShowName or self.Settings.ShowHealth) then
+			Entry.Billboard.Adornee = DisplayPart
+			Entry.Billboard.Enabled = true
+		else
+			Entry.Billboard.Adornee = nil
+			Entry.Billboard.Enabled = false
+		end
 
 		if self.Settings.ShowName then
 			Entry.Name.Text = Player.DisplayName or Player.Name
@@ -285,7 +245,7 @@ return function(Config)
 			Entry.Name.Visible = false
 		end
 
-		if self.Settings.ShowHealth then
+		if self.Settings.ShowHealth and Humanoid then
 			Entry.Health.Text = string.format(
 				"%d / %d",
 				math.floor(Humanoid.Health + 0.5),
@@ -305,16 +265,21 @@ return function(Config)
 		end
 
 		local Character = Player.Character
-		local Humanoid = Character and Character:FindFirstChildOfClass("Humanoid")
 		local RootPart = getCharacterRoot(Character)
+		local Humanoid = getHumanoid(Character)
 		local LocalRootPart = getLocalRootPart()
 
-		if not Character or not Humanoid or not RootPart or Humanoid.Health <= 0 then
+		if not Character or not RootPart then
 			self:HideEntry(Player)
 			return false
 		end
 
-		if LocalRootPart then
+		if Humanoid and Humanoid.Health <= 0 then
+			self:HideEntry(Player)
+			return false
+		end
+
+		if LocalRootPart and RootPart then
 			local Distance = (LocalRootPart.Position - RootPart.Position).Magnitude
 
 			if Distance > self.Settings.DistanceLimit then
@@ -323,14 +288,7 @@ return function(Config)
 			end
 		end
 
-		local MinX, MinY, MaxX, MaxY = getCharacterBounds(Character)
-
-		if not MinX then
-			self:HideEntry(Player)
-			return false
-		end
-
-		self:UpdateEntry(Player, Humanoid, MinX, MinY, MaxX, MaxY)
+		self:UpdateEntry(Player, Character, Humanoid)
 
 		return true
 	end
@@ -397,6 +355,10 @@ return function(Config)
 		if not self.Settings.ShowName then
 			for _, Entry in pairs(self.Entries) do
 				Entry.Name.Visible = false
+
+				if not self.Settings.ShowHealth then
+					Entry.Billboard.Enabled = false
+				end
 			end
 		end
 	end
@@ -407,6 +369,10 @@ return function(Config)
 		if not self.Settings.ShowHealth then
 			for _, Entry in pairs(self.Entries) do
 				Entry.Health.Visible = false
+
+				if not self.Settings.ShowName then
+					Entry.Billboard.Enabled = false
+				end
 			end
 		end
 	end
