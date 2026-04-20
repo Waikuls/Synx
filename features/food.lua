@@ -1238,8 +1238,34 @@ return function(Config)
 		return false
 	end
 
+	local function getInputRemote()
+		local MainScript = findMainScriptRoot()
+		if not MainScript then return nil end
+		local Remote = MainScript:FindFirstChild("Input")
+		if not Remote or not Remote:IsA("RemoteEvent") then return nil end
+		return Remote
+	end
+
+	local function fireInputLMB()
+		local Remote = getInputRemote()
+		if not Remote then return false end
+		local Airborne = isAirborne()
+		pcall(function()
+			Remote:FireServer({KeyInfo = {Direction = "None", Name = "LMB", Airborne = Airborne}, IsDown = true})
+		end)
+		task.wait(0.1)
+		pcall(function()
+			Remote:FireServer({KeyInfo = {Direction = "None", Name = "LMB", Airborne = Airborne}, IsDown = false})
+		end)
+		return true
+	end
+
 	local function triggerToolUse(Tool)
 		local Triggered = false
+
+		if fireInputLMB() then
+			Triggered = true
+		end
 
 		pcall(function()
 			Tool:Activate()
@@ -1568,10 +1594,17 @@ return function(Config)
 					break
 				end
 
-				equipFoodTool(Tool, Character, Humanoid)
-				task.wait(FoodFeature.HoldBeforeUseDelay)
+				local Equipped = equipFoodTool(Tool, Character, Humanoid)
 
-				triggerToolUse(Tool)
+				if not Equipped then
+					task.wait(FoodFeature.EquipDelay)
+					Equipped = isToolEquipped(Tool, Character)
+				end
+
+				if Equipped then
+					task.wait(FoodFeature.HoldBeforeUseDelay)
+					triggerToolUse(Tool)
+				end
 
 				task.wait(FoodFeature.ActivationDelay)
 
