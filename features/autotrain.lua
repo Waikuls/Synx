@@ -75,7 +75,7 @@ return function(Config)
 	AutoTrainFeature.MaxBikeRideDuration = 90
 	AutoTrainFeature.LastProximityTriggerAt = 0
 	AutoTrainFeature.LastUiKeyAt = 0
-	AutoTrainFeature.FatigueThreshold = 90
+	AutoTrainFeature.StaminaThreshold = 15
 	AutoTrainFeature.LastDebugNotifyAt = 0
 	AutoTrainFeature.LastDebugMessage = ""
 
@@ -520,20 +520,21 @@ return function(Config)
 		return nil
 	end
 
-	local function getBodyFatigue()
+	local function getStaminaPercent()
 		local Stats = findStatsContainer()
 
 		if not Stats then
-			return 0
+			return 100
 		end
 
-		local Value = readStatsValue(Stats, "BodyFatigue") or readStatsValue(Stats, "BodyFatique")
+		local Stamina = readStatsValue(Stats, "Stamina") or readStatsValue(Stats, "StaminaInStat")
+		local MaxStamina = readStatsValue(Stats, "MaxStamina")
 
-		if type(Value) ~= "number" then
-			return 0
+		if type(Stamina) ~= "number" or type(MaxStamina) ~= "number" or MaxStamina <= 0 then
+			return 100
 		end
 
-		return Value
+		return (Stamina / MaxStamina) * 100
 	end
 
 	local function valueToBool(Value)
@@ -1137,7 +1138,7 @@ return function(Config)
 			return false
 		end
 
-		if self.FatigueThreshold > 0 and getBodyFatigue() >= self.FatigueThreshold then
+		if self.StaminaThreshold > 0 and getStaminaPercent() <= self.StaminaThreshold then
 			return false
 		end
 
@@ -1335,13 +1336,13 @@ return function(Config)
 		return false
 	end
 
-	function AutoTrainFeature:GetFatigueThreshold()
-		return self.FatigueThreshold
+	function AutoTrainFeature:GetStaminaThreshold()
+		return self.StaminaThreshold
 	end
 
-	function AutoTrainFeature:SetFatigueThreshold(Value)
+	function AutoTrainFeature:SetStaminaThreshold(Value)
 		if type(Value) == "number" and Value >= 0 and Value <= 100 then
-			self.FatigueThreshold = Value
+			self.StaminaThreshold = Value
 			return true
 		end
 		return false
