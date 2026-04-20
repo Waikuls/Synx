@@ -37,6 +37,8 @@ return function(Config)
 	AutoTrainFeature.RepeatKeyCooldown = 0.3
 	AutoTrainFeature.BlindBikeKeyCooldown = 0.2
 	AutoTrainFeature.BikeUiRefreshCooldown = 0.2
+	AutoTrainFeature.BikeAssumeActiveDuration = 12
+	AutoTrainFeature.DebugNotifyCooldown = 1
 	AutoTrainFeature.DesiredStandDistance = 4
 	AutoTrainFeature.VerticalOffset = 2.5
 	AutoTrainFeature.MaxRemoteStartDistance = 18
@@ -56,6 +58,9 @@ return function(Config)
 	AutoTrainFeature.CachedBikeKey = nil
 	AutoTrainFeature.CachedBikeKeySignature = nil
 	AutoTrainFeature.BlindBikeKeyIndex = 0
+	AutoTrainFeature.BikeActiveUntil = 0
+	AutoTrainFeature.LastDebugNotifyAt = 0
+	AutoTrainFeature.LastDebugMessage = ""
 
 	local function trimString(Value)
 		if typeof(Value) ~= "string" then
@@ -91,6 +96,43 @@ return function(Config)
 		end
 
 		return Result
+	end
+
+	local function squashText(Value)
+		local Normalized = normalizeText(Value)
+
+		if Normalized == "" then
+			return ""
+		end
+
+		return string.upper(string.gsub(Normalized, "[^%w]", ""))
+	end
+
+	local function debugBike(Message, ForceNotify)
+		local Now = os.clock()
+
+		warn("[KELV][AutoTrain][Bike] " .. tostring(Message))
+
+		if not Notification then
+			return
+		end
+
+		if not ForceNotify then
+			if Message == AutoTrainFeature.LastDebugMessage then
+				if (Now - AutoTrainFeature.LastDebugNotifyAt) < AutoTrainFeature.DebugNotifyCooldown then
+					return
+				end
+			end
+		end
+
+		AutoTrainFeature.LastDebugNotifyAt = Now
+		AutoTrainFeature.LastDebugMessage = tostring(Message)
+
+		Notification:Notify({
+			Title = "Auto Train Debug",
+			Content = tostring(Message),
+			Icon = "clipboard"
+		})
 	end
 
 	local function getAliases(SelectedType)
@@ -730,6 +772,50 @@ return function(Config)
 		end)
 	end
 
+	local function extractBikeKeyFromInstance(Instance)
+		local Candidates = {}
+		local Parent = nil
+
+		if not Instance then
+			return nil
+		end
+
+		table.insert(Candidates, getInstanceText(Instance))
+		table.insert(Candidates, Instance.Name)
+
+		Parent = Instance.Parent
+
+		if Parent then
+			table.insert(Candidates, Parent.Name)
+
+			if Parent.Parent then
+				table.insert(Candidates, Parent.Parent.Name)
+			end
+		end
+
+		for CandidateIndex = 1, #Candidates do
+			local Squashed = squashText(Candidates[CandidateIndex])
+
+			if Squashed ~= "" then
+				for KeyIndex = 1, #BikeKeys do
+					local Key = BikeKeys[KeyIndex]
+
+					if Squashed == Key
+						or Squashed == ("KEY" .. Key)
+						or Squashed == ("PRESS" .. Key)
+						or Squashed == ("INPUT" .. Key)
+						or Squashed == ("BUTTON" .. Key)
+						or string.find(Squashed, "KEY" .. Key, 1, true)
+						or string.find(Squashed, "PRESS" .. Key, 1, true) then
+						return Key
+					end
+				end
+			end
+		end
+
+		return nil
+	end
+
 	local function refreshBikeUiState(ForceRefresh)
 		local Now = os.clock()
 		local Containers
@@ -793,17 +879,9 @@ return function(Config)
 					end
 
 					do
-						local KeyText = string.upper(Text)
-						local IsKey = false
+						local KeyText = extractBikeKeyFromInstance(Descendant)
 
-						for KeyIndex = 1, #BikeKeys do
-							if KeyText == BikeKeys[KeyIndex] then
-								IsKey = true
-								break
-							end
-						end
-
-						if IsKey then
+						if KeyText then
 							local Center, Size = getGuiCenter(Descendant)
 
 							if Center and Size and Size.X >= 18 and Size.Y >= 18 then
@@ -862,6 +940,7 @@ return function(Config)
 	function AutoTrainFeature:TryBikeStart(Now)
 		local StartButton = nil
 		local Triggered = false
+		local TriggerSource = nil
 
 		if self.SelectedType ~= "Bike" then
 			return false
@@ -880,17 +959,27 @@ return function(Config)
 		if StartButton then
 			if clickGuiButton(StartButton) then
 				Triggered = true
+				TriggerSource = "button"
 			end
 		end
 
 		if fireBikeRemote("Start", {Macro = false}) then
 			Triggered = true
+			if TriggerSource then
+				TriggerSource = TriggerSource .. "+remote"
+			else
+				TriggerSource = "remote"
+			end
 		end
 
 		if Triggered then
 			self.LastStartAt = Now
+			self.BikeActiveUntil = Now + self.BikeAssumeActiveDuration
+			debugBike("Bike start sent via " .. tostring(TriggerSource), true)
 			return true
 		end
+
+		debugBike("Bike start failed: no button/remote response", false)
 
 		return false
 	end
@@ -921,6 +1010,8 @@ return function(Config)
 				self.LastKeyAt = Now
 				self.LastKeySignature = Signature
 				self.LastKeySignatureAt = Now
+				self.BikeActiveUntil = Now + self.BikeAssumeActiveDuration
+				debugBike("Bike key from UI: " .. tostring(Key), false)
 				return true
 			end
 		end
@@ -942,8 +1033,12 @@ return function(Config)
 			self.LastBlindBikeKeyAt = Now
 			self.LastKeySignature = "blind:" .. BlindKey
 			self.LastKeySignatureAt = Now
+			self.BikeActiveUntil = Now + self.BikeAssumeActiveDuration
+			debugBike("Bike blind key: " .. tostring(BlindKey), false)
 			return true
 		end
+
+		debugBike("Bike key send failed", false)
 
 		return false
 	end
@@ -979,7 +1074,10 @@ return function(Config)
 				return
 			end
 
-			if TrainingState.IsTraining or TrainingState.IsSelectedMachine then
+			if TrainingState.IsTraining
+				or TrainingState.IsSelectedMachine
+				or self.BikeActiveUntil > Now
+				or self.CachedBikeKey ~= nil then
 				if self:TryBikePressKey(Now) then
 					return
 				end
@@ -1054,6 +1152,9 @@ return function(Config)
 				self.CachedBikeKey = nil
 				self.CachedBikeKeySignature = nil
 				self.BlindBikeKeyIndex = 0
+				self.BikeActiveUntil = 0
+				self.LastDebugNotifyAt = 0
+				self.LastDebugMessage = ""
 				return true
 			end
 		end
@@ -1088,6 +1189,9 @@ return function(Config)
 		self.CachedBikeKey = nil
 		self.CachedBikeKeySignature = nil
 		self.BlindBikeKeyIndex = 0
+		self.BikeActiveUntil = 0
+		self.LastDebugNotifyAt = 0
+		self.LastDebugMessage = ""
 
 		if self.Connection then
 			self.Connection:Disconnect()
@@ -1119,6 +1223,10 @@ return function(Config)
 					Content = Message,
 					Icon = "check-circle"
 				})
+			end
+
+			if self.SelectedType == "Bike" then
+				debugBike("Bike debug active", true)
 			end
 		else
 			if self.SelectedType == "Bike" then
