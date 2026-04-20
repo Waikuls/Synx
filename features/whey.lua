@@ -76,6 +76,35 @@ return function(Config)
 		return false
 	end
 
+	local function getCustomHotbarRemote()
+		local Remotes = game:GetService("ReplicatedStorage"):FindFirstChild("Remotes")
+		if not Remotes then return nil end
+		local Remote = Remotes:FindFirstChild("CustomHotbar")
+		if not Remote or not Remote:IsA("RemoteEvent") then return nil end
+		return Remote
+	end
+
+	local function getInputRemote()
+		local Character = LocalPlayer.Character
+		if not Character then return nil end
+		local MainScript = Character:FindFirstChild("MainScript")
+		if not MainScript then return nil end
+		local Remote = MainScript:FindFirstChild("Input")
+		if not Remote or not Remote:IsA("RemoteEvent") then return nil end
+		return Remote
+	end
+
+	local function fireInputKey(Name, IsDown)
+		local Remote = getInputRemote()
+		if not Remote then return end
+		pcall(function()
+			Remote:FireServer({
+				KeyInfo = {Direction = "None", Name = Name, Airborne = false},
+				IsDown = IsDown
+			})
+		end)
+	end
+
 	local function consumeWhey(Tool)
 		if WheyFeature.IsConsuming then return end
 
@@ -83,64 +112,31 @@ return function(Config)
 		WheyFeature.LastConsumeAt = os.clock()
 
 		task.spawn(function()
-			local Character = LocalPlayer.Character
-			local Humanoid = Character and Character:FindFirstChildOfClass("Humanoid")
+			local HotbarRemote = getCustomHotbarRemote()
 
-			if not Character or not Humanoid then
-				WheyFeature.IsConsuming = false
-				return
-			end
-
-			pcall(function() Humanoid:EquipTool(Tool) end)
-
-			local Equipped = false
-			local Deadline = os.clock() + 0.5
-			repeat
+			if HotbarRemote then
+				pcall(function() HotbarRemote:FireServer(Tool.Name) end)
+				task.wait(0.2)
+				fireInputKey("LMB", true)
 				task.wait(0.05)
-				Equipped = Tool.Parent == Character
-			until Equipped or os.clock() > Deadline
-
-			if Equipped then
-				task.wait(0.1)
-
-				-- Try every activation method
-				pcall(function() Tool:Activate() end)
-
-				if type(firesignal) == "function" then
-					pcall(function() firesignal(Tool.Activated) end)
-				end
-
-				-- Fire any RemoteEvent inside the tool directly
-				for _, Desc in ipairs(Tool:GetDescendants()) do
-					if Desc:IsA("RemoteEvent") or Desc:IsA("RemoteFunction") then
-						pcall(function() Desc:FireServer() end)
-					end
-				end
-
-				-- VirtualInputManager LMB click
-				local Ok, Vim = pcall(game.GetService, game, "VirtualInputManager")
-				if Ok and Vim then
-					local Camera = workspace.CurrentCamera
-					local Vp = Camera and Camera.ViewportSize or Vector2.new(1280, 720)
-					local Cx, Cy = math.floor(Vp.X * 0.5), math.floor(Vp.Y * 0.5)
-					pcall(function()
-						Vim:SendMouseButtonEvent(Cx, Cy, 0, true, game, 0)
-						task.wait(0.05)
-						Vim:SendMouseButtonEvent(Cx, Cy, 0, false, game, 0)
-					end)
-				end
-
-				if type(mouse1click) == "function" then
-					pcall(mouse1click)
-				elseif type(mouse1press) == "function" and type(mouse1release) == "function" then
-					pcall(mouse1press)
-					task.wait(0.05)
-					pcall(mouse1release)
+				fireInputKey("LMB", false)
+			else
+				local Character = LocalPlayer.Character
+				local Humanoid = Character and Character:FindFirstChildOfClass("Humanoid")
+				if Character and Humanoid then
+					pcall(function() Humanoid:EquipTool(Tool) end)
+					task.wait(0.35)
+					pcall(function() Tool:Activate() end)
 				end
 			end
 
 			task.wait(0.3)
-			pcall(function() Humanoid:UnequipTools() end)
+
+			local Character = LocalPlayer.Character
+			local Humanoid = Character and Character:FindFirstChildOfClass("Humanoid")
+			if Humanoid then
+				pcall(function() Humanoid:UnequipTools() end)
+			end
 
 			WheyFeature.IsConsuming = false
 		end)
