@@ -2577,6 +2577,12 @@ function Fatality:CreateElements(Parent : Frame , ZIndex : number , Event : Bind
 		Config.Callback = Config.Callback or function(number) end;
 		Config.Flag = Config.Flag or nil;
 
+		if Config.Max < Config.Min then
+			Config.Min, Config.Max = Config.Max, Config.Min;
+		end;
+
+		Config.Default = math.clamp(Config.Default, Config.Min, Config.Max);
+
 		local Slider = Instance.new("Frame")
 		local Slider_Name = Instance.new("TextLabel")
 		local ValueFrame = Instance.new("Frame")
@@ -2785,6 +2791,8 @@ function Fatality:CreateElements(Parent : Frame , ZIndex : number , Event : Bind
 			end,
 			Signal = Event.Event:Connect(OpcToggle),
 			SetValue = function(v)
+				v = math.clamp(v, Config.Min, Config.Max);
+
 				local IsSame = v == Config.Default;
 
 				Config.Default = v;

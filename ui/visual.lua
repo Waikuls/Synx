@@ -37,6 +37,7 @@ return function(Config)
 		Min = 50,
 		Max = 1500,
 		Type = " stud",
+		Flag = "ESPDistanceLimit",
 		Callback = function(Value)
 			ESP:SetDistanceLimit(Value)
 		end
