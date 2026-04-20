@@ -970,43 +970,28 @@ return function(Config)
 	end
 
 	local function extractBikeKeyFromInstance(Instance)
-		local Candidates = {}
-		local Parent = nil
-
 		if not Instance then
 			return nil
 		end
 
-		table.insert(Candidates, getInstanceText(Instance))
-		table.insert(Candidates, Instance.Name)
+		local Text = getInstanceText(Instance)
+		local Squashed = squashText(Text)
 
-		Parent = Instance.Parent
-
-		if Parent then
-			table.insert(Candidates, Parent.Name)
-
-			if Parent.Parent then
-				table.insert(Candidates, Parent.Parent.Name)
-			end
+		if Squashed == "" then
+			return nil
 		end
 
-		for CandidateIndex = 1, #Candidates do
-			local Squashed = squashText(Candidates[CandidateIndex])
+		for KeyIndex = 1, #BikeKeys do
+			local Key = BikeKeys[KeyIndex]
 
-			if Squashed ~= "" then
-				for KeyIndex = 1, #BikeKeys do
-					local Key = BikeKeys[KeyIndex]
-
-					if Squashed == Key
-						or Squashed == ("KEY" .. Key)
-						or Squashed == ("PRESS" .. Key)
-						or Squashed == ("INPUT" .. Key)
-						or Squashed == ("BUTTON" .. Key)
-						or string.find(Squashed, "KEY" .. Key, 1, true)
-						or string.find(Squashed, "PRESS" .. Key, 1, true) then
-						return Key
-					end
-				end
+			if Squashed == Key
+				or Squashed == ("KEY" .. Key)
+				or Squashed == ("PRESS" .. Key)
+				or Squashed == ("INPUT" .. Key)
+				or Squashed == ("BUTTON" .. Key)
+				or string.find(Squashed, "KEY" .. Key, 1, true)
+				or string.find(Squashed, "PRESS" .. Key, 1, true) then
+				return Key
 			end
 		end
 
