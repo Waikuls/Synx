@@ -905,10 +905,6 @@ return function(Config)
 			end
 		end
 
-		if Tool:GetAttribute("Food") == true or Tool:GetAttribute("Consumable") == true then
-			return 0
-		end
-
 		for Index, Alias in ipairs(FoodToolAliases) do
 			if NameLower == Alias or ToolTipLower == Alias then
 				return Index
@@ -919,10 +915,6 @@ return function(Config)
 			if string.find(NameLower, Alias, 1, true) or string.find(ToolTipLower, Alias, 1, true) then
 				return Index + 50
 			end
-		end
-
-		if string.find(NameLower, "eat", 1, true) or string.find(ToolTipLower, "eat", 1, true) then
-			return 200
 		end
 
 		return nil
