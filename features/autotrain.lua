@@ -1149,6 +1149,7 @@ return function(Config)
 			self.LastStartAt = Now
 			self.BikeActiveUntil = Now + self.BikeAssumeActiveDuration
 			self.BikeRideStartedAt = Now
+			self.LastUiKeyAt = Now
 			self.LastBikeUiRefreshAt = 0
 			debugBike("Bike start sent via " .. tostring(TriggerSource), true)
 			return true
