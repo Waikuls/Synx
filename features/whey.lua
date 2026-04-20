@@ -17,7 +17,7 @@ return function(Config)
 		BuffCheckInterval = 2,
 		CachedBuffActive = false,
 		LastConsumeAt = 0,
-		ConsumeCooldown = 5,
+		ConsumeCooldown = 20,
 	}
 
 	local function getVirtualInputManager()
@@ -161,13 +161,14 @@ return function(Config)
 
 			pcall(function() Humanoid:UnequipTools() end)
 
-			-- Invalidate buff cache so next check re-scans
-			WheyFeature.LastBuffCheckAt = 0
 			WheyFeature.IsConsuming = false
 		end)
 	end
 
 	function WheyFeature:ShouldConsume()
+		if (os.clock() - self.LastConsumeAt) < self.ConsumeCooldown then
+			return false
+		end
 		return not isBuffActive()
 	end
 
