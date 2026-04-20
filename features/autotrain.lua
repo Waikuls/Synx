@@ -24,6 +24,18 @@ return function(Config)
 
 	local BikeRemotePath = {"TrainingSpots", "Bike", "Radio", "Remote"}
 	local BikeKeys = {"W", "A", "S", "D"}
+	local BikeKeyCodes = {
+		W = Enum.KeyCode.W,
+		A = Enum.KeyCode.A,
+		S = Enum.KeyCode.S,
+		D = Enum.KeyCode.D
+	}
+	local BikeVirtualKeys = {
+		W = 0x57,
+		A = 0x41,
+		S = 0x53,
+		D = 0x44
+	}
 
 	local AutoTrainFeature = {}
 	AutoTrainFeature.Enabled = false
@@ -36,7 +48,7 @@ return function(Config)
 	AutoTrainFeature.KeyCooldown = 0.08
 	AutoTrainFeature.RepeatKeyCooldown = 0.3
 	AutoTrainFeature.BlindBikeKeyCooldown = 0.2
-	AutoTrainFeature.BikeUiRefreshCooldown = 0.2
+	AutoTrainFeature.BikeUiRefreshCooldown = 0.1
 	AutoTrainFeature.BikeAssumeActiveDuration = 12
 	AutoTrainFeature.DebugNotifyCooldown = 1
 	AutoTrainFeature.DesiredStandDistance = 4
@@ -128,11 +140,13 @@ return function(Config)
 		AutoTrainFeature.LastDebugNotifyAt = Now
 		AutoTrainFeature.LastDebugMessage = tostring(Message)
 
-		Notification:Notify({
-			Title = "Auto Train Debug",
-			Content = tostring(Message),
-			Icon = "clipboard"
-		})
+		pcall(function()
+			Notification:Notify({
+				Title = "Auto Train Debug",
+				Content = tostring(Message),
+				Icon = "clipboard"
+			})
+		end)
 	end
 
 	local function getAliases(SelectedType)
@@ -362,6 +376,55 @@ return function(Config)
 					VirtualInputManager:SendMouseButtonEvent(math.floor(Center.X), math.floor(Center.Y), 0, true, game, 0)
 					task.wait(0.03)
 					VirtualInputManager:SendMouseButtonEvent(math.floor(Center.X), math.floor(Center.Y), 0, false, game, 0)
+					Triggered = true
+				end)
+			end
+		end
+
+		return Triggered
+	end
+
+	local function sendBikePhysicalKey(Key)
+		local KeyCode = BikeKeyCodes[Key]
+		local VirtualKey = BikeVirtualKeys[Key]
+		local VirtualInputManager = nil
+		local Triggered = false
+
+		if not KeyCode then
+			return false
+		end
+
+		if type(keypress) == "function" and type(keyrelease) == "function" and VirtualKey then
+			pcall(function()
+				keypress(VirtualKey)
+				task.wait(0.03)
+				keyrelease(VirtualKey)
+				Triggered = true
+			end)
+		end
+
+		if not Triggered and type(keytap) == "function" then
+			pcall(function()
+				keytap(string.lower(Key))
+				Triggered = true
+			end)
+
+			if not Triggered then
+				pcall(function()
+					keytap(Key)
+					Triggered = true
+				end)
+			end
+		end
+
+		if not Triggered then
+			VirtualInputManager = getVirtualInputManager()
+
+			if VirtualInputManager then
+				pcall(function()
+					VirtualInputManager:SendKeyEvent(true, KeyCode, false, game)
+					task.wait(0.03)
+					VirtualInputManager:SendKeyEvent(false, KeyCode, false, game)
 					Triggered = true
 				end)
 			end
@@ -989,6 +1052,7 @@ return function(Config)
 		local Key
 		local Signature
 		local BlindKey = nil
+		local Triggered = false
 
 		if self.SelectedType ~= "Bike" then
 			return false
@@ -1008,6 +1072,14 @@ return function(Config)
 			end
 
 			if fireBikeRemote("PressKey", {Key = Key}) then
+				Triggered = true
+			end
+
+			if sendBikePhysicalKey(Key) then
+				Triggered = true
+			end
+
+			if Triggered then
 				self.LastKeyAt = Now
 				self.LastKeySignature = Signature
 				self.LastKeySignatureAt = Now
@@ -1030,7 +1102,17 @@ return function(Config)
 
 		BlindKey = BikeKeys[self.BlindBikeKeyIndex]
 
+		Triggered = false
+
 		if fireBikeRemote("PressKey", {Key = BlindKey}) then
+			Triggered = true
+		end
+
+		if sendBikePhysicalKey(BlindKey) then
+			Triggered = true
+		end
+
+		if Triggered then
 			self.LastKeyAt = Now
 			self.LastBlindBikeKeyAt = Now
 			self.LastKeySignature = "blind:" .. BlindKey
@@ -1076,17 +1158,15 @@ return function(Config)
 			BikeKeyVisible = self.CachedBikeKey ~= nil
 
 			if BikeKeyVisible then
-				if self:TryBikePressKey(Now) then
-					return
-				end
+				self:TryBikePressKey(Now)
+				return
 			end
 
 			if TrainingState.IsTraining
 				or TrainingState.IsSelectedMachine
 				or self.BikeActiveUntil > Now then
-				if self:TryBikePressKey(Now) then
-					return
-				end
+				self:TryBikePressKey(Now)
+				return
 			end
 
 			if BikeMenuVisible then
