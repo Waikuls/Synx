@@ -76,6 +76,7 @@ return function(Config)
 	AutoTrainFeature.LastProximityTriggerAt = 0
 	AutoTrainFeature.LastUiKeyAt = 0
 	AutoTrainFeature.StaminaThreshold = 15
+	AutoTrainFeature.MaxFatigueAction = "Do nothing"
 	AutoTrainFeature.LastDebugNotifyAt = 0
 	AutoTrainFeature.LastDebugMessage = ""
 
@@ -544,6 +545,31 @@ return function(Config)
 		StaminaCache.Value = Percent
 		StaminaCache.At = Now
 		return Percent
+	end
+
+	local BodyFatigueCache = {Value = 0, At = 0}
+
+	local function getBodyFatigue()
+		local Now = os.clock()
+
+		if (Now - BodyFatigueCache.At) < 0.5 then
+			return BodyFatigueCache.Value
+		end
+
+		local Stats = findStatsContainer()
+		local Value = 0
+
+		if Stats then
+			local Raw = readStatsValue(Stats, "BodyFatigue") or readStatsValue(Stats, "BodyFatique")
+
+			if type(Raw) == "number" then
+				Value = Raw
+			end
+		end
+
+		BodyFatigueCache.Value = Value
+		BodyFatigueCache.At = Now
+		return Value
 	end
 
 	local function valueToBool(Value)
@@ -1244,10 +1270,26 @@ return function(Config)
 			return
 		end
 
+		if self.MaxFatigueAction ~= "Do nothing" and getBodyFatigue() >= 100 then
+			if self.MaxFatigueAction == "Kick" then
+				pcall(function()
+					LocalPlayer:Kick()
+				end)
+			end
+			return
+		end
+
 		Now = os.clock()
 		TrainingState = getTrainingState(self.SelectedType)
 
 		if self.SelectedType == "Bike" then
+			if self.BikeRideStartedAt > 0 and (Now - self.BikeRideStartedAt) > 5 then
+				if not TrainingState.IsTraining then
+					self.BikeActiveUntil = 0
+					self.BikeRideStartedAt = 0
+				end
+			end
+
 			refreshBikeUiState(false)
 			BikeMenuVisible = self.CachedBikeActionMenuVisible
 
@@ -1353,6 +1395,18 @@ return function(Config)
 	function AutoTrainFeature:SetStaminaThreshold(Value)
 		if type(Value) == "number" and Value >= 0 and Value <= 100 then
 			self.StaminaThreshold = Value
+			return true
+		end
+		return false
+	end
+
+	function AutoTrainFeature:GetMaxFatigueAction()
+		return self.MaxFatigueAction
+	end
+
+	function AutoTrainFeature:SetMaxFatigueAction(Value)
+		if Value == "Do nothing" or Value == "Kick" then
+			self.MaxFatigueAction = Value
 			return true
 		end
 		return false

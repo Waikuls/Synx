@@ -56,7 +56,7 @@ return function(Config)
 	local AutoTrain = Main:AddSection({
 		Name = "AUTO TRAIN",
 		Position = "center",
-		Height = 145
+		Height = 175
 	})
 
 	AutoTrain:AddToggle({
@@ -88,5 +88,17 @@ return function(Config)
 		Callback = function(Value)
 		end,
 		Flag = "AutoTrainContinue"
+	})
+
+	AutoTrain:AddDropdown({
+		Name = "Max Fatigue",
+		Default = AutoTrainFeature and AutoTrainFeature:GetMaxFatigueAction() or "Do nothing",
+		Values = {"Do nothing", "Kick"},
+		Callback = function(Value)
+			if AutoTrainFeature then
+				AutoTrainFeature:SetMaxFatigueAction(Value)
+			end
+		end,
+		Flag = "AutoTrainMaxFatigue"
 	})
 end
