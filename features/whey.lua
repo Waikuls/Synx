@@ -102,10 +102,22 @@ return function(Config)
 
 			if Equipped then
 				task.wait(0.1)
+
+				-- Try every activation method
 				pcall(function() Tool:Activate() end)
+
 				if type(firesignal) == "function" then
 					pcall(function() firesignal(Tool.Activated) end)
 				end
+
+				-- Fire any RemoteEvent inside the tool directly
+				for _, Desc in ipairs(Tool:GetDescendants()) do
+					if Desc:IsA("RemoteEvent") or Desc:IsA("RemoteFunction") then
+						pcall(function() Desc:FireServer() end)
+					end
+				end
+
+				-- VirtualInputManager LMB click
 				local Ok, Vim = pcall(game.GetService, game, "VirtualInputManager")
 				if Ok and Vim then
 					local Camera = workspace.CurrentCamera
@@ -116,6 +128,14 @@ return function(Config)
 						task.wait(0.05)
 						Vim:SendMouseButtonEvent(Cx, Cy, 0, false, game, 0)
 					end)
+				end
+
+				if type(mouse1click) == "function" then
+					pcall(mouse1click)
+				elseif type(mouse1press) == "function" and type(mouse1release) == "function" then
+					pcall(mouse1press)
+					task.wait(0.05)
+					pcall(mouse1release)
 				end
 			end
 
