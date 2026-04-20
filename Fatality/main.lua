@@ -57,7 +57,8 @@ local function hasCompleteLocalProject()
 		"features/food.lua",
 		"features/stamina.lua",
 		"features/stats.lua",
-		"features/webhook.lua"
+		"features/webhook.lua",
+		"features/whey.lua"
 	}
 
 	for _, LocalPath in ipairs(RequiredLocalFiles) do
@@ -261,6 +262,20 @@ local function notifyModuleFailure(ModulePath, ErrorMessage)
 			Icon = "alert-circle"
 		})
 	end)
+end
+
+local function createFallbackWheyFeature(ErrorMessage)
+	notifyModuleFailure("features/whey.lua", ErrorMessage)
+
+	return {
+		Enabled = false,
+		IsConsuming = false,
+		SetEnabled = function() end,
+		ShouldConsume = function() return false end,
+		IsBuffActive = function() return false end,
+		TryConsume = function() return false end,
+		Destroy = function() end
+	}
 end
 
 local function createFallbackStaminaFeature(ErrorMessage)
@@ -517,6 +532,7 @@ local CreateFoodFeature = safeLoadModule("features/food.lua", createFallbackFood
 local CreateAutoTrainFeature = safeLoadModule("features/autotrain.lua", createFallbackAutoTrainFeature)
 local CreateStaminaFeature = safeLoadModule("features/stamina.lua", createFallbackStaminaFeature)
 local CreateWebhookFeature = safeLoadModule("features/webhook.lua", createFallbackWebhookFeature)
+local CreateWheyFeature = safeLoadModule("features/whey.lua", createFallbackWheyFeature)
 local CreateStatsFeature = safeLoadModule("features/stats.lua", createFallbackStatsFeature)
 local CreateMainUI = safeLoadModule("ui/main.lua", function(ErrorMessage)
 	return createFallbackUI("ui/main.lua", ErrorMessage)
@@ -539,10 +555,14 @@ local FoodFeature = safeCreateModule("features/food.lua", CreateFoodFeature, {
 local WebhookFeature = safeCreateModule("features/webhook.lua", CreateWebhookFeature, {
 	Notification = Notification
 }, createFallbackWebhookFeature)
+local WheyFeature = safeCreateModule("features/whey.lua", CreateWheyFeature, {
+	Notification = Notification
+}, createFallbackWheyFeature)
 local AutoTrainFeature = safeCreateModule("features/autotrain.lua", CreateAutoTrainFeature, {
 	Notification = Notification,
 	Webhook = WebhookFeature,
-	FoodFeature = FoodFeature
+	FoodFeature = FoodFeature,
+	WheyFeature = WheyFeature
 }, createFallbackAutoTrainFeature)
 local StaminaFeature = safeCreateModule("features/stamina.lua", CreateStaminaFeature, {
 	Notification = Notification
@@ -559,6 +579,7 @@ local StatsUI = safeCreateModule("ui/stats.lua", CreateStatsUI, {
 safeRunModule("ui/main.lua", CreateMainUI, {
 	Main = Main,
 	FoodFeature = FoodFeature,
+	WheyFeature = WheyFeature,
 	StaminaFeature = StaminaFeature,
 	AutoTrainFeature = AutoTrainFeature
 })

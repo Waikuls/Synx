@@ -1,6 +1,7 @@
 return function(Config)
 	local Main = Config.Main
 	local FoodFeature = Config.FoodFeature
+	local WheyFeature = Config.WheyFeature
 	local StaminaFeature = Config.StaminaFeature
 	local AutoTrainFeature = Config.AutoTrainFeature
 
@@ -16,6 +17,16 @@ return function(Config)
 			FoodFeature:SetEnabled(Value)
 		end,
 		Flag = "AutoEat"
+	})
+
+	Food:AddToggle({
+		Name = "Auto whey",
+		Callback = function(Value)
+			if WheyFeature then
+				WheyFeature:SetEnabled(Value)
+			end
+		end,
+		Flag = "AutoWhey"
 	})
 
 	Food:AddSlider({

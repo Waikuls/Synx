@@ -1,0 +1,203 @@
+return function(Config)
+	local Players = game:GetService("Players")
+	local RunService = game:GetService("RunService")
+	local LocalPlayer = Players.LocalPlayer
+	local Notification = Config and Config.Notification
+
+	local WheyAliases = {
+		"whey protein",
+		"fat burner",
+		"muscle burner"
+	}
+
+	local WheyFeature = {
+		Enabled = false,
+		IsConsuming = false,
+		LastBuffCheckAt = 0,
+		BuffCheckInterval = 2,
+		CachedBuffActive = false,
+		LastConsumeAt = 0,
+		ConsumeCooldown = 5,
+	}
+
+	local function getVirtualInputManager()
+		local Ok, Vim = pcall(game.GetService, game, "VirtualInputManager")
+		return Ok and Vim or nil
+	end
+
+	local function sendKeyTap(KeyCode)
+		local Vim = getVirtualInputManager()
+		if not Vim then return false end
+		return pcall(function()
+			Vim:SendKeyEvent(true, KeyCode, false, game)
+			task.wait(0.03)
+			Vim:SendKeyEvent(false, KeyCode, false, game)
+		end)
+	end
+
+	local function sendMouseDown()
+		local Vim = getVirtualInputManager()
+		if not Vim then return false end
+		local Camera = workspace.CurrentCamera
+		local Vp = Camera and Camera.ViewportSize or Vector2.new(1280, 720)
+		local Cx, Cy = math.floor(Vp.X * 0.5), math.floor(Vp.Y * 0.5)
+		pcall(function()
+			Vim:SendMouseButtonEvent(Cx, Cy, 0, true, game, 0)
+			task.wait(0.05)
+			Vim:SendMouseButtonEvent(Cx, Cy, 0, false, game, 0)
+		end)
+	end
+
+	local SlotKeyCodes = {
+		Enum.KeyCode.One, Enum.KeyCode.Two, Enum.KeyCode.Three,
+		Enum.KeyCode.Four, Enum.KeyCode.Five, Enum.KeyCode.Six,
+		Enum.KeyCode.Seven, Enum.KeyCode.Eight, Enum.KeyCode.Nine,
+		Enum.KeyCode.Zero
+	}
+
+	local function findWheyTool()
+		local Character = LocalPlayer.Character
+		local Backpack = LocalPlayer:FindFirstChildOfClass("Backpack")
+
+		local function check(Container)
+			if not Container then return nil end
+			for _, Item in ipairs(Container:GetChildren()) do
+				if Item:IsA("Tool") then
+					local NameLower = string.lower(Item.Name)
+					for _, Alias in ipairs(WheyAliases) do
+						if string.find(NameLower, Alias, 1, true) then
+							return Item
+						end
+					end
+				end
+			end
+			return nil
+		end
+
+		return check(Character) or check(Backpack)
+	end
+
+	local function findToolSlot(Tool)
+		local Backpack = LocalPlayer:FindFirstChildOfClass("Backpack")
+		local Character = LocalPlayer.Character
+		local Idx = 1
+
+		local function countIn(Container)
+			if not Container then return end
+			for _, Item in ipairs(Container:GetChildren()) do
+				if Item:IsA("Tool") then
+					if Item == Tool then return Idx end
+					Idx = Idx + 1
+				end
+			end
+			return nil
+		end
+
+		return countIn(Backpack) or countIn(Character)
+	end
+
+	local function isBuffActive()
+		local Now = os.clock()
+
+		if (Now - WheyFeature.LastBuffCheckAt) < WheyFeature.BuffCheckInterval then
+			return WheyFeature.CachedBuffActive
+		end
+
+		WheyFeature.LastBuffCheckAt = Now
+
+		local PlayerGui = LocalPlayer:FindFirstChild("PlayerGui")
+		if not PlayerGui then
+			WheyFeature.CachedBuffActive = false
+			return false
+		end
+
+		for _, Desc in ipairs(PlayerGui:GetDescendants()) do
+			if Desc:IsA("TextLabel") or Desc:IsA("TextButton") then
+				local Ok, Text = pcall(function() return Desc.Text end)
+				if Ok and type(Text) == "string" then
+					local Lower = string.lower(Text)
+					for _, Alias in ipairs(WheyAliases) do
+						if string.find(Lower, Alias, 1, true) and string.find(Text, "%d+:%d%d") then
+							WheyFeature.CachedBuffActive = true
+							return true
+						end
+					end
+				end
+			end
+		end
+
+		WheyFeature.CachedBuffActive = false
+		return false
+	end
+
+	local function consumeWhey(Tool)
+		if WheyFeature.IsConsuming then return end
+
+		WheyFeature.IsConsuming = true
+		WheyFeature.LastConsumeAt = os.clock()
+
+		task.spawn(function()
+			local Character = LocalPlayer.Character
+			local Humanoid = Character and Character:FindFirstChildOfClass("Humanoid")
+
+			if not Character or not Humanoid then
+				WheyFeature.IsConsuming = false
+				return
+			end
+
+			pcall(function() Humanoid:EquipTool(Tool) end)
+			task.wait(0.35)
+
+			local SlotIdx = findToolSlot(Tool)
+			if SlotIdx and SlotKeyCodes[SlotIdx] then
+				sendKeyTap(SlotKeyCodes[SlotIdx])
+				task.wait(0.05)
+			end
+
+			pcall(function() Tool:Activate() end)
+			sendMouseDown()
+
+			task.wait(0.5)
+
+			pcall(function() Humanoid:UnequipTools() end)
+
+			-- Invalidate buff cache so next check re-scans
+			WheyFeature.LastBuffCheckAt = 0
+			WheyFeature.IsConsuming = false
+		end)
+	end
+
+	function WheyFeature:ShouldConsume()
+		return not isBuffActive()
+	end
+
+	function WheyFeature:IsBuffActive()
+		return isBuffActive()
+	end
+
+	function WheyFeature:TryConsume(FoodBusy)
+		if not self.Enabled then return false end
+		if self.IsConsuming then return true end
+		if FoodBusy then return false end
+		if (os.clock() - self.LastConsumeAt) < self.ConsumeCooldown then return true end
+
+		local Tool = findWheyTool()
+		if not Tool then return false end
+
+		consumeWhey(Tool)
+		return true
+	end
+
+	function WheyFeature:SetEnabled(Value)
+		self.Enabled = Value and true or false
+		self.LastBuffCheckAt = 0
+		self.CachedBuffActive = false
+	end
+
+	function WheyFeature:Destroy()
+		self.Enabled = false
+		self.IsConsuming = false
+	end
+
+	return WheyFeature
+end

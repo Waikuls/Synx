@@ -6,6 +6,7 @@ return function(Config)
 	local Notification = Config and Config.Notification
 	local Webhook = Config and Config.Webhook
 	local FoodFeature = Config and Config.FoodFeature
+	local WheyFeature = Config and Config.WheyFeature
 
 	local AvailableTypes = {
 		"Bag",
@@ -1371,6 +1372,12 @@ return function(Config)
 			end
 
 			if (Now - self.LastRideEndAt) < 1.0 then
+				return
+			end
+
+			if WheyFeature and WheyFeature.Enabled and WheyFeature:ShouldConsume() then
+				local FoodBusy = FoodFeature and FoodFeature.IsEating
+				WheyFeature:TryConsume(FoodBusy)
 				return
 			end
 
