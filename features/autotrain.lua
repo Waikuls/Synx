@@ -25,11 +25,12 @@ return function(Config)
 	MachineAliases["Squat machine"] = {"squat machine", "squat", "leg press"}
 	MachineAliases["Treadmill"] = {"treadmill", "running machine"}
 
-	local RemoteMachineTypes = {Bike = true, Treadmill = true, Bar = true}
+	local RemoteMachineTypes = {Bike = true, Treadmill = true, Bar = true, Bench = true}
 	local MachineRemotePaths = {
 		Bike = {"TrainingSpots", "Bike", "Radio", "Remote"},
 		Treadmill = {"TrainingSpots", "Treadmill", "Radio", "Remote"},
 		Bar = {"TrainingSpots", "PullUp", "Radio", "Remote"},
+		Bench = {"TrainingSpots", "Bench", "Radio", "Remote"},
 	}
 
 	local function isRemoteMachine(Type)
