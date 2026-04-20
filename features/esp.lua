@@ -2,7 +2,16 @@ return function(Config)
 	local Players = game:GetService("Players")
 	local RunService = game:GetService("RunService")
 	local CoreGui = game:GetService("CoreGui")
+	local TextService = game:GetService("TextService")
 	local LocalPlayer = Players.LocalPlayer
+
+	local Theme = {
+		Main = Color3.fromRGB(255, 106, 133),
+		Black = Color3.fromRGB(16, 16, 16),
+		Border = Color3.fromRGB(29, 29, 29),
+		Text = Color3.fromRGB(255, 255, 255),
+		Muted = Color3.fromRGB(170, 170, 170)
+	}
 
 	local ESP = {
 		Enabled = false,
@@ -16,18 +25,31 @@ return function(Config)
 		}
 	}
 
+	local function colorToHex(Color)
+		return string.format(
+			"%02X%02X%02X",
+			math.floor((Color.R * 255) + 0.5),
+			math.floor((Color.G * 255) + 0.5),
+			math.floor((Color.B * 255) + 0.5)
+		)
+	end
+
+	local MainHex = colorToHex(Theme.Main)
+	local TextHex = colorToHex(Theme.Text)
+	local MutedHex = colorToHex(Theme.Muted)
+
 	local function getGuiParent()
+		if LocalPlayer then
+			local PlayerGui = LocalPlayer:FindFirstChildOfClass("PlayerGui")
+
+			if PlayerGui then
+				return PlayerGui
+			end
+		end
+
 		local Success, Result = pcall(function()
 			if type(gethui) == "function" then
 				return gethui()
-			end
-
-			if LocalPlayer then
-				local PlayerGui = LocalPlayer:FindFirstChildOfClass("PlayerGui")
-
-				if PlayerGui then
-					return PlayerGui
-				end
 			end
 
 			return CoreGui
@@ -37,15 +59,11 @@ return function(Config)
 			return Result
 		end
 
-		if LocalPlayer then
-			local PlayerGui = LocalPlayer:FindFirstChildOfClass("PlayerGui")
-
-			if PlayerGui then
-				return PlayerGui
-			end
-		end
-
 		return CoreGui
+	end
+
+	local function getCurrentCamera()
+		return workspace.CurrentCamera
 	end
 
 	local function getCharacterRoot(Character)
@@ -61,14 +79,6 @@ return function(Config)
 			or Character:FindFirstChildWhichIsA("BasePart")
 	end
 
-	local function getDisplayPart(Character)
-		if not Character then
-			return nil
-		end
-
-		return Character:FindFirstChild("Head") or getCharacterRoot(Character)
-	end
-
 	local function getHumanoid(Character)
 		if not Character then
 			return nil
@@ -81,14 +91,129 @@ return function(Config)
 		return getCharacterRoot(LocalPlayer and LocalPlayer.Character)
 	end
 
-	local function getHealthColor(Health, MaxHealth)
-		local Ratio = math.clamp(Health / math.max(MaxHealth, 1), 0, 1)
+	local function escapeRichText(Text)
+		Text = tostring(Text or "")
+		Text = Text:gsub("&", "&amp;")
+		Text = Text:gsub("<", "&lt;")
+		Text = Text:gsub(">", "&gt;")
 
-		return Color3.fromRGB(
-			math.floor(255 * (1 - Ratio)),
-			math.floor(255 * Ratio),
-			90
-		)
+		return Text
+	end
+
+	local function getCharacterBounds(Character)
+		local Camera = getCurrentCamera()
+		local RootPart = getCharacterRoot(Character)
+
+		if not Camera or not RootPart then
+			return nil
+		end
+
+		local Success, BoundingCFrame, BoundingSize = pcall(function()
+			return Character:GetBoundingBox()
+		end)
+
+		if not Success or not BoundingCFrame or not BoundingSize then
+			BoundingCFrame = RootPart.CFrame
+			BoundingSize = RootPart.Size + Vector3.new(4, 5, 4)
+		end
+
+		local HalfSize = BoundingSize * 0.5
+		local ViewportSize = Camera.ViewportSize
+		local MinX = math.huge
+		local MinY = math.huge
+		local MaxX = -math.huge
+		local MaxY = -math.huge
+		local VisiblePoints = 0
+		local OnScreenPoints = 0
+		local Signs = {-1, 1}
+
+		for _, XFactor in ipairs(Signs) do
+			for _, YFactor in ipairs(Signs) do
+				for _, ZFactor in ipairs(Signs) do
+					local Corner = BoundingCFrame:PointToWorldSpace(
+						Vector3.new(
+							HalfSize.X * XFactor,
+							HalfSize.Y * YFactor,
+							HalfSize.Z * ZFactor
+						)
+					)
+					local ScreenPoint, OnScreen = Camera:WorldToViewportPoint(Corner)
+
+					if ScreenPoint.Z > 0 then
+						VisiblePoints = VisiblePoints + 1
+						MinX = math.min(MinX, ScreenPoint.X)
+						MinY = math.min(MinY, ScreenPoint.Y)
+						MaxX = math.max(MaxX, ScreenPoint.X)
+						MaxY = math.max(MaxY, ScreenPoint.Y)
+
+						if OnScreen then
+							OnScreenPoints = OnScreenPoints + 1
+						end
+					end
+				end
+			end
+		end
+
+		if VisiblePoints < 2 or OnScreenPoints == 0 then
+			return nil
+		end
+
+		if MaxX < -32 or MinX > ViewportSize.X + 32 or MaxY < -32 or MinY > ViewportSize.Y + 32 then
+			return nil
+		end
+
+		local Width = MaxX - MinX
+		local Height = MaxY - MinY
+
+		if Width < 2 or Height < 2 then
+			return nil
+		end
+
+		if Width > (ViewportSize.X * 1.5) or Height > (ViewportSize.Y * 1.5) then
+			return nil
+		end
+
+		return MinX, MinY, MaxX, MaxY
+	end
+
+	local function buildInfoText(NameText, HealthText, DistanceText)
+		local PlainParts = {}
+		local RichParts = {}
+
+		if NameText and NameText ~= "" then
+			table.insert(PlainParts, NameText)
+			table.insert(RichParts, string.format('<font color="#%s">%s</font>', TextHex, escapeRichText(NameText)))
+		end
+
+		if HealthText and HealthText ~= "" then
+			table.insert(PlainParts, "[" .. HealthText .. "]")
+			table.insert(
+				RichParts,
+				string.format(
+					'<font color="#%s">[</font><font color="#%s">%s</font><font color="#%s">]</font>',
+					MutedHex,
+					MainHex,
+					escapeRichText(HealthText),
+					MutedHex
+				)
+			)
+		end
+
+		if DistanceText and DistanceText ~= "" then
+			table.insert(PlainParts, "[" .. DistanceText .. "]")
+			table.insert(
+				RichParts,
+				string.format(
+					'<font color="#%s">[</font><font color="#%s">%s</font><font color="#%s">]</font>',
+					MutedHex,
+					MainHex,
+					escapeRichText(DistanceText),
+					MutedHex
+				)
+			)
+		end
+
+		return table.concat(PlainParts, " "), table.concat(RichParts, " ")
 	end
 
 	function ESP:GetGuiRoot()
@@ -110,61 +235,67 @@ return function(Config)
 	end
 
 	function ESP:CreateEntry(Player)
-		local SelectionBox = Instance.new("SelectionBox")
-		SelectionBox.Name = string.format("ESP_%s_Box", tostring(Player.UserId))
-		SelectionBox.Adornee = nil
-		SelectionBox.Color3 = Color3.fromRGB(245, 49, 116)
-		SelectionBox.LineThickness = 0.05
-		SelectionBox.SurfaceColor3 = Color3.fromRGB(245, 49, 116)
-		SelectionBox.SurfaceTransparency = 1
-		SelectionBox.Transparency = 0
-		SelectionBox.Parent = workspace
+		local Container = Instance.new("Frame")
+		Container.Name = string.format("ESP_%s", tostring(Player.UserId))
+		Container.BackgroundTransparency = 1
+		Container.BorderSizePixel = 0
+		Container.ClipsDescendants = false
+		Container.Visible = false
+		Container.ZIndex = 500
+		Container.Parent = self:GetGuiRoot()
 
-		local Billboard = Instance.new("BillboardGui")
-		Billboard.Name = string.format("ESP_%s_Info", tostring(Player.UserId))
-		Billboard.AlwaysOnTop = true
-		Billboard.LightInfluence = 0
-		Billboard.ResetOnSpawn = false
-		Billboard.Size = UDim2.new(0, 180, 0, 36)
-		Billboard.StudsOffset = Vector3.new(0, 3.4, 0)
-		Billboard.Enabled = false
-		Billboard.Parent = self:GetGuiRoot()
+		local Outline = Instance.new("Frame")
+		Outline.Name = "Outline"
+		Outline.BackgroundTransparency = 1
+		Outline.BorderColor3 = Color3.fromRGB(0, 0, 0)
+		Outline.BorderSizePixel = 1
+		Outline.Position = UDim2.new(0, -1, 0, -1)
+		Outline.Size = UDim2.new(1, 2, 1, 2)
+		Outline.ZIndex = 500
+		Outline.Parent = Container
 
-		local Name = Instance.new("TextLabel")
-		Name.Name = "Name"
-		Name.BackgroundTransparency = 1
-		Name.BorderSizePixel = 0
-		Name.Position = UDim2.new(0, 0, 0, 0)
-		Name.Size = UDim2.new(1, 0, 0, 18)
-		Name.Font = Enum.Font.GothamSemibold
-		Name.Text = ""
-		Name.TextColor3 = Color3.fromRGB(255, 255, 255)
-		Name.TextSize = 13
-		Name.TextStrokeTransparency = 0.35
-		Name.TextXAlignment = Enum.TextXAlignment.Center
-		Name.Visible = false
-		Name.Parent = Billboard
+		local Box = Instance.new("Frame")
+		Box.Name = "Box"
+		Box.BackgroundTransparency = 1
+		Box.BorderColor3 = Theme.Main
+		Box.BorderSizePixel = 1
+		Box.Size = UDim2.new(1, 0, 1, 0)
+		Box.ZIndex = 501
+		Box.Parent = Container
 
-		local Health = Instance.new("TextLabel")
-		Health.Name = "Health"
-		Health.BackgroundTransparency = 1
-		Health.BorderSizePixel = 0
-		Health.Position = UDim2.new(0, 0, 0, 16)
-		Health.Size = UDim2.new(1, 0, 0, 18)
-		Health.Font = Enum.Font.GothamSemibold
-		Health.Text = ""
-		Health.TextColor3 = Color3.fromRGB(110, 255, 140)
-		Health.TextSize = 13
-		Health.TextStrokeTransparency = 0.35
-		Health.TextXAlignment = Enum.TextXAlignment.Center
-		Health.Visible = false
-		Health.Parent = Billboard
+		local InfoFrame = Instance.new("Frame")
+		InfoFrame.Name = "InfoFrame"
+		InfoFrame.AnchorPoint = Vector2.new(0.5, 1)
+		InfoFrame.BackgroundColor3 = Theme.Black
+		InfoFrame.BorderColor3 = Theme.Border
+		InfoFrame.BorderSizePixel = 1
+		InfoFrame.Position = UDim2.new(0.5, 0, 0, -6)
+		InfoFrame.Size = UDim2.new(0, 120, 0, 18)
+		InfoFrame.Visible = false
+		InfoFrame.ZIndex = 502
+		InfoFrame.Parent = Container
+
+		local InfoLabel = Instance.new("TextLabel")
+		InfoLabel.Name = "InfoLabel"
+		InfoLabel.BackgroundTransparency = 1
+		InfoLabel.BorderSizePixel = 0
+		InfoLabel.Position = UDim2.new(0, 6, 0, 0)
+		InfoLabel.Size = UDim2.new(1, -12, 1, 0)
+		InfoLabel.Font = Enum.Font.GothamSemibold
+		InfoLabel.RichText = true
+		InfoLabel.Text = ""
+		InfoLabel.TextColor3 = Theme.Text
+		InfoLabel.TextSize = 13
+		InfoLabel.TextStrokeTransparency = 0.5
+		InfoLabel.TextWrapped = false
+		InfoLabel.TextXAlignment = Enum.TextXAlignment.Center
+		InfoLabel.ZIndex = 503
+		InfoLabel.Parent = InfoFrame
 
 		self.Entries[Player] = {
-			SelectionBox = SelectionBox,
-			Billboard = Billboard,
-			Name = Name,
-			Health = Health
+			Container = Container,
+			InfoFrame = InfoFrame,
+			InfoLabel = InfoLabel
 		}
 
 		return self.Entries[Player]
@@ -181,11 +312,8 @@ return function(Config)
 			return
 		end
 
-		Entry.SelectionBox.Adornee = nil
-		Entry.Billboard.Adornee = nil
-		Entry.Billboard.Enabled = false
-		Entry.Name.Visible = false
-		Entry.Health.Visible = false
+		Entry.Container.Visible = false
+		Entry.InfoFrame.Visible = false
 	end
 
 	function ESP:RemoveEntry(Player)
@@ -195,8 +323,7 @@ return function(Config)
 			return
 		end
 
-		Entry.SelectionBox:Destroy()
-		Entry.Billboard:Destroy()
+		Entry.Container:Destroy()
 		self.Entries[Player] = nil
 	end
 
@@ -206,55 +333,42 @@ return function(Config)
 		end
 	end
 
-	function ESP:UpdateBillboardLayout(Entry)
-		local ShowName = self.Settings.ShowName
-		local ShowHealth = self.Settings.ShowHealth
-
-		if ShowName and ShowHealth then
-			Entry.Billboard.Size = UDim2.new(0, 180, 0, 36)
-			Entry.Name.Position = UDim2.new(0, 0, 0, 0)
-			Entry.Health.Position = UDim2.new(0, 0, 0, 16)
-		elseif ShowName or ShowHealth then
-			Entry.Billboard.Size = UDim2.new(0, 180, 0, 20)
-			Entry.Name.Position = UDim2.new(0, 0, 0, 1)
-			Entry.Health.Position = UDim2.new(0, 0, 0, 1)
-		else
-			Entry.Billboard.Size = UDim2.new(0, 180, 0, 0)
-		end
-	end
-
-	function ESP:UpdateEntry(Player, Character, Humanoid)
+	function ESP:UpdateEntry(Player, Humanoid, MinX, MinY, MaxX, MaxY, Distance)
 		local Entry = self:GetEntry(Player)
-		local DisplayPart = getDisplayPart(Character)
-
-		Entry.SelectionBox.Adornee = Character
-		self:UpdateBillboardLayout(Entry)
-
-		if DisplayPart and (self.Settings.ShowName or self.Settings.ShowHealth) then
-			Entry.Billboard.Adornee = DisplayPart
-			Entry.Billboard.Enabled = true
-		else
-			Entry.Billboard.Adornee = nil
-			Entry.Billboard.Enabled = false
-		end
-
-		if self.Settings.ShowName then
-			Entry.Name.Text = Player.DisplayName or Player.Name
-			Entry.Name.Visible = true
-		else
-			Entry.Name.Visible = false
-		end
+		local Width = math.max(math.floor((MaxX - MinX) + 0.5), 2)
+		local Height = math.max(math.floor((MaxY - MinY) + 0.5), 2)
+		local NameText = self.Settings.ShowName and (Player.DisplayName or Player.Name) or nil
+		local HealthText = nil
+		local DistanceText = Distance and string.format("%d studs", math.floor(Distance + 0.5)) or nil
 
 		if self.Settings.ShowHealth and Humanoid then
-			Entry.Health.Text = string.format(
-				"%d / %d",
+			HealthText = string.format(
+				"%d/%d",
 				math.floor(Humanoid.Health + 0.5),
 				math.floor(Humanoid.MaxHealth + 0.5)
 			)
-			Entry.Health.TextColor3 = getHealthColor(Humanoid.Health, Humanoid.MaxHealth)
-			Entry.Health.Visible = true
+		end
+
+		local PlainInfo, RichInfo = buildInfoText(NameText, HealthText, DistanceText)
+
+		Entry.Container.Position = UDim2.new(0, math.floor(MinX + 0.5), 0, math.floor(MinY + 0.5))
+		Entry.Container.Size = UDim2.new(0, Width, 0, Height)
+		Entry.Container.Visible = true
+
+		if RichInfo ~= "" then
+			local TextBounds = TextService:GetTextSize(
+				PlainInfo,
+				13,
+				Enum.Font.GothamSemibold,
+				Vector2.new(1000, 18)
+			)
+
+			Entry.InfoLabel.Text = RichInfo
+			Entry.InfoFrame.Size = UDim2.new(0, math.max(TextBounds.X + 18, 76), 0, 18)
+			Entry.InfoFrame.Visible = true
 		else
-			Entry.Health.Visible = false
+			Entry.InfoLabel.Text = ""
+			Entry.InfoFrame.Visible = false
 		end
 	end
 
@@ -268,6 +382,7 @@ return function(Config)
 		local RootPart = getCharacterRoot(Character)
 		local Humanoid = getHumanoid(Character)
 		local LocalRootPart = getLocalRootPart()
+		local Distance = nil
 
 		if not Character or not RootPart then
 			self:HideEntry(Player)
@@ -279,8 +394,8 @@ return function(Config)
 			return false
 		end
 
-		if LocalRootPart and RootPart then
-			local Distance = (LocalRootPart.Position - RootPart.Position).Magnitude
+		if LocalRootPart then
+			Distance = (LocalRootPart.Position - RootPart.Position).Magnitude
 
 			if Distance > self.Settings.DistanceLimit then
 				self:HideEntry(Player)
@@ -288,7 +403,14 @@ return function(Config)
 			end
 		end
 
-		self:UpdateEntry(Player, Character, Humanoid)
+		local MinX, MinY, MaxX, MaxY = getCharacterBounds(Character)
+
+		if not MinX then
+			self:HideEntry(Player)
+			return false
+		end
+
+		self:UpdateEntry(Player, Humanoid, MinX, MinY, MaxX, MaxY, Distance)
 
 		return true
 	end
@@ -351,30 +473,10 @@ return function(Config)
 
 	function ESP:SetShowName(Value)
 		self.Settings.ShowName = Value and true or false
-
-		if not self.Settings.ShowName then
-			for _, Entry in pairs(self.Entries) do
-				Entry.Name.Visible = false
-
-				if not self.Settings.ShowHealth then
-					Entry.Billboard.Enabled = false
-				end
-			end
-		end
 	end
 
 	function ESP:SetShowHealth(Value)
 		self.Settings.ShowHealth = Value and true or false
-
-		if not self.Settings.ShowHealth then
-			for _, Entry in pairs(self.Entries) do
-				Entry.Health.Visible = false
-
-				if not self.Settings.ShowName then
-					Entry.Billboard.Enabled = false
-				end
-			end
-		end
 	end
 
 	return ESP
