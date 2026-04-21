@@ -232,18 +232,22 @@ return function(Config)
 	end
 
 	local function deliverAt(SpotData)
-		local SpotCFrame = SpotData.cf
-		local HoldPos = SpotCFrame.Position + Vector3.new(0, UNDERGROUND_Y, 0)
+		local Deliver = SpotData.trigger
+		if not Deliver or not Deliver.Parent then return false end
+
+		local TriggerCFrame = SpotData.cf
+		local TriggerPos = TriggerCFrame.Position
+		local UndergroundCFrame = CFrame.new(TriggerPos + Vector3.new(0, UNDERGROUND_Y, 0))
 
 		for _ = 1, 5 do
 			if not AutoJobFeature.Enabled then return false end
-			if not SpotData.object.Parent then return true end
+			if not SpotData.object.Parent or not Deliver.Parent then return true end
 
 			local Root = getRoot()
 			if not Root then return false end
 
 			Root.Anchored = true
-			Root.CFrame = SpotCFrame + Vector3.new(0, UNDERGROUND_Y, 0)
+			Root.CFrame = CFrame.new(TriggerPos)
 			if not cancellableWait(0.3) then return false end
 
 			Root = getRoot()
@@ -259,24 +263,27 @@ return function(Config)
 			Bp.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
 			Bp.D = 1000
 			Bp.P = 100000
-			Bp.Position = HoldPos
+			Bp.Position = TriggerPos
 			Bp.Parent = Root
 			table.insert(AutoJobFeature.ActiveBodyMovers, Bp)
 
 			Root.Anchored = false
 
-			cancellableWait(2)
+			local Deadline = os.clock() + 3
+			while os.clock() < Deadline and AutoJobFeature.Enabled do
+				task.wait(0.1)
+				if not isSpotActive(SpotData.object) then break end
+			end
 
 			cleanupBodyMovers()
 
-			if not AutoJobFeature.Enabled then return false end
-
 			Root = getRoot()
-			if not Root then return false end
-			Root.Anchored = true
-			Root.CFrame = SpotCFrame + Vector3.new(0, UNDERGROUND_Y, 0)
+			if Root then
+				Root.Anchored = true
+				Root.CFrame = UndergroundCFrame
+			end
 
-			if not cancellableWait(5) then return false end
+			if not AutoJobFeature.Enabled then return false end
 
 			if not isSpotActive(SpotData.object) then
 				return true
@@ -307,13 +314,15 @@ return function(Config)
 		if not Folder then return Result end
 
 		for _, Spot in ipairs(Folder:GetChildren()) do
-			if isSpotActive(Spot) then
-				local CF = getObjectCFrame(Spot)
-				if CF then
+			local Deliver = Spot:FindFirstChild("Deliver")
+			if Deliver then
+				local TriggerCF = getObjectCFrame(Deliver) or getObjectCFrame(Spot)
+				if TriggerCF then
 					table.insert(Result, {
-						cf = CF,
+						cf = TriggerCF,
 						name = Spot.Name,
-						object = Spot
+						object = Spot,
+						trigger = Deliver
 					})
 				end
 			end
