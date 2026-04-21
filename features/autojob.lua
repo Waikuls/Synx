@@ -13,8 +13,9 @@ return function(Config)
 	)
 
 	local UNDERGROUND_Y = -7
-	local DELIVER_RISE_Y = -5
-	local DELIVER_TRIGGER_SIZE = Vector3.new(5, 12, 5)
+	local DELIVER_DEEP_Y = -9
+	local DELIVER_RISE_Y = -6
+	local DELIVER_TRIGGER_SIZE = Vector3.new(5, 14, 5)
 
 	local AutoJobFeature = {
 		Enabled = false,
@@ -242,7 +243,7 @@ return function(Config)
 
 	local function deliverAt(SpotData)
 		local SpotCFrame = SpotData.cf
-		local UndergroundCFrame = SpotCFrame + Vector3.new(0, UNDERGROUND_Y, 0)
+		local DeepCFrame = SpotCFrame + Vector3.new(0, DELIVER_DEEP_Y, 0)
 		local RisePos = SpotCFrame.Position + Vector3.new(0, DELIVER_RISE_Y, 0)
 
 		for _ = 1, 2 do
@@ -256,7 +257,7 @@ return function(Config)
 			if not Root then return false end
 
 			Root.Anchored = true
-			Root.CFrame = UndergroundCFrame
+			Root.CFrame = DeepCFrame
 			if not cancellableWait(0.2) then return false end
 
 			Root = getRoot()
@@ -289,7 +290,7 @@ return function(Config)
 			Root = getRoot()
 			if Root then
 				Root.Anchored = true
-				Root.CFrame = UndergroundCFrame
+				Root.CFrame = DeepCFrame
 			end
 
 			if not AutoJobFeature.Enabled then return false end
