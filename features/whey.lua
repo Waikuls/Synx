@@ -20,41 +20,6 @@ return function(Config)
 		ConsumeCooldown = 20,
 	}
 
-	local function getVirtualInputManager()
-		local Ok, Vim = pcall(game.GetService, game, "VirtualInputManager")
-		return Ok and Vim or nil
-	end
-
-	local function sendKeyTap(KeyCode)
-		local Vim = getVirtualInputManager()
-		if not Vim then return false end
-		return pcall(function()
-			Vim:SendKeyEvent(true, KeyCode, false, game)
-			task.wait(0.03)
-			Vim:SendKeyEvent(false, KeyCode, false, game)
-		end)
-	end
-
-	local function sendMouseDown()
-		local Vim = getVirtualInputManager()
-		if not Vim then return false end
-		local Camera = workspace.CurrentCamera
-		local Vp = Camera and Camera.ViewportSize or Vector2.new(1280, 720)
-		local Cx, Cy = math.floor(Vp.X * 0.5), math.floor(Vp.Y * 0.5)
-		pcall(function()
-			Vim:SendMouseButtonEvent(Cx, Cy, 0, true, game, 0)
-			task.wait(0.05)
-			Vim:SendMouseButtonEvent(Cx, Cy, 0, false, game, 0)
-		end)
-	end
-
-	local SlotKeyCodes = {
-		Enum.KeyCode.One, Enum.KeyCode.Two, Enum.KeyCode.Three,
-		Enum.KeyCode.Four, Enum.KeyCode.Five, Enum.KeyCode.Six,
-		Enum.KeyCode.Seven, Enum.KeyCode.Eight, Enum.KeyCode.Nine,
-		Enum.KeyCode.Zero
-	}
-
 	local function findWheyTool()
 		local Character = LocalPlayer.Character
 		local Backpack = LocalPlayer:FindFirstChildOfClass("Backpack")
@@ -75,25 +40,6 @@ return function(Config)
 		end
 
 		return check(Character) or check(Backpack)
-	end
-
-	local function findToolSlot(Tool)
-		local Backpack = LocalPlayer:FindFirstChildOfClass("Backpack")
-		local Character = LocalPlayer.Character
-		local Idx = 1
-
-		local function countIn(Container)
-			if not Container then return end
-			for _, Item in ipairs(Container:GetChildren()) do
-				if Item:IsA("Tool") then
-					if Item == Tool then return Idx end
-					Idx = Idx + 1
-				end
-			end
-			return nil
-		end
-
-		return countIn(Backpack) or countIn(Character)
 	end
 
 	local function isBuffActive()
@@ -130,6 +76,35 @@ return function(Config)
 		return false
 	end
 
+	local function getCustomHotbarRemote()
+		local Remotes = game:GetService("ReplicatedStorage"):FindFirstChild("Remotes")
+		if not Remotes then return nil end
+		local Remote = Remotes:FindFirstChild("CustomHotbar")
+		if not Remote or not Remote:IsA("RemoteEvent") then return nil end
+		return Remote
+	end
+
+	local function getInputRemote()
+		local Character = LocalPlayer.Character
+		if not Character then return nil end
+		local MainScript = Character:FindFirstChild("MainScript")
+		if not MainScript then return nil end
+		local Remote = MainScript:FindFirstChild("Input")
+		if not Remote or not Remote:IsA("RemoteEvent") then return nil end
+		return Remote
+	end
+
+	local function fireInputKey(Name, IsDown)
+		local Remote = getInputRemote()
+		if not Remote then return end
+		pcall(function()
+			Remote:FireServer({
+				KeyInfo = {Direction = "None", Name = Name, Airborne = false},
+				IsDown = IsDown
+			})
+		end)
+	end
+
 	local function consumeWhey(Tool)
 		if WheyFeature.IsConsuming then return end
 
@@ -137,29 +112,40 @@ return function(Config)
 		WheyFeature.LastConsumeAt = os.clock()
 
 		task.spawn(function()
+			local HotbarRemote = getCustomHotbarRemote()
+
+			if HotbarRemote then
+				pcall(function() HotbarRemote:FireServer(Tool.Name) end)
+
+				local Character = LocalPlayer.Character
+				if Character then
+					local Deadline = os.clock() + 1.5
+					repeat task.wait(0.05) until Tool.Parent == Character or os.clock() > Deadline
+				end
+
+				task.wait(0.1)
+				fireInputKey("LMB", true)
+				task.wait(0.1)
+				fireInputKey("LMB", false)
+			else
+				local Character = LocalPlayer.Character
+				local Humanoid = Character and Character:FindFirstChildOfClass("Humanoid")
+				if Character and Humanoid then
+					pcall(function() Humanoid:EquipTool(Tool) end)
+					local Deadline = os.clock() + 1.5
+					repeat task.wait(0.05) until Tool.Parent == Character or os.clock() > Deadline
+					task.wait(0.1)
+					pcall(function() Tool:Activate() end)
+				end
+			end
+
+			task.wait(0.3)
+
 			local Character = LocalPlayer.Character
 			local Humanoid = Character and Character:FindFirstChildOfClass("Humanoid")
-
-			if not Character or not Humanoid then
-				WheyFeature.IsConsuming = false
-				return
+			if Humanoid then
+				pcall(function() Humanoid:UnequipTools() end)
 			end
-
-			pcall(function() Humanoid:EquipTool(Tool) end)
-			task.wait(0.35)
-
-			local SlotIdx = findToolSlot(Tool)
-			if SlotIdx and SlotKeyCodes[SlotIdx] then
-				sendKeyTap(SlotKeyCodes[SlotIdx])
-				task.wait(0.05)
-			end
-
-			pcall(function() Tool:Activate() end)
-			sendMouseDown()
-
-			task.wait(0.5)
-
-			pcall(function() Humanoid:UnequipTools() end)
 
 			WheyFeature.IsConsuming = false
 		end)
