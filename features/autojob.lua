@@ -282,12 +282,16 @@ return function(Config)
 	end
 
 	local function claimQuest()
+		safeTeleport(QuestBoardCFrame)
+		if not AutoJobFeature.Enabled then return end
+		if not cancellableWait(0.5) then return end
+
 		local Prompt = findQuestBoardPrompt()
 		if not Prompt then
 			if Notification then
 				Notification:Notify({
 					Title = "Auto Job",
-					Content = "Delivery prompt not found at DelayedChildren[2]",
+					Content = "Delivery prompt not found",
 					Icon = "alert-circle"
 				})
 			end
