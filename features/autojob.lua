@@ -177,9 +177,16 @@ return function(Config)
 	local function safeTeleport(TargetCFrame)
 		local Root = getRoot()
 		if not Root then return end
+		local UndergroundCFrame = TargetCFrame + Vector3.new(0, UNDERGROUND_Y, 0)
 		Root.Anchored = true
-		Root.CFrame = TargetCFrame + Vector3.new(0, UNDERGROUND_Y, 0)
-		cancellableWait(1)
+		Root.CFrame = UndergroundCFrame
+		cancellableWait(0.5)
+		local Root2 = getRoot()
+		if Root2 then
+			Root2.Anchored = true
+			Root2.CFrame = UndergroundCFrame
+		end
+		cancellableWait(1.5)
 	end
 
 	local function claimQuestAtBoard(Prompt)
