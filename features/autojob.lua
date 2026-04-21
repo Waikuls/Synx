@@ -156,7 +156,7 @@ return function(Config)
 		if not Root then return end
 		Root.Anchored = true
 		Root.CFrame = TargetCFrame + Vector3.new(0, UNDERGROUND_Y, 0)
-		cancellableWait(2)
+		cancellableWait(1)
 	end
 
 	local function claimQuestAtBoard(Prompt)
@@ -174,7 +174,7 @@ return function(Config)
 			local Root = getRoot()
 			if not Root then return false end
 
-			if not cancellableWait(2) then return false end
+			if not cancellableWait(0.5) then return false end
 
 			local SavedCFrame = Root.CFrame
 
@@ -203,15 +203,15 @@ return function(Config)
 				end
 			end)
 
-			cancellableWait(0.5)
+			cancellableWait(0.3)
 			pcall(function()
 				VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.E, false, game)
 			end)
-			cancellableWait(1.5)
+			cancellableWait(0.5)
 			pcall(function()
 				VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.E, false, game)
 			end)
-			cancellableWait(2)
+			cancellableWait(1)
 
 			Locked = false
 			cleanupLock()
@@ -224,7 +224,7 @@ return function(Config)
 				Root.CFrame = SavedCFrame
 			end
 
-			if not cancellableWait(3) then return false end
+			if not cancellableWait(1.5) then return false end
 
 			if hasActiveSpot() then
 				return true
@@ -308,7 +308,7 @@ return function(Config)
 	local function claimQuest()
 		safeTeleport(QuestBoardCFrame)
 		if not AutoJobFeature.Enabled then return end
-		if not cancellableWait(2) then return end
+		if not cancellableWait(0.5) then return end
 
 		local Prompt = findQuestBoardPrompt()
 		if not Prompt then return end
