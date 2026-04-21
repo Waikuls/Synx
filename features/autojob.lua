@@ -110,17 +110,12 @@ return function(Config)
 	local function findJob()
 		local DelayedChildren = workspace:FindFirstChild("DelayedChildren")
 		if DelayedChildren then
-			for _, Child in ipairs(DelayedChildren:GetChildren()) do
-				local Job = Child:FindFirstChild("Job")
+			local Children = DelayedChildren:GetChildren()
+			local Board = Children[2]
+			if Board then
+				local Job = Board:FindFirstChild("Job")
 				if Job then return Job end
 			end
-		end
-		local Map = workspace:FindFirstChild("Map")
-		if Map then
-			local Folder = Map:FindFirstChild("Folder")
-			local Board = Folder and Folder:FindFirstChild("QuestBoard")
-			local Job = Board and Board:FindFirstChild("Job")
-			if Job then return Job end
 		end
 		return nil
 	end
