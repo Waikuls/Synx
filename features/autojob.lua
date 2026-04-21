@@ -13,8 +13,8 @@ return function(Config)
 	)
 
 	local UNDERGROUND_Y = -7
-	local DELIVER_RISE_Y = -3
-	local DELIVER_TRIGGER_SIZE = Vector3.new(5, 10, 5)
+	local DELIVER_RISE_Y = -5
+	local DELIVER_TRIGGER_SIZE = Vector3.new(5, 12, 5)
 
 	local AutoJobFeature = {
 		Enabled = false,
