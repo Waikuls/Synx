@@ -50,7 +50,10 @@ return function(Config)
 		cleanupLock()
 		local Root = getRoot()
 		if Root then
-			pcall(function() Root.Anchored = false end)
+			pcall(function()
+				Root.CFrame = Root.CFrame + Vector3.new(0, -UNDERGROUND_Y, 0)
+				Root.Anchored = false
+			end)
 		end
 	end
 
@@ -173,12 +176,15 @@ return function(Config)
 			cancellableWait(2)
 
 			Locked = false
+			cleanupLock()
+			cleanupBodyMovers()
+
+			if not AutoJobFeature.Enabled then return false end
+
 			if Root.Parent then
 				Root.Anchored = true
 				Root.CFrame = SavedCFrame
 			end
-			cleanupLock()
-			cleanupBodyMovers()
 
 			if not cancellableWait(3) then return false end
 
@@ -237,12 +243,13 @@ return function(Config)
 			cleanupLock()
 			cleanupBodyMovers()
 
+			if not AutoJobFeature.Enabled then return false end
+
 			Root = getRoot()
 			if not Root then return false end
 			Root.Anchored = true
 			Root.CFrame = UndergroundCFrame
 
-			if not AutoJobFeature.Enabled then return false end
 			if not cancellableWait(5) then return false end
 
 			if not isSpotActive(SpotData.object) then
