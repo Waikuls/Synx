@@ -210,7 +210,7 @@ return function(Config)
 			Prompt.Enabled = true
 		end)
 
-		for _ = 1, 5 do
+		for _ = 1, 2 do
 			if not AutoJobFeature.Enabled then return false end
 
 			local Fired = false
@@ -231,7 +231,7 @@ return function(Config)
 				end)
 			end
 
-			if not cancellableWait(1.5) then return false end
+			if not cancellableWait(3) then return false end
 
 			if hasActiveSpot() then
 				return true
