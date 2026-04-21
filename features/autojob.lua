@@ -18,9 +18,7 @@ return function(Config)
 		Enabled = false,
 		Thread = nil,
 		ActiveBodyMovers = {},
-		LockConnection = nil,
-		NoclipConnection = nil,
-		NoclippedParts = {}
+		LockConnection = nil
 	}
 
 	local function getRoot()
@@ -55,37 +53,9 @@ return function(Config)
 		end
 	end
 
-	local function enableNoclip()
-		if AutoJobFeature.NoclipConnection then return end
-		AutoJobFeature.NoclipConnection = RunService.Stepped:Connect(function()
-			local Character = LocalPlayer.Character
-			if not Character then return end
-			for _, Part in ipairs(Character:GetDescendants()) do
-				if Part:IsA("BasePart") and Part.CanCollide then
-					Part.CanCollide = false
-					AutoJobFeature.NoclippedParts[Part] = true
-				end
-			end
-		end)
-	end
-
-	local function disableNoclip()
-		if AutoJobFeature.NoclipConnection then
-			pcall(function() AutoJobFeature.NoclipConnection:Disconnect() end)
-			AutoJobFeature.NoclipConnection = nil
-		end
-		for Part in pairs(AutoJobFeature.NoclippedParts) do
-			if Part and Part.Parent then
-				pcall(function() Part.CanCollide = true end)
-			end
-		end
-		table.clear(AutoJobFeature.NoclippedParts)
-	end
-
 	local function restoreCharacter()
 		cleanupBodyMovers()
 		cleanupLock()
-		disableNoclip()
 		local Root = getRoot()
 		if Root then
 			pcall(function()
@@ -232,58 +202,30 @@ return function(Config)
 	end
 
 	local function deliverAt(SpotData)
-		local Deliver = SpotData.trigger
-		if not Deliver or not Deliver.Parent then return false end
-
-		local TriggerCFrame = SpotData.cf
-		local TriggerPos = TriggerCFrame.Position
-		local UndergroundCFrame = CFrame.new(TriggerPos + Vector3.new(0, UNDERGROUND_Y, 0))
+		local SpotCFrame = SpotData.cf
 
 		for _ = 1, 5 do
 			if not AutoJobFeature.Enabled then return false end
-			if not SpotData.object.Parent or not Deliver.Parent then return true end
+			if not SpotData.object.Parent then return true end
 
 			local Root = getRoot()
 			if not Root then return false end
 
 			Root.Anchored = true
-			Root.CFrame = CFrame.new(TriggerPos)
+			Root.CFrame = SpotCFrame + Vector3.new(0, UNDERGROUND_Y, 0)
 			if not cancellableWait(0.3) then return false end
 
 			Root = getRoot()
 			if not Root then return false end
-
-			local Bv = Instance.new("BodyVelocity")
-			Bv.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
-			Bv.Velocity = Vector3.zero
-			Bv.Parent = Root
-			table.insert(AutoJobFeature.ActiveBodyMovers, Bv)
-
-			local Bp = Instance.new("BodyPosition")
-			Bp.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
-			Bp.D = 1000
-			Bp.P = 100000
-			Bp.Position = TriggerPos
-			Bp.Parent = Root
-			table.insert(AutoJobFeature.ActiveBodyMovers, Bp)
-
 			Root.Anchored = false
-
-			local Deadline = os.clock() + 3
-			while os.clock() < Deadline and AutoJobFeature.Enabled do
-				task.wait(0.1)
-				if not isSpotActive(SpotData.object) then break end
-			end
-
-			cleanupBodyMovers()
+			if not cancellableWait(2) then return false end
 
 			Root = getRoot()
-			if Root then
-				Root.Anchored = true
-				Root.CFrame = UndergroundCFrame
-			end
+			if not Root then return false end
+			Root.Anchored = true
+			Root.CFrame = SpotCFrame + Vector3.new(0, UNDERGROUND_Y, 0)
 
-			if not AutoJobFeature.Enabled then return false end
+			if not cancellableWait(5) then return false end
 
 			if not isSpotActive(SpotData.object) then
 				return true
@@ -314,15 +256,13 @@ return function(Config)
 		if not Folder then return Result end
 
 		for _, Spot in ipairs(Folder:GetChildren()) do
-			local Deliver = Spot:FindFirstChild("Deliver")
-			if Deliver then
-				local TriggerCF = getObjectCFrame(Deliver) or getObjectCFrame(Spot)
-				if TriggerCF then
+			if isSpotActive(Spot) then
+				local CF = getObjectCFrame(Spot)
+				if CF then
 					table.insert(Result, {
-						cf = TriggerCF,
+						cf = CF,
 						name = Spot.Name,
-						object = Spot,
-						trigger = Deliver
+						object = Spot
 					})
 				end
 			end
@@ -363,7 +303,6 @@ return function(Config)
 		self.Enabled = Value
 
 		if Value then
-			enableNoclip()
 			self.Thread = task.spawn(runLoop)
 
 			if Notification then
