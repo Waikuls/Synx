@@ -232,6 +232,7 @@ return function(Config)
 		for _ = 1, 2 do
 			if not AutoJobFeature.Enabled then return false end
 			if not SpotData.object.Parent then return true end
+			if not isSpotActive(SpotData.object) then return true end
 
 			expandTrigger(SpotData.object)
 			expandTrigger(SpotData.object:FindFirstChild("Deliver"))
@@ -330,13 +331,26 @@ return function(Config)
 	end
 
 	local function deliverAll()
-		local Spots = getActiveSpots()
-		for Index, SpotData in ipairs(Spots) do
-			if not AutoJobFeature.Enabled then return end
-			deliverAt(SpotData)
-			if Index < #Spots then
+		local Visited = {}
+		local First = true
+		while AutoJobFeature.Enabled do
+			local Spots = getActiveSpots()
+			local Target = nil
+			for _, SpotData in ipairs(Spots) do
+				if not Visited[SpotData.object] then
+					Target = SpotData
+					break
+				end
+			end
+			if not Target then return end
+
+			if not First then
 				if not cancellableWait(7) then return end
 			end
+			First = false
+
+			Visited[Target.object] = true
+			deliverAt(Target)
 		end
 	end
 
