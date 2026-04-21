@@ -12,8 +12,7 @@ return function(Config)
 		0.999972701, -1.70521943e-08, 0.00739149051
 	)
 
-	local UNDERGROUND_Y = -7
-	local CLAIM_Y = -9
+	local UNDERGROUND_Y = -9
 	local DELIVER_DEEP_Y = -9
 	local DELIVER_RISE_Y = -6
 	local DELIVER_TRIGGER_SIZE = Vector3.new(5, 14, 5)
@@ -303,12 +302,7 @@ return function(Config)
 	end
 
 	local function claimQuest()
-		local Root = getRoot()
-		if not Root then return end
-		Root.Anchored = true
-		Root.CFrame = QuestBoardCFrame + Vector3.new(0, CLAIM_Y, 0)
-		if not cancellableWait(1) then return end
-
+		safeTeleport(QuestBoardCFrame)
 		if not AutoJobFeature.Enabled then return end
 		if not cancellableWait(0.5) then return end
 
