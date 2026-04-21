@@ -20,7 +20,9 @@ return function(Config)
 		Enabled = false,
 		Thread = nil,
 		ActiveBodyMovers = {},
-		LockConnection = nil
+		LockConnection = nil,
+		NoclipConnection = nil,
+		NoclippedParts = {}
 	}
 
 	local function getRoot()
@@ -55,9 +57,37 @@ return function(Config)
 		end
 	end
 
+	local function enableNoclip()
+		if AutoJobFeature.NoclipConnection then return end
+		AutoJobFeature.NoclipConnection = RunService.Stepped:Connect(function()
+			local Character = LocalPlayer.Character
+			if not Character then return end
+			for _, Part in ipairs(Character:GetDescendants()) do
+				if Part:IsA("BasePart") and Part.CanCollide then
+					Part.CanCollide = false
+					AutoJobFeature.NoclippedParts[Part] = true
+				end
+			end
+		end)
+	end
+
+	local function disableNoclip()
+		if AutoJobFeature.NoclipConnection then
+			pcall(function() AutoJobFeature.NoclipConnection:Disconnect() end)
+			AutoJobFeature.NoclipConnection = nil
+		end
+		for Part in pairs(AutoJobFeature.NoclippedParts) do
+			if Part and Part.Parent then
+				pcall(function() Part.CanCollide = true end)
+			end
+		end
+		table.clear(AutoJobFeature.NoclippedParts)
+	end
+
 	local function restoreCharacter()
 		cleanupBodyMovers()
 		cleanupLock()
+		disableNoclip()
 		local Root = getRoot()
 		if Root then
 			pcall(function()
@@ -340,6 +370,7 @@ return function(Config)
 		self.Enabled = Value
 
 		if Value then
+			enableNoclip()
 			self.Thread = task.spawn(runLoop)
 
 			if Notification then
