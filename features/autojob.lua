@@ -1,6 +1,7 @@
 return function(Config)
 	local Players = game:GetService("Players")
 	local RunService = game:GetService("RunService")
+	local TweenService = game:GetService("TweenService")
 	local VirtualInputManager = game:GetService("VirtualInputManager")
 	local LocalPlayer = Players.LocalPlayer
 	local Notification = Config and Config.Notification
@@ -234,6 +235,32 @@ return function(Config)
 		local DeepCFrame = SpotData.cf + Vector3.new(0, DELIVER_DEEP_Y, 0)
 		local RiseCFrame = SpotData.cf + Vector3.new(0, DELIVER_RISE_Y, 0)
 		local UndergroundCFrame = SpotData.cf + Vector3.new(0, UNDERGROUND_Y, 0)
+		local TweenDuration = 3
+		local HoldDuration = 1.5
+
+		local function settleUnderground()
+			local Root = getRoot()
+			if Root then
+				Root.Anchored = true
+				Root.CFrame = UndergroundCFrame
+			end
+		end
+
+		local function waitWhileActive(Duration, ActiveTween)
+			local Deadline = os.clock() + Duration
+			while os.clock() < Deadline do
+				if not AutoJobFeature.Enabled then
+					if ActiveTween then ActiveTween:Cancel() end
+					return false
+				end
+				if not isSpotActive(SpotData.object) then
+					if ActiveTween then ActiveTween:Cancel() end
+					return true
+				end
+				task.wait(0.1)
+			end
+			return nil
+		end
 
 		for _ = 1, 5 do
 			if not AutoJobFeature.Enabled then return false end
@@ -243,44 +270,40 @@ return function(Config)
 
 			Root.Anchored = true
 			Root.CFrame = DeepCFrame
-			if not cancellableWait(0.3) then return false end
-
-			local Deadline = os.clock() + 3
-			while os.clock() < Deadline and AutoJobFeature.Enabled do
-				Root = getRoot()
-				if not Root then return false end
-
-				Root.CFrame = RiseCFrame
-				task.wait(0.1)
-				if not isSpotActive(SpotData.object) then
-					Root.CFrame = UndergroundCFrame
-					return true
-				end
-
-				if not AutoJobFeature.Enabled then return false end
-				Root.CFrame = DeepCFrame
-				task.wait(0.1)
-				if not isSpotActive(SpotData.object) then
-					Root.CFrame = UndergroundCFrame
-					return true
-				end
-			end
+			if not cancellableWait(0.5) then return false end
 
 			Root = getRoot()
-			if Root then
-				Root.CFrame = UndergroundCFrame
-			end
+			if not Root then return false end
 
-			if not AutoJobFeature.Enabled then return false end
+			local Tween = TweenService:Create(
+				Root,
+				TweenInfo.new(TweenDuration, Enum.EasingStyle.Linear, Enum.EasingDirection.InOut),
+				{CFrame = RiseCFrame}
+			)
+			Tween:Play()
 
-			if not isSpotActive(SpotData.object) then
+			local TweenResult = waitWhileActive(TweenDuration, Tween)
+			if TweenResult == true then
+				settleUnderground()
 				return true
+			elseif TweenResult == false then
+				return false
 			end
 
-			if not cancellableWait(1) then return false end
+			local HoldResult = waitWhileActive(HoldDuration, nil)
+			if HoldResult == true then
+				settleUnderground()
+				return true
+			elseif HoldResult == false then
+				return false
+			end
+
+			if not cancellableWait(0.5) then return false end
 		end
 
-		return false
+		settleUnderground()
+
+		return not isSpotActive(SpotData.object)
 	end
 
 	local function claimQuest()
