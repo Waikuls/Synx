@@ -22,6 +22,7 @@ return function(Config)
 		Thread = nil,
 		ActiveBodyMovers = {},
 		LockConnection = nil,
+		JobLockConnection = nil,
 		NoclipConnection = nil,
 		NoclippedParts = {}
 	}
@@ -58,6 +59,24 @@ return function(Config)
 		end
 	end
 
+	local function cleanupJobLock()
+		if AutoJobFeature.JobLockConnection then
+			pcall(function() AutoJobFeature.JobLockConnection:Disconnect() end)
+			AutoJobFeature.JobLockConnection = nil
+		end
+	end
+
+	local function setJobCFrame(Job, TargetCFrame)
+		if not Job or not Job.Parent then return end
+		pcall(function()
+			if Job:IsA("BasePart") then
+				Job.CFrame = TargetCFrame
+			elseif Job:IsA("Model") then
+				Job:PivotTo(TargetCFrame)
+			end
+		end)
+	end
+
 	local function enableNoclip()
 		if AutoJobFeature.NoclipConnection then return end
 		AutoJobFeature.NoclipConnection = RunService.Stepped:Connect(function()
@@ -88,6 +107,7 @@ return function(Config)
 	local function restoreCharacter()
 		cleanupBodyMovers()
 		cleanupLock()
+		cleanupJobLock()
 		disableNoclip()
 		local Root = getRoot()
 		if Root then
@@ -302,14 +322,34 @@ return function(Config)
 	end
 
 	local function claimQuest()
+		local Job = findJob()
+		local ClaimCFrame = QuestBoardCFrame + Vector3.new(0, UNDERGROUND_Y, 0)
+
+		if Job then
+			setJobCFrame(Job, ClaimCFrame)
+			AutoJobFeature.JobLockConnection = RunService.Heartbeat:Connect(function()
+				setJobCFrame(Job, ClaimCFrame)
+			end)
+		end
+
 		safeTeleport(QuestBoardCFrame)
-		if not AutoJobFeature.Enabled then return end
-		if not cancellableWait(0.5) then return end
+		if not AutoJobFeature.Enabled then
+			cleanupJobLock()
+			return
+		end
+		if not cancellableWait(0.5) then
+			cleanupJobLock()
+			return
+		end
 
 		local Prompt = findQuestBoardPrompt()
-		if not Prompt then return end
+		if not Prompt then
+			cleanupJobLock()
+			return
+		end
 
 		claimQuestAtBoard(Prompt)
+		cleanupJobLock()
 	end
 
 	local function getActiveSpots()
