@@ -128,9 +128,9 @@ return function(Config)
 	end
 
 	local function isSpotActive(Spot)
-		if not Spot then return false end
-		local Beam = Spot:FindFirstChild("b1")
-		return Beam and Beam.Enabled
+		if not Spot or not Spot.Parent then return false end
+		local Trigger = Spot:FindFirstChild("Deliver")
+		return Trigger ~= nil and Trigger:IsA("BasePart")
 	end
 
 	local function getSpotsFolder()
@@ -232,19 +232,24 @@ return function(Config)
 	end
 
 	local function deliverAt(SpotData)
-		local DeepCFrame = SpotData.cf + Vector3.new(0, DELIVER_DEEP_Y, 0)
-		local RiseTargetPos = SpotData.cf.Position + Vector3.new(0, DELIVER_RISE_Y, 0)
-		local UndergroundCFrame = SpotData.cf + Vector3.new(0, UNDERGROUND_Y, 0)
+		local Trigger = SpotData.trigger
+		if not Trigger or not Trigger.Parent then return false end
+
+		local TriggerPos = Trigger.Position
+		local TriggerCenterCFrame = CFrame.new(TriggerPos)
+		local DeepCFrame = CFrame.new(TriggerPos + Vector3.new(0, DELIVER_DEEP_Y, 0))
+		local UndergroundCFrame = CFrame.new(TriggerPos + Vector3.new(0, UNDERGROUND_Y, 0))
 
 		for _ = 1, 5 do
 			if not AutoJobFeature.Enabled then return false end
+			if not Trigger.Parent then return true end
 
 			local Root = getRoot()
 			if not Root then return false end
 
 			Root.Anchored = true
 			Root.CFrame = DeepCFrame
-			if not cancellableWait(0.5) then return false end
+			if not cancellableWait(0.3) then return false end
 
 			Root = getRoot()
 			if not Root then return false end
@@ -258,14 +263,14 @@ return function(Config)
 			local Bp = Instance.new("BodyPosition")
 			Bp.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
 			Bp.D = 1250
-			Bp.P = 2000
-			Bp.Position = RiseTargetPos
+			Bp.P = 5000
+			Bp.Position = TriggerPos
 			Bp.Parent = Root
 			table.insert(AutoJobFeature.ActiveBodyMovers, Bp)
 
 			Root.Anchored = false
 
-			local Deadline = os.clock() + 5
+			local Deadline = os.clock() + 4
 			while os.clock() < Deadline and AutoJobFeature.Enabled do
 				task.wait(0.1)
 				if not isSpotActive(SpotData.object) then break end
@@ -308,11 +313,13 @@ return function(Config)
 		if not Folder then return Result end
 
 		for _, Spot in ipairs(Folder:GetChildren()) do
-			if isSpotActive(Spot) then
+			local Trigger = Spot:FindFirstChild("Deliver")
+			if Trigger and Trigger:IsA("BasePart") then
 				table.insert(Result, {
-					cf = Spot.CFrame,
+					cf = Trigger.CFrame,
 					name = Spot.Name,
-					object = Spot
+					object = Spot,
+					trigger = Trigger
 				})
 			end
 		end
