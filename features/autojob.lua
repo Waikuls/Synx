@@ -212,13 +212,12 @@ return function(Config)
 		local SpotCFrame = SpotData.cf
 		local HoldCFrame = SpotCFrame + Vector3.new(0, UNDERGROUND_Y, 0)
 
-		expandTrigger(SpotData.object)
-		local Deliver = SpotData.object:FindFirstChild("Deliver")
-		expandTrigger(Deliver)
-
 		for _ = 1, 5 do
 			if not AutoJobFeature.Enabled then return false end
 			if not SpotData.object.Parent then return true end
+
+			expandTrigger(SpotData.object)
+			expandTrigger(SpotData.object:FindFirstChild("Deliver"))
 
 			local Root = getRoot()
 			if not Root then return false end
@@ -314,9 +313,12 @@ return function(Config)
 
 	local function deliverAll()
 		local Spots = getActiveSpots()
-		for _, SpotData in ipairs(Spots) do
+		for Index, SpotData in ipairs(Spots) do
 			if not AutoJobFeature.Enabled then return end
 			deliverAt(SpotData)
+			if Index < #Spots then
+				if not cancellableWait(5) then return end
+			end
 		end
 	end
 
@@ -326,6 +328,8 @@ return function(Config)
 			if not AutoJobFeature.Enabled then break end
 			if not cancellableWait(3) then break end
 			deliverAll()
+			if not AutoJobFeature.Enabled then break end
+			if not cancellableWait(3) then break end
 		end
 		restoreCharacter()
 		AutoJobFeature.Thread = nil
