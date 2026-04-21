@@ -206,32 +206,22 @@ return function(Config)
 		pcall(function()
 			Prompt.MaxActivationDistance = 9999
 			Prompt.RequiresLineOfSight = false
-			Prompt.HoldDuration = 0
+			Prompt.HoldDuration = 0.3
 			Prompt.Enabled = true
 		end)
 
 		for _ = 1, 3 do
 			if not AutoJobFeature.Enabled then return false end
 
-			local Fired = false
 			pcall(function()
-				if type(fireproximityprompt) == "function" then
-					fireproximityprompt(Prompt)
-					Fired = true
-				end
+				VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.E, false, game)
+			end)
+			cancellableWait(1.5)
+			pcall(function()
+				VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.E, false, game)
 			end)
 
-			if not Fired then
-				pcall(function()
-					VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.E, false, game)
-				end)
-				cancellableWait(0.4)
-				pcall(function()
-					VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.E, false, game)
-				end)
-			end
-
-			local Deadline = os.clock() + 6
+			local Deadline = os.clock() + 5
 			while os.clock() < Deadline do
 				if not AutoJobFeature.Enabled then return false end
 				if hasActiveSpot() then return true end
