@@ -129,8 +129,17 @@ return function(Config)
 
 	local function isSpotActive(Spot)
 		if not Spot or not Spot.Parent then return false end
-		local Trigger = Spot:FindFirstChild("Deliver")
-		return Trigger ~= nil and Trigger:IsA("BasePart")
+		return Spot:FindFirstChild("Deliver") ~= nil
+	end
+
+	local function getObjectCFrame(Obj)
+		if not Obj then return nil end
+		if Obj:IsA("BasePart") then return Obj.CFrame end
+		if Obj:IsA("Model") then
+			local Ok, Pivot = pcall(function() return Obj:GetPivot() end)
+			if Ok then return Pivot end
+		end
+		return nil
 	end
 
 	local function getSpotsFolder()
@@ -235,8 +244,7 @@ return function(Config)
 		local Trigger = SpotData.trigger
 		if not Trigger or not Trigger.Parent then return false end
 
-		local TriggerPos = Trigger.Position
-		local TriggerCenterCFrame = CFrame.new(TriggerPos)
+		local TriggerPos = SpotData.cf.Position
 		local DeepCFrame = CFrame.new(TriggerPos + Vector3.new(0, DELIVER_DEEP_Y, 0))
 		local UndergroundCFrame = CFrame.new(TriggerPos + Vector3.new(0, UNDERGROUND_Y, 0))
 
@@ -316,13 +324,16 @@ return function(Config)
 
 		for _, Spot in ipairs(Folder:GetChildren()) do
 			local Trigger = Spot:FindFirstChild("Deliver")
-			if Trigger and Trigger:IsA("BasePart") then
-				table.insert(Result, {
-					cf = Trigger.CFrame,
-					name = Spot.Name,
-					object = Spot,
-					trigger = Trigger
-				})
+			if Trigger then
+				local TriggerCFrame = getObjectCFrame(Trigger) or getObjectCFrame(Spot)
+				if TriggerCFrame then
+					table.insert(Result, {
+						cf = TriggerCFrame,
+						name = Spot.Name,
+						object = Spot,
+						trigger = Trigger
+					})
+				end
 			end
 		end
 
