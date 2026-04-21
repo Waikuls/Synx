@@ -175,66 +175,19 @@ return function(Config)
 		if not Prompt then return false end
 
 		pcall(function()
-			Prompt.MaxActivationDistance = 30
+			Prompt.MaxActivationDistance = 9999
 			Prompt.RequiresLineOfSight = false
-			Prompt.HoldDuration = 0.3
+			Prompt.HoldDuration = 0
 		end)
 
 		for _ = 1, 5 do
 			if not AutoJobFeature.Enabled then return false end
 
-			local Root = getRoot()
-			if not Root then return false end
-
-			if not cancellableWait(0.5) then return false end
-
-			local SavedCFrame = Root.CFrame
-
-			local Bv = Instance.new("BodyVelocity")
-			Bv.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
-			Bv.Velocity = Vector3.zero
-			Bv.Parent = Root
-			table.insert(AutoJobFeature.ActiveBodyMovers, Bv)
-
-			local Bp = Instance.new("BodyPosition")
-			Bp.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
-			Bp.D = 1000
-			Bp.P = 100000
-			Bp.Position = SavedCFrame.Position
-			Bp.Parent = Root
-			table.insert(AutoJobFeature.ActiveBodyMovers, Bp)
-
-			Root.Anchored = false
-
-			local Locked = true
-			AutoJobFeature.LockConnection = RunService.Heartbeat:Connect(function()
-				if Locked and Root.Parent then
-					Root.CFrame = SavedCFrame
-					Root.AssemblyLinearVelocity = Vector3.zero
-					Root.AssemblyAngularVelocity = Vector3.zero
+			pcall(function()
+				if type(fireproximityprompt) == "function" then
+					fireproximityprompt(Prompt)
 				end
 			end)
-
-			cancellableWait(0.3)
-			pcall(function()
-				VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.E, false, game)
-			end)
-			cancellableWait(0.5)
-			pcall(function()
-				VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.E, false, game)
-			end)
-			cancellableWait(1)
-
-			Locked = false
-			cleanupLock()
-			cleanupBodyMovers()
-
-			if not AutoJobFeature.Enabled then return false end
-
-			if Root.Parent then
-				Root.Anchored = true
-				Root.CFrame = SavedCFrame
-			end
 
 			if not cancellableWait(1.5) then return false end
 
@@ -318,42 +271,19 @@ return function(Config)
 	end
 
 	local function claimQuest()
-		local ClaimCFrame = QuestBoardCFrame + Vector3.new(0, UNDERGROUND_Y, 0)
-
-		local InitialJob = findJob()
-		if InitialJob then
-			setJobCFrame(InitialJob, ClaimCFrame)
-		elseif Notification then
-			Notification:Notify({
-				Title = "Auto Job",
-				Content = "Job not found at DelayedChildren[2]",
-				Icon = "alert-circle"
-			})
-		end
-
-		AutoJobFeature.JobLockConnection = RunService.Heartbeat:Connect(function()
-			local Job = findJob()
-			if Job then setJobCFrame(Job, ClaimCFrame) end
-		end)
-
-		safeTeleport(QuestBoardCFrame)
-		if not AutoJobFeature.Enabled then
-			cleanupJobLock()
-			return
-		end
-		if not cancellableWait(0.5) then
-			cleanupJobLock()
-			return
-		end
-
 		local Prompt = findQuestBoardPrompt()
 		if not Prompt then
-			cleanupJobLock()
+			if Notification then
+				Notification:Notify({
+					Title = "Auto Job",
+					Content = "Delivery prompt not found at DelayedChildren[2]",
+					Icon = "alert-circle"
+				})
+			end
 			return
 		end
 
 		claimQuestAtBoard(Prompt)
-		cleanupJobLock()
 	end
 
 	local function getActiveSpots()
