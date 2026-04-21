@@ -233,34 +233,8 @@ return function(Config)
 
 	local function deliverAt(SpotData)
 		local DeepCFrame = SpotData.cf + Vector3.new(0, DELIVER_DEEP_Y, 0)
-		local RiseCFrame = SpotData.cf + Vector3.new(0, DELIVER_RISE_Y, 0)
+		local RiseTargetPos = SpotData.cf.Position + Vector3.new(0, DELIVER_RISE_Y, 0)
 		local UndergroundCFrame = SpotData.cf + Vector3.new(0, UNDERGROUND_Y, 0)
-		local TweenDuration = 3
-		local HoldDuration = 1.5
-
-		local function settleUnderground()
-			local Root = getRoot()
-			if Root then
-				Root.Anchored = true
-				Root.CFrame = UndergroundCFrame
-			end
-		end
-
-		local function waitWhileActive(Duration, ActiveTween)
-			local Deadline = os.clock() + Duration
-			while os.clock() < Deadline do
-				if not AutoJobFeature.Enabled then
-					if ActiveTween then ActiveTween:Cancel() end
-					return false
-				end
-				if not isSpotActive(SpotData.object) then
-					if ActiveTween then ActiveTween:Cancel() end
-					return true
-				end
-				task.wait(0.1)
-			end
-			return nil
-		end
 
 		for _ = 1, 5 do
 			if not AutoJobFeature.Enabled then return false end
@@ -275,35 +249,46 @@ return function(Config)
 			Root = getRoot()
 			if not Root then return false end
 
-			local Tween = TweenService:Create(
-				Root,
-				TweenInfo.new(TweenDuration, Enum.EasingStyle.Linear, Enum.EasingDirection.InOut),
-				{CFrame = RiseCFrame}
-			)
-			Tween:Play()
+			local Bv = Instance.new("BodyVelocity")
+			Bv.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
+			Bv.Velocity = Vector3.zero
+			Bv.Parent = Root
+			table.insert(AutoJobFeature.ActiveBodyMovers, Bv)
 
-			local TweenResult = waitWhileActive(TweenDuration, Tween)
-			if TweenResult == true then
-				settleUnderground()
-				return true
-			elseif TweenResult == false then
-				return false
+			local Bp = Instance.new("BodyPosition")
+			Bp.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
+			Bp.D = 1250
+			Bp.P = 2000
+			Bp.Position = RiseTargetPos
+			Bp.Parent = Root
+			table.insert(AutoJobFeature.ActiveBodyMovers, Bp)
+
+			Root.Anchored = false
+
+			local Deadline = os.clock() + 5
+			while os.clock() < Deadline and AutoJobFeature.Enabled do
+				task.wait(0.1)
+				if not isSpotActive(SpotData.object) then break end
 			end
 
-			local HoldResult = waitWhileActive(HoldDuration, nil)
-			if HoldResult == true then
-				settleUnderground()
-				return true
-			elseif HoldResult == false then
-				return false
+			cleanupBodyMovers()
+
+			Root = getRoot()
+			if Root then
+				Root.Anchored = true
+				Root.CFrame = UndergroundCFrame
 			end
 
-			if not cancellableWait(0.5) then return false end
+			if not AutoJobFeature.Enabled then return false end
+
+			if not isSpotActive(SpotData.object) then
+				return true
+			end
+
+			if not cancellableWait(1) then return false end
 		end
 
-		settleUnderground()
-
-		return not isSpotActive(SpotData.object)
+		return false
 	end
 
 	local function claimQuest()
