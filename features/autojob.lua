@@ -122,16 +122,27 @@ return function(Config)
 		return AutoJobFeature.Enabled
 	end
 
+	local function jobMatchesDelivery(Job)
+		local Prompt = Job:FindFirstChildOfClass("ProximityPrompt")
+		if not Prompt then return false end
+		local ObjectText = string.lower(tostring(Prompt.ObjectText or ""))
+		local ActionText = string.lower(tostring(Prompt.ActionText or ""))
+		local Combined = ObjectText .. " " .. ActionText
+		return string.find(Combined, "deliver") ~= nil
+			or string.find(Combined, "package") ~= nil
+	end
+
 	local function findJob()
 		local DelayedChildren = workspace:FindFirstChild("DelayedChildren")
-		if DelayedChildren then
-			local Children = DelayedChildren:GetChildren()
-			local Board = Children[2]
-			if Board then
-				local Job = Board:FindFirstChild("Job")
-				if Job then return Job end
+		if not DelayedChildren then return nil end
+
+		for _, Child in ipairs(DelayedChildren:GetChildren()) do
+			local Job = Child:FindFirstChild("Job")
+			if Job and jobMatchesDelivery(Job) then
+				return Job
 			end
 		end
+
 		return nil
 	end
 
