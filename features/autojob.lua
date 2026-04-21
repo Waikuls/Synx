@@ -340,7 +340,7 @@ return function(Config)
 		end
 		Root.Anchored = true
 		Root.CFrame = CLAIM_CHARACTER_CFRAME
-		if not cancellableWait(3) then
+		if not cancellableWait(5) then
 			cleanupJobLock()
 			return
 		end
