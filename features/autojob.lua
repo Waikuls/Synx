@@ -413,7 +413,7 @@ return function(Config)
 			if not Target then return end
 
 			if not First then
-				if not cancellableWait(7) then return end
+				if not cancellableWait(10) then return end
 			end
 			First = false
 
