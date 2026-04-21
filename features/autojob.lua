@@ -1,7 +1,6 @@
 return function(Config)
 	local Players = game:GetService("Players")
 	local RunService = game:GetService("RunService")
-	local TweenService = game:GetService("TweenService")
 	local VirtualInputManager = game:GetService("VirtualInputManager")
 	local LocalPlayer = Players.LocalPlayer
 	local Notification = Config and Config.Notification
@@ -14,8 +13,6 @@ return function(Config)
 	)
 
 	local UNDERGROUND_Y = -7
-	local DELIVER_DEEP_Y = -15
-	local DELIVER_RISE_Y = -6
 
 	local AutoJobFeature = {
 		Enabled = false,
@@ -32,6 +29,16 @@ return function(Config)
 		return Character:FindFirstChild("HumanoidRootPart")
 	end
 
+	local function getObjectCFrame(Obj)
+		if not Obj then return nil end
+		if Obj:IsA("BasePart") then return Obj.CFrame end
+		if Obj:IsA("Model") then
+			local Ok, Pivot = pcall(function() return Obj:GetPivot() end)
+			if Ok then return Pivot end
+		end
+		return nil
+	end
+
 	local function cleanupBodyMovers()
 		for _, Mover in ipairs(AutoJobFeature.ActiveBodyMovers) do
 			if Mover and Mover.Parent then
@@ -43,9 +50,7 @@ return function(Config)
 
 	local function cleanupLock()
 		if AutoJobFeature.LockConnection then
-			pcall(function()
-				AutoJobFeature.LockConnection:Disconnect()
-			end)
+			pcall(function() AutoJobFeature.LockConnection:Disconnect() end)
 			AutoJobFeature.LockConnection = nil
 		end
 	end
@@ -66,9 +71,7 @@ return function(Config)
 
 	local function disableNoclip()
 		if AutoJobFeature.NoclipConnection then
-			pcall(function()
-				AutoJobFeature.NoclipConnection:Disconnect()
-			end)
+			pcall(function() AutoJobFeature.NoclipConnection:Disconnect() end)
 			AutoJobFeature.NoclipConnection = nil
 		end
 		for Part in pairs(AutoJobFeature.NoclippedParts) do
@@ -101,9 +104,9 @@ return function(Config)
 	end
 
 	local function findQuestBoardPrompt()
-		local Delayed = workspace:FindFirstChild("DelayedChildren")
-		if Delayed then
-			for _, Child in ipairs(Delayed:GetChildren()) do
+		local Board = workspace:FindFirstChild("DelayedChildren")
+		if Board then
+			for _, Child in ipairs(Board:GetChildren()) do
 				if Child.Name == "QuestBoard" or Child:FindFirstChild("Job") then
 					local Job = Child:FindFirstChild("Job")
 					if Job then
@@ -113,17 +116,15 @@ return function(Config)
 				end
 			end
 		end
-
 		local Map = workspace:FindFirstChild("Map")
 		if Map then
 			local Folder = Map:FindFirstChild("Folder")
-			local Board = Folder and Folder:FindFirstChild("QuestBoard")
-			local Job = Board and Board:FindFirstChild("Job")
+			local Board2 = Folder and Folder:FindFirstChild("QuestBoard")
+			local Job = Board2 and Board2:FindFirstChild("Job")
 			if Job then
 				return Job:FindFirstChildOfClass("ProximityPrompt")
 			end
 		end
-
 		return nil
 	end
 
@@ -132,28 +133,10 @@ return function(Config)
 		return Spot:FindFirstChild("Deliver") ~= nil
 	end
 
-	local function getObjectCFrame(Obj)
-		if not Obj then return nil end
-		if Obj:IsA("BasePart") then return Obj.CFrame end
-		if Obj:IsA("Model") then
-			local Ok, Pivot = pcall(function() return Obj:GetPivot() end)
-			if Ok then return Pivot end
-		end
-		return nil
-	end
-
 	local function getSpotsFolder()
 		local Jobs = workspace:FindFirstChild("Jobs")
 		local Delivery = Jobs and Jobs:FindFirstChild("Delivery")
 		return Delivery and Delivery:FindFirstChild("Spots")
-	end
-
-	local function safeTeleport(TargetCFrame)
-		local Root = getRoot()
-		if not Root then return end
-		Root.Anchored = true
-		Root.CFrame = TargetCFrame + Vector3.new(0, UNDERGROUND_Y, 0)
-		cancellableWait(2)
 	end
 
 	local function hasActiveSpot()
@@ -165,6 +148,14 @@ return function(Config)
 		return false
 	end
 
+	local function safeTeleport(TargetCFrame)
+		local Root = getRoot()
+		if not Root then return end
+		Root.Anchored = true
+		Root.CFrame = TargetCFrame + Vector3.new(0, UNDERGROUND_Y, 0)
+		cancellableWait(2)
+	end
+
 	local function claimQuestAtBoard(Prompt)
 		if not Prompt then return false end
 
@@ -174,7 +165,7 @@ return function(Config)
 			Prompt.HoldDuration = 0.3
 		end)
 
-		for Attempt = 1, 5 do
+		for _ = 1, 5 do
 			if not AutoJobFeature.Enabled then return false end
 
 			local Root = getRoot()
@@ -241,22 +232,18 @@ return function(Config)
 	end
 
 	local function deliverAt(SpotData)
-		local Trigger = SpotData.trigger
-		if not Trigger or not Trigger.Parent then return false end
-
-		local TriggerPos = SpotData.cf.Position
-		local DeepCFrame = CFrame.new(TriggerPos + Vector3.new(0, DELIVER_DEEP_Y, 0))
-		local UndergroundCFrame = CFrame.new(TriggerPos + Vector3.new(0, UNDERGROUND_Y, 0))
+		local SpotCFrame = SpotData.cf
+		local HoldPos = SpotCFrame.Position + Vector3.new(0, UNDERGROUND_Y, 0)
 
 		for _ = 1, 5 do
 			if not AutoJobFeature.Enabled then return false end
-			if not Trigger.Parent then return true end
+			if not SpotData.object.Parent then return true end
 
 			local Root = getRoot()
 			if not Root then return false end
 
 			Root.Anchored = true
-			Root.CFrame = DeepCFrame
+			Root.CFrame = SpotCFrame + Vector3.new(0, UNDERGROUND_Y, 0)
 			if not cancellableWait(0.3) then return false end
 
 			Root = getRoot()
@@ -270,29 +257,26 @@ return function(Config)
 
 			local Bp = Instance.new("BodyPosition")
 			Bp.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
-			Bp.D = 1250
-			Bp.P = 5000
-			Bp.Position = TriggerPos
+			Bp.D = 1000
+			Bp.P = 100000
+			Bp.Position = HoldPos
 			Bp.Parent = Root
 			table.insert(AutoJobFeature.ActiveBodyMovers, Bp)
 
 			Root.Anchored = false
 
-			local Deadline = os.clock() + 4
-			while os.clock() < Deadline and AutoJobFeature.Enabled do
-				task.wait(0.1)
-				if not isSpotActive(SpotData.object) then break end
-			end
+			cancellableWait(2)
 
 			cleanupBodyMovers()
 
-			Root = getRoot()
-			if Root then
-				Root.Anchored = true
-				Root.CFrame = UndergroundCFrame
-			end
-
 			if not AutoJobFeature.Enabled then return false end
+
+			Root = getRoot()
+			if not Root then return false end
+			Root.Anchored = true
+			Root.CFrame = SpotCFrame + Vector3.new(0, UNDERGROUND_Y, 0)
+
+			if not cancellableWait(5) then return false end
 
 			if not isSpotActive(SpotData.object) then
 				return true
@@ -323,15 +307,13 @@ return function(Config)
 		if not Folder then return Result end
 
 		for _, Spot in ipairs(Folder:GetChildren()) do
-			local Trigger = Spot:FindFirstChild("Deliver")
-			if Trigger then
-				local TriggerCFrame = getObjectCFrame(Trigger) or getObjectCFrame(Spot)
-				if TriggerCFrame then
+			if isSpotActive(Spot) then
+				local CF = getObjectCFrame(Spot)
+				if CF then
 					table.insert(Result, {
-						cf = TriggerCFrame,
+						cf = CF,
 						name = Spot.Name,
-						object = Spot,
-						trigger = Trigger
+						object = Spot
 					})
 				end
 			end
