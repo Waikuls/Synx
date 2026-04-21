@@ -13,6 +13,8 @@ return function(Config)
 	)
 
 	local UNDERGROUND_Y = -7
+	local DELIVER_RISE_Y = -3
+	local DELIVER_TRIGGER_SIZE = Vector3.new(5, 10, 5)
 
 	local AutoJobFeature = {
 		Enabled = false,
@@ -204,13 +206,14 @@ return function(Config)
 	local function expandTrigger(Part)
 		if not Part or not Part:IsA("BasePart") then return end
 		pcall(function()
-			Part.Size = Vector3.new(40, 40, 40)
+			Part.Size = DELIVER_TRIGGER_SIZE
 		end)
 	end
 
 	local function deliverAt(SpotData)
 		local SpotCFrame = SpotData.cf
-		local HoldCFrame = SpotCFrame + Vector3.new(0, UNDERGROUND_Y, 0)
+		local UndergroundCFrame = SpotCFrame + Vector3.new(0, UNDERGROUND_Y, 0)
+		local RisePos = SpotCFrame.Position + Vector3.new(0, DELIVER_RISE_Y, 0)
 
 		for _ = 1, 5 do
 			if not AutoJobFeature.Enabled then return false end
@@ -223,8 +226,8 @@ return function(Config)
 			if not Root then return false end
 
 			Root.Anchored = true
-			Root.CFrame = HoldCFrame
-			if not cancellableWait(0.3) then return false end
+			Root.CFrame = UndergroundCFrame
+			if not cancellableWait(0.2) then return false end
 
 			Root = getRoot()
 			if not Root then return false end
@@ -238,42 +241,34 @@ return function(Config)
 			local Bp = Instance.new("BodyPosition")
 			Bp.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
 			Bp.D = 1000
-			Bp.P = 100000
-			Bp.Position = HoldCFrame.Position
+			Bp.P = 5000
+			Bp.Position = RisePos
 			Bp.Parent = Root
 			table.insert(AutoJobFeature.ActiveBodyMovers, Bp)
 
 			Root.Anchored = false
 
-			local Locked = true
-			AutoJobFeature.LockConnection = RunService.Heartbeat:Connect(function()
-				if Locked and Root.Parent then
-					Root.CFrame = HoldCFrame
-					Root.AssemblyLinearVelocity = Vector3.zero
-					Root.AssemblyAngularVelocity = Vector3.zero
-				end
-			end)
+			local Deadline = os.clock() + 2
+			while os.clock() < Deadline and AutoJobFeature.Enabled do
+				task.wait(0.1)
+				if not isSpotActive(SpotData.object) then break end
+			end
 
-			cancellableWait(2)
-
-			Locked = false
-			cleanupLock()
 			cleanupBodyMovers()
 
-			if not AutoJobFeature.Enabled then return false end
-
 			Root = getRoot()
-			if not Root then return false end
-			Root.Anchored = true
-			Root.CFrame = HoldCFrame
+			if Root then
+				Root.Anchored = true
+				Root.CFrame = UndergroundCFrame
+			end
 
-			if not cancellableWait(5) then return false end
+			if not AutoJobFeature.Enabled then return false end
 
 			if not isSpotActive(SpotData.object) then
 				return true
 			end
 
-			if not cancellableWait(1) then return false end
+			if not cancellableWait(0.5) then return false end
 		end
 
 		return false
@@ -317,7 +312,7 @@ return function(Config)
 			if not AutoJobFeature.Enabled then return end
 			deliverAt(SpotData)
 			if Index < #Spots then
-				if not cancellableWait(5) then return end
+				if not cancellableWait(2) then return end
 			end
 		end
 	end
