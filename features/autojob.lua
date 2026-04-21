@@ -343,7 +343,7 @@ return function(Config)
 			if not AutoJobFeature.Enabled then return end
 			deliverAt(SpotData)
 			if Index < #Spots then
-				if not cancellableWait(5) then return end
+				if not cancellableWait(7) then return end
 			end
 		end
 	end
