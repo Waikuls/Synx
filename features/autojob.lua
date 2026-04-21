@@ -210,7 +210,7 @@ return function(Config)
 			Prompt.Enabled = true
 		end)
 
-		for _ = 1, 2 do
+		for _ = 1, 3 do
 			if not AutoJobFeature.Enabled then return false end
 
 			local Fired = false
@@ -231,10 +231,11 @@ return function(Config)
 				end)
 			end
 
-			if not cancellableWait(3) then return false end
-
-			if hasActiveSpot() then
-				return true
+			local Deadline = os.clock() + 6
+			while os.clock() < Deadline do
+				if not AutoJobFeature.Enabled then return false end
+				if hasActiveSpot() then return true end
+				task.wait(0.3)
 			end
 		end
 
@@ -328,36 +329,20 @@ return function(Config)
 
 		setJobCFrame(Job, CLAIM_JOB_CFRAME)
 
-		AutoJobFeature.JobLockConnection = RunService.Heartbeat:Connect(function()
-			local CurrentJob = findJob()
-			if CurrentJob then setJobCFrame(CurrentJob, CLAIM_JOB_CFRAME) end
-		end)
-
 		local Root = getRoot()
-		if not Root then
-			cleanupJobLock()
-			return
-		end
+		if not Root then return end
 		Root.Anchored = true
 		Root.CFrame = CLAIM_CHARACTER_CFRAME
-		if not cancellableWait(5) then
-			cleanupJobLock()
-			return
-		end
+		if not cancellableWait(5) then return end
 
-		if not AutoJobFeature.Enabled then
-			cleanupJobLock()
-			return
-		end
+		if not AutoJobFeature.Enabled then return end
+
+		setJobCFrame(Job, CLAIM_JOB_CFRAME)
 
 		local Prompt = Job:FindFirstChildOfClass("ProximityPrompt")
-		if not Prompt then
-			cleanupJobLock()
-			return
-		end
+		if not Prompt then return end
 
 		claimQuestAtBoard(Prompt)
-		cleanupJobLock()
 	end
 
 	local function getActiveSpots()
@@ -412,7 +397,7 @@ return function(Config)
 			if not cancellableWait(3) then break end
 			deliverAll()
 			if not AutoJobFeature.Enabled then break end
-			if not cancellableWait(3) then break end
+			if not cancellableWait(10) then break end
 		end
 		restoreCharacter()
 		AutoJobFeature.Thread = nil
