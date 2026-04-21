@@ -4,6 +4,7 @@ return function(Config)
 	local WheyFeature = Config.WheyFeature
 	local StaminaFeature = Config.StaminaFeature
 	local AutoTrainFeature = Config.AutoTrainFeature
+	local AutoJobFeature = Config.AutoJobFeature
 
 	local Food = Main:AddSection({
 		Name = "FOOD",
@@ -114,5 +115,21 @@ return function(Config)
 			end
 		end,
 		Flag = "AutoTrainMaxFatigue"
+	})
+
+	local AutoJob = Main:AddSection({
+		Name = "AUTO JOB",
+		Position = "right",
+		Height = 10
+	})
+
+	AutoJob:AddToggle({
+		Name = "Enabled",
+		Callback = function(Value)
+			if AutoJobFeature then
+				AutoJobFeature:SetEnabled(Value)
+			end
+		end,
+		Flag = "AutoJob"
 	})
 end

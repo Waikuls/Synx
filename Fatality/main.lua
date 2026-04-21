@@ -60,7 +60,8 @@ local function hasCompleteLocalProject()
 		"features/stamina.lua",
 		"features/stats.lua",
 		"features/webhook.lua",
-		"features/whey.lua"
+		"features/whey.lua",
+		"features/autojob.lua"
 	}
 
 	for _, LocalPath in ipairs(RequiredLocalFiles) do
@@ -358,6 +359,18 @@ local function createFallbackFoodFeature(ErrorMessage)
 	}
 end
 
+local function createFallbackAutoJobFeature(ErrorMessage)
+	notifyModuleFailure("features/autojob.lua", ErrorMessage)
+
+	return {
+		SetEnabled = function()
+			return false
+		end,
+		Destroy = function()
+		end
+	}
+end
+
 local function createFallbackAutoTrainFeature(ErrorMessage)
 	notifyModuleFailure("features/autotrain.lua", ErrorMessage)
 
@@ -560,6 +573,7 @@ local CreateESP = safeLoadModule("features/esp.lua", createFallbackESP)
 local CreateFreecamFeature = safeLoadModule("features/freecam.lua", createFallbackFreecamFeature)
 local CreateFoodFeature = safeLoadModule("features/food.lua", createFallbackFoodFeature)
 local CreateAutoTrainFeature = safeLoadModule("features/autotrain.lua", createFallbackAutoTrainFeature)
+local CreateAutoJobFeature = safeLoadModule("features/autojob.lua", createFallbackAutoJobFeature)
 local CreateStaminaFeature = safeLoadModule("features/stamina.lua", createFallbackStaminaFeature)
 local CreateWebhookFeature = safeLoadModule("features/webhook.lua", createFallbackWebhookFeature)
 local CreateWheyFeature = safeLoadModule("features/whey.lua", createFallbackWheyFeature)
@@ -600,6 +614,9 @@ local AutoTrainFeature = safeCreateModule("features/autotrain.lua", CreateAutoTr
 	FoodFeature = FoodFeature,
 	WheyFeature = WheyFeature
 }, createFallbackAutoTrainFeature)
+local AutoJobFeature = safeCreateModule("features/autojob.lua", CreateAutoJobFeature, {
+	Notification = Notification
+}, createFallbackAutoJobFeature)
 local StaminaFeature = safeCreateModule("features/stamina.lua", CreateStaminaFeature, {
 	Notification = Notification
 }, createFallbackStaminaFeature)
@@ -618,7 +635,8 @@ safeRunModule("ui/main.lua", CreateMainUI, {
 	FoodFeature = FoodFeature,
 	WheyFeature = WheyFeature,
 	StaminaFeature = StaminaFeature,
-	AutoTrainFeature = AutoTrainFeature
+	AutoTrainFeature = AutoTrainFeature,
+	AutoJobFeature = AutoJobFeature
 })
 
 safeRunModule("ui/visual.lua", CreateVisualUI, {
@@ -975,6 +993,7 @@ safeBuildBlock("Fatality/main.lua:MISC_STATIC", function()
 			FreecamFeature:Destroy()
 			FoodFeature:Destroy()
 			AutoTrainFeature:Destroy()
+			AutoJobFeature:Destroy()
 			StaminaFeature:Destroy()
 			StatsUI:Destroy()
 			table.clear(Fatality.DragBlacklist)
