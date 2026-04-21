@@ -107,27 +107,28 @@ return function(Config)
 		return AutoJobFeature.Enabled
 	end
 
-	local function findQuestBoardPrompt()
-		local Board = workspace:FindFirstChild("DelayedChildren")
-		if Board then
-			for _, Child in ipairs(Board:GetChildren()) do
-				if Child.Name == "QuestBoard" or Child:FindFirstChild("Job") then
-					local Job = Child:FindFirstChild("Job")
-					if Job then
-						local Prompt = Job:FindFirstChildOfClass("ProximityPrompt")
-						if Prompt then return Prompt end
-					end
-				end
+	local function findJob()
+		local DelayedChildren = workspace:FindFirstChild("DelayedChildren")
+		if DelayedChildren then
+			for _, Child in ipairs(DelayedChildren:GetChildren()) do
+				local Job = Child:FindFirstChild("Job")
+				if Job then return Job end
 			end
 		end
 		local Map = workspace:FindFirstChild("Map")
 		if Map then
 			local Folder = Map:FindFirstChild("Folder")
-			local Board2 = Folder and Folder:FindFirstChild("QuestBoard")
-			local Job = Board2 and Board2:FindFirstChild("Job")
-			if Job then
-				return Job:FindFirstChildOfClass("ProximityPrompt")
-			end
+			local Board = Folder and Folder:FindFirstChild("QuestBoard")
+			local Job = Board and Board:FindFirstChild("Job")
+			if Job then return Job end
+		end
+		return nil
+	end
+
+	local function findQuestBoardPrompt()
+		local Job = findJob()
+		if Job then
+			return Job:FindFirstChildOfClass("ProximityPrompt")
 		end
 		return nil
 	end
@@ -307,20 +308,23 @@ return function(Config)
 	end
 
 	local function claimQuest()
-		local DelayedChildren = workspace:FindFirstChild("DelayedChildren")
-		local QuestBoardModel = DelayedChildren and DelayedChildren:FindFirstChild("QuestBoard")
-		local Job = QuestBoardModel and QuestBoardModel:FindFirstChild("Job")
+		local Job = findJob()
+		local ClaimCFrame = QuestBoardCFrame + Vector3.new(0, CLAIM_Y, 0)
 
-		if Job and Job:IsA("BasePart") then
+		if Job then
 			pcall(function()
-				Job.CFrame = QuestBoardCFrame + Vector3.new(0, CLAIM_Y, 0)
+				if Job:IsA("BasePart") then
+					Job.CFrame = ClaimCFrame
+				elseif Job:IsA("Model") then
+					Job:PivotTo(ClaimCFrame)
+				end
 			end)
 		end
 
 		local Root = getRoot()
 		if not Root then return end
 		Root.Anchored = true
-		Root.CFrame = QuestBoardCFrame + Vector3.new(0, CLAIM_Y, 0)
+		Root.CFrame = ClaimCFrame
 		if not cancellableWait(1) then return end
 
 		if not AutoJobFeature.Enabled then return end
