@@ -201,8 +201,19 @@ return function(Config)
 		return false
 	end
 
+	local function expandTrigger(Part)
+		if not Part or not Part:IsA("BasePart") then return end
+		pcall(function()
+			Part.Size = Vector3.new(40, 40, 40)
+		end)
+	end
+
 	local function deliverAt(SpotData)
 		local SpotCFrame = SpotData.cf
+
+		expandTrigger(SpotData.object)
+		local Deliver = SpotData.object:FindFirstChild("Deliver")
+		expandTrigger(Deliver)
 
 		for _ = 1, 5 do
 			if not AutoJobFeature.Enabled then return false end
