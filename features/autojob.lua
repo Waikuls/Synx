@@ -167,7 +167,8 @@ return function(Config)
 
 	local function isSpotActive(Spot)
 		if not Spot or not Spot.Parent then return false end
-		return Spot:FindFirstChild("Deliver") ~= nil
+		local Beam = Spot:FindFirstChild("b1")
+		return Beam ~= nil and Beam.Enabled == true
 	end
 
 	local function getSpotsFolder()
