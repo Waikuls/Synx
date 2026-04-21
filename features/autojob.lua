@@ -213,15 +213,56 @@ return function(Config)
 		for _ = 1, 3 do
 			if not AutoJobFeature.Enabled then return false end
 
+			local Root = getRoot()
+			if not Root then return false end
+
+			local SavedCFrame = Root.CFrame
+
+			local Bv = Instance.new("BodyVelocity")
+			Bv.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
+			Bv.Velocity = Vector3.zero
+			Bv.Parent = Root
+			table.insert(AutoJobFeature.ActiveBodyMovers, Bv)
+
+			local Bp = Instance.new("BodyPosition")
+			Bp.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
+			Bp.D = 1000
+			Bp.P = 100000
+			Bp.Position = SavedCFrame.Position
+			Bp.Parent = Root
+			table.insert(AutoJobFeature.ActiveBodyMovers, Bp)
+
+			Root.Anchored = false
+
+			local Locked = true
+			AutoJobFeature.LockConnection = RunService.Heartbeat:Connect(function()
+				if Locked and Root.Parent then
+					Root.CFrame = SavedCFrame
+					Root.AssemblyLinearVelocity = Vector3.zero
+					Root.AssemblyAngularVelocity = Vector3.zero
+				end
+			end)
+
+			cancellableWait(0.5)
 			pcall(function()
 				VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.E, false, game)
 			end)
-			cancellableWait(3)
+			cancellableWait(1.5)
 			pcall(function()
 				VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.E, false, game)
 			end)
+			cancellableWait(1)
 
-			local Deadline = os.clock() + 5
+			Locked = false
+			cleanupLock()
+			cleanupBodyMovers()
+
+			if Root.Parent then
+				Root.Anchored = true
+				Root.CFrame = SavedCFrame
+			end
+
+			local Deadline = os.clock() + 3
 			while os.clock() < Deadline do
 				if not AutoJobFeature.Enabled then return false end
 				if hasActiveSpot() then return true end
