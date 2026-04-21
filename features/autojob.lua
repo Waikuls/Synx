@@ -12,7 +12,9 @@ return function(Config)
 		0.999972701, -1.70521943e-08, 0.00739149051
 	)
 
-	local UNDERGROUND_Y = -6
+	local UNDERGROUND_Y = -7
+	local DELIVER_DEEP_Y = -9
+	local DELIVER_RISE_Y = -6
 
 	local AutoJobFeature = {
 		Enabled = false,
@@ -229,6 +231,8 @@ return function(Config)
 	end
 
 	local function deliverAt(SpotData)
+		local DeepCFrame = SpotData.cf + Vector3.new(0, DELIVER_DEEP_Y, 0)
+		local RiseCFrame = SpotData.cf + Vector3.new(0, DELIVER_RISE_Y, 0)
 		local UndergroundCFrame = SpotData.cf + Vector3.new(0, UNDERGROUND_Y, 0)
 
 		for _ = 1, 5 do
@@ -238,55 +242,32 @@ return function(Config)
 			if not Root then return false end
 
 			Root.Anchored = true
-			Root.CFrame = UndergroundCFrame
+			Root.CFrame = DeepCFrame
 			if not cancellableWait(0.3) then return false end
-
-			Root = getRoot()
-			if not Root then return false end
-
-			local Bv = Instance.new("BodyVelocity")
-			Bv.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
-			Bv.Velocity = Vector3.zero
-			Bv.Parent = Root
-			table.insert(AutoJobFeature.ActiveBodyMovers, Bv)
-
-			local Bp = Instance.new("BodyPosition")
-			Bp.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
-			Bp.D = 1000
-			Bp.P = 100000
-			Bp.Position = UndergroundCFrame.Position
-			Bp.Parent = Root
-			table.insert(AutoJobFeature.ActiveBodyMovers, Bp)
-
-			Root.Anchored = false
-
-			local StartTime = os.clock()
-			AutoJobFeature.LockConnection = RunService.Heartbeat:Connect(function()
-				if Root.Parent then
-					local T = (os.clock() - StartTime) * 10
-					local Offset = Vector3.new(
-						math.cos(T) * 2.5,
-						math.sin(T * 3) * 0.5,
-						math.sin(T) * 2.5
-					)
-					Root.CFrame = UndergroundCFrame + Offset
-					Root.AssemblyLinearVelocity = Vector3.zero
-					Root.AssemblyAngularVelocity = Vector3.zero
-				end
-			end)
 
 			local Deadline = os.clock() + 3
 			while os.clock() < Deadline and AutoJobFeature.Enabled do
-				task.wait(0.1)
-				if not isSpotActive(SpotData.object) then break end
-			end
+				Root = getRoot()
+				if not Root then return false end
 
-			cleanupLock()
-			cleanupBodyMovers()
+				Root.CFrame = RiseCFrame
+				task.wait(0.1)
+				if not isSpotActive(SpotData.object) then
+					Root.CFrame = UndergroundCFrame
+					return true
+				end
+
+				if not AutoJobFeature.Enabled then return false end
+				Root.CFrame = DeepCFrame
+				task.wait(0.1)
+				if not isSpotActive(SpotData.object) then
+					Root.CFrame = UndergroundCFrame
+					return true
+				end
+			end
 
 			Root = getRoot()
 			if Root then
-				Root.Anchored = true
 				Root.CFrame = UndergroundCFrame
 			end
 
