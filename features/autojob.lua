@@ -281,8 +281,6 @@ return function(Config)
 	end
 
 	local function claimQuest()
-		if hasActiveSpot() then return end
-
 		safeTeleport(QuestBoardCFrame)
 		if not AutoJobFeature.Enabled then return end
 		if not cancellableWait(2) then return end
@@ -324,13 +322,10 @@ return function(Config)
 
 	local function runLoop()
 		while AutoJobFeature.Enabled do
-			if hasActiveSpot() then
-				deliverAll()
-			else
-				claimQuest()
-				if not AutoJobFeature.Enabled then break end
-				if not cancellableWait(2) then break end
-			end
+			claimQuest()
+			if not AutoJobFeature.Enabled then break end
+			if not cancellableWait(3) then break end
+			deliverAll()
 		end
 		restoreCharacter()
 		AutoJobFeature.Thread = nil
