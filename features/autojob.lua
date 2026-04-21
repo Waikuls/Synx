@@ -122,28 +122,13 @@ return function(Config)
 		return AutoJobFeature.Enabled
 	end
 
-	local function jobMatchesDelivery(Job)
-		local Prompt = Job:FindFirstChildOfClass("ProximityPrompt")
-		if not Prompt then return false end
-		local ObjectText = string.lower(tostring(Prompt.ObjectText or ""))
-		local ActionText = string.lower(tostring(Prompt.ActionText or ""))
-		local Combined = ObjectText .. " " .. ActionText
-		return string.find(Combined, "deliver") ~= nil
-			or string.find(Combined, "package") ~= nil
-	end
-
 	local function findJob()
 		local DelayedChildren = workspace:FindFirstChild("DelayedChildren")
 		if not DelayedChildren then return nil end
-
-		for _, Child in ipairs(DelayedChildren:GetChildren()) do
-			local Job = Child:FindFirstChild("Job")
-			if Job and jobMatchesDelivery(Job) then
-				return Job
-			end
-		end
-
-		return nil
+		local Children = DelayedChildren:GetChildren()
+		local Board = Children[2]
+		if not Board then return nil end
+		return Board:FindFirstChild("Job")
 	end
 
 	local function findQuestBoardPrompt()
@@ -196,16 +181,29 @@ return function(Config)
 			Prompt.MaxActivationDistance = 9999
 			Prompt.RequiresLineOfSight = false
 			Prompt.HoldDuration = 0
+			Prompt.Enabled = true
 		end)
 
 		for _ = 1, 5 do
 			if not AutoJobFeature.Enabled then return false end
 
+			local Fired = false
 			pcall(function()
 				if type(fireproximityprompt) == "function" then
 					fireproximityprompt(Prompt)
+					Fired = true
 				end
 			end)
+
+			if not Fired then
+				pcall(function()
+					VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.E, false, game)
+				end)
+				cancellableWait(0.4)
+				pcall(function()
+					VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.E, false, game)
+				end)
+			end
 
 			if not cancellableWait(1.5) then return false end
 
