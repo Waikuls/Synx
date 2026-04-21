@@ -13,7 +13,6 @@ return function(Config)
 	)
 
 	local UNDERGROUND_Y = -7
-	local CLAIM_Y = -9
 	local DELIVER_DEEP_Y = -9
 	local DELIVER_RISE_Y = -6
 	local DELIVER_TRIGGER_SIZE = Vector3.new(5, 14, 5)
@@ -303,25 +302,7 @@ return function(Config)
 	end
 
 	local function claimQuest()
-		local Job = findJob()
-		local ClaimCFrame = QuestBoardCFrame + Vector3.new(0, CLAIM_Y, 0)
-
-		if Job then
-			pcall(function()
-				if Job:IsA("BasePart") then
-					Job.CFrame = ClaimCFrame
-				elseif Job:IsA("Model") then
-					Job:PivotTo(ClaimCFrame)
-				end
-			end)
-		end
-
-		local Root = getRoot()
-		if not Root then return end
-		Root.Anchored = true
-		Root.CFrame = ClaimCFrame
-		if not cancellableWait(1) then return end
-
+		safeTeleport(QuestBoardCFrame)
 		if not AutoJobFeature.Enabled then return end
 		if not cancellableWait(0.5) then return end
 
