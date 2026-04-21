@@ -69,11 +69,7 @@ return function(Config)
 	local function setJobCFrame(Job, TargetCFrame)
 		if not Job or not Job.Parent then return end
 		pcall(function()
-			if Job:IsA("BasePart") then
-				Job.CFrame = TargetCFrame
-			elseif Job:IsA("Model") then
-				Job:PivotTo(TargetCFrame)
-			end
+			Job:PivotTo(TargetCFrame)
 		end)
 	end
 
@@ -322,15 +318,23 @@ return function(Config)
 	end
 
 	local function claimQuest()
-		local Job = findJob()
 		local ClaimCFrame = QuestBoardCFrame + Vector3.new(0, UNDERGROUND_Y, 0)
 
-		if Job then
-			setJobCFrame(Job, ClaimCFrame)
-			AutoJobFeature.JobLockConnection = RunService.Heartbeat:Connect(function()
-				setJobCFrame(Job, ClaimCFrame)
-			end)
+		local InitialJob = findJob()
+		if InitialJob then
+			setJobCFrame(InitialJob, ClaimCFrame)
+		elseif Notification then
+			Notification:Notify({
+				Title = "Auto Job",
+				Content = "Job not found at DelayedChildren[2]",
+				Icon = "alert-circle"
+			})
 		end
+
+		AutoJobFeature.JobLockConnection = RunService.Heartbeat:Connect(function()
+			local Job = findJob()
+			if Job then setJobCFrame(Job, ClaimCFrame) end
+		end)
 
 		safeTeleport(QuestBoardCFrame)
 		if not AutoJobFeature.Enabled then
