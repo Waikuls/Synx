@@ -215,7 +215,7 @@ return function(Config)
 		local UndergroundCFrame = SpotCFrame + Vector3.new(0, UNDERGROUND_Y, 0)
 		local RisePos = SpotCFrame.Position + Vector3.new(0, DELIVER_RISE_Y, 0)
 
-		for _ = 1, 5 do
+		for _ = 1, 2 do
 			if not AutoJobFeature.Enabled then return false end
 			if not SpotData.object.Parent then return true end
 
@@ -312,7 +312,7 @@ return function(Config)
 			if not AutoJobFeature.Enabled then return end
 			deliverAt(SpotData)
 			if Index < #Spots then
-				if not cancellableWait(2) then return end
+				if not cancellableWait(5) then return end
 			end
 		end
 	end
