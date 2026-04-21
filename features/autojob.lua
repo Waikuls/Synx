@@ -19,7 +19,8 @@ return function(Config)
 		Thread = nil,
 		ActiveBodyMovers = {},
 		LockConnection = nil,
-		NoclipConnection = nil
+		NoclipConnection = nil,
+		NoclippedParts = {}
 	}
 
 	local function getRoot()
@@ -54,6 +55,7 @@ return function(Config)
 			for _, Part in ipairs(Character:GetDescendants()) do
 				if Part:IsA("BasePart") and Part.CanCollide then
 					Part.CanCollide = false
+					AutoJobFeature.NoclippedParts[Part] = true
 				end
 			end
 		end)
@@ -66,6 +68,12 @@ return function(Config)
 			end)
 			AutoJobFeature.NoclipConnection = nil
 		end
+		for Part in pairs(AutoJobFeature.NoclippedParts) do
+			if Part and Part.Parent then
+				pcall(function() Part.CanCollide = true end)
+			end
+		end
+		table.clear(AutoJobFeature.NoclippedParts)
 	end
 
 	local function restoreCharacter()
