@@ -5,17 +5,13 @@ return function(Config)
 	local LocalPlayer = Players.LocalPlayer
 	local Notification = Config and Config.Notification
 
-	local QuestBoardCFrame = CFrame.new(
-		1438.12988, 24.8087788, -375.287689,
-		0.00739149051, -5.10186169e-08, -0.999972701,
-		1.74288317e-08, 1, -5.0891181e-08,
-		0.999972701, -1.70521943e-08, 0.00739149051
-	)
+	local CLAIM_CHARACTER_CFRAME = CFrame.new(1455.616, 24.701, -375.237)
+	local CLAIM_JOB_CFRAME = CFrame.new(1450.071, 25.397, -374.693)
 
-	local UNDERGROUND_Y = -9
 	local DELIVER_DEEP_Y = -9
 	local DELIVER_RISE_Y = -6
 	local DELIVER_TRIGGER_SIZE = Vector3.new(5, 14, 5)
+	local UNDERGROUND_Y = -9
 
 	local AutoJobFeature = {
 		Enabled = false,
@@ -122,13 +118,43 @@ return function(Config)
 		return AutoJobFeature.Enabled
 	end
 
+	local function jobMatchesDelivery(Job)
+		local Prompt = Job:FindFirstChildOfClass("ProximityPrompt")
+		if Prompt then
+			local ObjectText = string.lower(tostring(Prompt.ObjectText or ""))
+			local ActionText = string.lower(tostring(Prompt.ActionText or ""))
+			if string.find(ObjectText, "deliver") or string.find(ObjectText, "package")
+				or string.find(ActionText, "deliver") or string.find(ActionText, "package") then
+				return true
+			end
+		end
+		local Parent = Job.Parent
+		if Parent then
+			local Name = string.lower(Parent.Name)
+			if string.find(Name, "deliver") or string.find(Name, "package") then
+				return true
+			end
+		end
+		return false
+	end
+
 	local function findJob()
 		local DelayedChildren = workspace:FindFirstChild("DelayedChildren")
 		if not DelayedChildren then return nil end
+
+		for _, Child in ipairs(DelayedChildren:GetChildren()) do
+			local Job = Child:FindFirstChild("Job")
+			if Job and jobMatchesDelivery(Job) then
+				return Job
+			end
+		end
+
 		local Children = DelayedChildren:GetChildren()
-		local Board = Children[2]
-		if not Board then return nil end
-		return Board:FindFirstChild("Job")
+		if Children[2] then
+			return Children[2]:FindFirstChild("Job")
+		end
+
+		return nil
 	end
 
 	local function findQuestBoardPrompt()
@@ -288,23 +314,50 @@ return function(Config)
 	end
 
 	local function claimQuest()
-		safeTeleport(QuestBoardCFrame)
-		if not AutoJobFeature.Enabled then return end
-		if not cancellableWait(0.5) then return end
-
-		local Prompt = findQuestBoardPrompt()
-		if not Prompt then
+		local Job = findJob()
+		if not Job then
 			if Notification then
 				Notification:Notify({
 					Title = "Auto Job",
-					Content = "Delivery prompt not found",
+					Content = "Delivery Job not found",
 					Icon = "alert-circle"
 				})
 			end
 			return
 		end
 
+		setJobCFrame(Job, CLAIM_JOB_CFRAME)
+
+		AutoJobFeature.JobLockConnection = RunService.Heartbeat:Connect(function()
+			local CurrentJob = findJob()
+			if CurrentJob then setJobCFrame(CurrentJob, CLAIM_JOB_CFRAME) end
+		end)
+
+		local Root = getRoot()
+		if not Root then
+			cleanupJobLock()
+			return
+		end
+		Root.Anchored = true
+		Root.CFrame = CLAIM_CHARACTER_CFRAME
+		if not cancellableWait(1) then
+			cleanupJobLock()
+			return
+		end
+
+		if not AutoJobFeature.Enabled then
+			cleanupJobLock()
+			return
+		end
+
+		local Prompt = Job:FindFirstChildOfClass("ProximityPrompt")
+		if not Prompt then
+			cleanupJobLock()
+			return
+		end
+
 		claimQuestAtBoard(Prompt)
+		cleanupJobLock()
 	end
 
 	local function getActiveSpots()
