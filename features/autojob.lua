@@ -210,6 +210,7 @@ return function(Config)
 
 	local function deliverAt(SpotData)
 		local SpotCFrame = SpotData.cf
+		local HoldCFrame = SpotCFrame + Vector3.new(0, UNDERGROUND_Y, 0)
 
 		expandTrigger(SpotData.object)
 		local Deliver = SpotData.object:FindFirstChild("Deliver")
@@ -223,18 +224,49 @@ return function(Config)
 			if not Root then return false end
 
 			Root.Anchored = true
-			Root.CFrame = SpotCFrame + Vector3.new(0, UNDERGROUND_Y, 0)
+			Root.CFrame = HoldCFrame
 			if not cancellableWait(0.3) then return false end
 
 			Root = getRoot()
 			if not Root then return false end
+
+			local Bv = Instance.new("BodyVelocity")
+			Bv.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
+			Bv.Velocity = Vector3.zero
+			Bv.Parent = Root
+			table.insert(AutoJobFeature.ActiveBodyMovers, Bv)
+
+			local Bp = Instance.new("BodyPosition")
+			Bp.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
+			Bp.D = 1000
+			Bp.P = 100000
+			Bp.Position = HoldCFrame.Position
+			Bp.Parent = Root
+			table.insert(AutoJobFeature.ActiveBodyMovers, Bp)
+
 			Root.Anchored = false
-			if not cancellableWait(2) then return false end
+
+			local Locked = true
+			AutoJobFeature.LockConnection = RunService.Heartbeat:Connect(function()
+				if Locked and Root.Parent then
+					Root.CFrame = HoldCFrame
+					Root.AssemblyLinearVelocity = Vector3.zero
+					Root.AssemblyAngularVelocity = Vector3.zero
+				end
+			end)
+
+			cancellableWait(2)
+
+			Locked = false
+			cleanupLock()
+			cleanupBodyMovers()
+
+			if not AutoJobFeature.Enabled then return false end
 
 			Root = getRoot()
 			if not Root then return false end
 			Root.Anchored = true
-			Root.CFrame = SpotCFrame + Vector3.new(0, UNDERGROUND_Y, 0)
+			Root.CFrame = HoldCFrame
 
 			if not cancellableWait(5) then return false end
 
