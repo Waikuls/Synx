@@ -260,29 +260,37 @@ return function(Config)
 
 			Root.Anchored = false
 
-			local Locked = true
+			local StartTime = os.clock()
 			AutoJobFeature.LockConnection = RunService.Heartbeat:Connect(function()
-				if Locked and Root.Parent then
-					Root.CFrame = UndergroundCFrame
+				if Root.Parent then
+					local T = (os.clock() - StartTime) * 10
+					local Offset = Vector3.new(
+						math.cos(T) * 2.5,
+						math.sin(T * 3) * 0.5,
+						math.sin(T) * 2.5
+					)
+					Root.CFrame = UndergroundCFrame + Offset
 					Root.AssemblyLinearVelocity = Vector3.zero
 					Root.AssemblyAngularVelocity = Vector3.zero
 				end
 			end)
 
-			cancellableWait(2)
+			local Deadline = os.clock() + 3
+			while os.clock() < Deadline and AutoJobFeature.Enabled do
+				task.wait(0.1)
+				if not isSpotActive(SpotData.object) then break end
+			end
 
-			Locked = false
 			cleanupLock()
 			cleanupBodyMovers()
 
-			if not AutoJobFeature.Enabled then return false end
-
 			Root = getRoot()
-			if not Root then return false end
-			Root.Anchored = true
-			Root.CFrame = UndergroundCFrame
+			if Root then
+				Root.Anchored = true
+				Root.CFrame = UndergroundCFrame
+			end
 
-			if not cancellableWait(5) then return false end
+			if not AutoJobFeature.Enabled then return false end
 
 			if not isSpotActive(SpotData.object) then
 				return true
