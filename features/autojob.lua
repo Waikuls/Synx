@@ -14,7 +14,7 @@ return function(Config)
 	)
 
 	local UNDERGROUND_Y = -7
-	local DELIVER_DEEP_Y = -9
+	local DELIVER_DEEP_Y = -15
 	local DELIVER_RISE_Y = -6
 
 	local AutoJobFeature = {
