@@ -13,6 +13,7 @@ return function(Config)
 	)
 
 	local UNDERGROUND_Y = -7
+	local CLAIM_Y = -9
 	local DELIVER_DEEP_Y = -9
 	local DELIVER_RISE_Y = -6
 	local DELIVER_TRIGGER_SIZE = Vector3.new(5, 14, 5)
@@ -306,7 +307,22 @@ return function(Config)
 	end
 
 	local function claimQuest()
-		safeTeleport(QuestBoardCFrame)
+		local DelayedChildren = workspace:FindFirstChild("DelayedChildren")
+		local QuestBoardModel = DelayedChildren and DelayedChildren:FindFirstChild("QuestBoard")
+		local Job = QuestBoardModel and QuestBoardModel:FindFirstChild("Job")
+
+		if Job and Job:IsA("BasePart") then
+			pcall(function()
+				Job.CFrame = QuestBoardCFrame + Vector3.new(0, CLAIM_Y, 0)
+			end)
+		end
+
+		local Root = getRoot()
+		if not Root then return end
+		Root.Anchored = true
+		Root.CFrame = QuestBoardCFrame + Vector3.new(0, CLAIM_Y, 0)
+		if not cancellableWait(1) then return end
+
 		if not AutoJobFeature.Enabled then return end
 		if not cancellableWait(0.5) then return end
 
