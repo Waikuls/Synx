@@ -7,7 +7,7 @@ return function(Config)
 	local LocalPlayer = Players.LocalPlayer
 	local Notification = Config and Config.Notification
 
-	warn("[KELV][OpTraining] module loaded version=v59-slow-retap-keepalive")
+	warn("[KELV][OpTraining] module loaded version=v60-stamina-log")
 
 	local WaypointStorageFolder = "KELV"
 	local WaypointStoragePath = "KELV/optraining_waypoints.json"
@@ -984,15 +984,16 @@ return function(Config)
 	local function maintainSprint()
 		local Stamina = getStaminaPercent()
 
-		-- Hysteresis: sprint until stamina drops to SprintStopPercent,
-		-- then walk until stamina recovers above SprintResumePercent.
-		-- Between those two thresholds, keep the current mode.
 		if SprintHeld then
 			if Stamina <= OpTrainingFeature.SprintStopPercent then
+				warn(string.format("[KELV][OpTraining] stamina %.1f%% <= %d%%, sprint OFF",
+					Stamina, OpTrainingFeature.SprintStopPercent))
 				sprintOff()
 			end
 		else
 			if Stamina >= OpTrainingFeature.SprintResumePercent then
+				warn(string.format("[KELV][OpTraining] stamina %.1f%% >= %d%%, sprint ON",
+					Stamina, OpTrainingFeature.SprintResumePercent))
 				sprintOn()
 			end
 		end
