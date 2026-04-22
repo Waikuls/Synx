@@ -192,15 +192,23 @@ return function(Config)
 		self.BedOriginalCFrame = Bed:GetPivot()
 		self.PlayerReturnCFrame = RootPart.CFrame
 
+		local UndergroundCFrame = self.BedOriginalCFrame * CFrame.new(0, self.BedOffsetY, 0)
+
+		pcall(function()
+			Bed:PivotTo(UndergroundCFrame)
+		end)
+
+		task.wait(0.1)
+
 		local Character = getCharacter()
 
 		if Character then
 			pcall(function()
-				Character:PivotTo(self.BedOriginalCFrame * CFrame.new(0, 3, 0))
+				Character:PivotTo(UndergroundCFrame * CFrame.new(0, 3, 0))
 			end)
 		end
 
-		task.wait(0.25)
+		task.wait(0.15)
 
 		if type(fireproximityprompt) == "function" then
 			pcall(fireproximityprompt, Prompt, Prompt.HoldDuration)
@@ -221,16 +229,25 @@ return function(Config)
 		end
 
 		if not isSeatedOnBed(Bed) then
-			notify("OP Training", "Bed use failed — not enough cash?", "alert-circle")
+			notify("OP Training", "Bed use failed — server rejected or no cash", "alert-circle")
+
+			pcall(function()
+				Bed:PivotTo(self.BedOriginalCFrame)
+			end)
+
+			local CharacterRestore = getCharacter()
+
+			if CharacterRestore and self.PlayerReturnCFrame then
+				pcall(function()
+					CharacterRestore:PivotTo(self.PlayerReturnCFrame)
+				end)
+			end
+
 			self.State = "idle"
 			return
 		end
 
 		notify("OP Training", "Sleeping underground")
-
-		pcall(function()
-			Bed:PivotTo(self.BedOriginalCFrame * CFrame.new(0, self.BedOffsetY, 0))
-		end)
 
 		local SleepStart = os.clock()
 
