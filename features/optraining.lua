@@ -329,11 +329,16 @@ return function(Config)
 
 		if (Now - self.LastDebugAt) >= self.DebugInterval then
 			self.LastDebugAt = Now
+			local Passes = type(Fatigue) == "number" and Fatigue >= self.FatigueTriggerPercent
 			warn(string.format(
-				"[KELV][OpTraining] Fatigue=%s (trigger>=%s) RefSet=%s",
-				tostring(Fatigue),
+				"[KELV][OpTraining] Fatigue=%.6f type=%s trigger>=%s passes=%s RefSet=%s state=%s lastAttempt=%.2fs-ago",
+				type(Fatigue) == "number" and Fatigue or -1,
+				type(Fatigue),
 				tostring(self.FatigueTriggerPercent),
-				tostring(self.AutoTrainRef ~= nil)
+				tostring(Passes),
+				tostring(self.AutoTrainRef ~= nil),
+				tostring(self.State),
+				Now - self.LastAttemptAt
 			))
 		end
 
