@@ -81,6 +81,17 @@ return function(Config)
 		Flag = "AutoTrain"
 	})
 
+	AutoTrain:AddToggle({
+		Name = "OP Training",
+		Default = AutoTrainFeature and AutoTrainFeature:IsOpTrainingEnabled() or false,
+		Callback = function(Value)
+			if AutoTrainFeature then
+				AutoTrainFeature:SetOpTrainingEnabled(Value)
+			end
+		end,
+		Flag = "AutoTrainOpTraining"
+	})
+
 	AutoTrain:AddDropdown({
 		Name = "Type",
 		Default = AutoTrainFeature and AutoTrainFeature:GetSelectedType() or "Bike",

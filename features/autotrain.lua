@@ -97,6 +97,7 @@ return function(Config)
 	AutoTrainFeature.StaminaThreshold = 3
 	AutoTrainFeature.StartStaminaPercent = 60
 	AutoTrainFeature.ContinueLevel = "mid"
+	AutoTrainFeature.OpTrainingEnabled = false
 	AutoTrainFeature.StaminaPaused = false
 	AutoTrainFeature.MaxFatigueAction = "Do nothing"
 	AutoTrainFeature.FatigueNotified = false
@@ -2004,6 +2005,15 @@ return function(Config)
 			return true
 		end
 		return false
+	end
+
+	function AutoTrainFeature:IsOpTrainingEnabled()
+		return self.OpTrainingEnabled == true
+	end
+
+	function AutoTrainFeature:SetOpTrainingEnabled(Value)
+		self.OpTrainingEnabled = Value and true or false
+		return self.OpTrainingEnabled
 	end
 
 	function AutoTrainFeature:GetMaxFatigueAction()
