@@ -168,9 +168,12 @@ return function(Config)
 		self.State = "busy"
 		self.LastAttemptAt = os.clock()
 
+		notify("OP Training", "Triggered — starting bed routine")
+
 		local Bed = findBed()
 
 		if not Bed then
+			notify("OP Training", "Bed model not found in workspace", "alert-circle")
 			self.State = "idle"
 			return
 		end
@@ -178,6 +181,7 @@ return function(Config)
 		local Prompt = findBedPrompt(Bed)
 
 		if not Prompt then
+			notify("OP Training", "Bed has no ProximityPrompt", "alert-circle")
 			self.State = "idle"
 			return
 		end
@@ -185,6 +189,13 @@ return function(Config)
 		local RootPart = getRootPart()
 
 		if not RootPart then
+			notify("OP Training", "Character root part not found", "alert-circle")
+			self.State = "idle"
+			return
+		end
+
+		if type(fireproximityprompt) ~= "function" then
+			notify("OP Training", "fireproximityprompt unavailable in executor", "alert-circle")
 			self.State = "idle"
 			return
 		end
@@ -297,6 +308,9 @@ return function(Config)
 		self.State = "idle"
 	end
 
+	OpTrainingFeature.LastDebugAt = 0
+	OpTrainingFeature.DebugInterval = 10
+
 	function OpTrainingFeature:Step()
 		if not self.Enabled then
 			return
@@ -306,11 +320,22 @@ return function(Config)
 			return
 		end
 
-		if (os.clock() - self.LastAttemptAt) < self.RetryCooldownSeconds then
-			return
+		local Now = os.clock()
+		local Fatigue = getBodyFatigue()
+
+		if (Now - self.LastDebugAt) >= self.DebugInterval then
+			self.LastDebugAt = Now
+			warn(string.format(
+				"[KELV][OpTraining] Fatigue=%s (trigger>=%s) RefSet=%s",
+				tostring(Fatigue),
+				tostring(self.FatigueTriggerPercent),
+				tostring(self.AutoTrainRef ~= nil)
+			))
 		end
 
-		local Fatigue = getBodyFatigue()
+		if (Now - self.LastAttemptAt) < self.RetryCooldownSeconds then
+			return
+		end
 
 		if Fatigue >= self.FatigueTriggerPercent then
 			task.spawn(function()
