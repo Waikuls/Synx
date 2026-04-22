@@ -7,7 +7,7 @@ return function(Config)
 	local LocalPlayer = Players.LocalPlayer
 	local Notification = Config and Config.Notification
 
-	warn("[KELV][OpTraining] module loaded version=v44-autorotate-on")
+	warn("[KELV][OpTraining] module loaded version=v45-disable-controls-post-latch")
 
 	local WaypointStorageFolder = "KELV"
 	local WaypointStoragePath = "KELV/optraining_waypoints.json"
@@ -532,9 +532,21 @@ return function(Config)
 			pcall(function()
 				VIM:SendKeyEvent(true, Enum.KeyCode.W, false, game)
 			end)
+
+			-- After sprint state is latched by the game, cut ControlScript so
+			-- its W-based MoveDirection writes don't override our Stepped
+			-- targetdirection override.
+			task.wait(0.3)
+
+			if SprintRevision ~= MyRev or not SprintHeld then
+				return
+			end
+
+			disableDefaultControls()
+			warn("[KELV][OpTraining] ControlScript disabled after sprint latch")
 		end)
 
-		warn("[KELV][OpTraining] sprint ON (VIM W double-tap hold, v18 style)")
+		warn("[KELV][OpTraining] sprint ON (VIM W double-tap hold)")
 	end
 
 	local function sprintOff()
@@ -556,7 +568,9 @@ return function(Config)
 			end)
 		end
 
-		warn("[KELV][OpTraining] sprint OFF (W released)")
+		enableDefaultControls()
+
+		warn("[KELV][OpTraining] sprint OFF (W released, controls restored)")
 	end
 
 	local function restoreWalkSpeed()
