@@ -4,7 +4,7 @@ return function(Config)
 	local LocalPlayer = Players.LocalPlayer
 	local Notification = Config and Config.Notification
 
-	warn("[KELV][OpTraining] module loaded version=v9-maxdist-bump")
+	warn("[KELV][OpTraining] module loaded version=v10-below-seat-anchored")
 
 	local OpTrainingFeature = {}
 	OpTrainingFeature.Enabled = false
@@ -310,11 +310,13 @@ return function(Config)
 
 		local SeatPart = Prompt.Parent
 		local SeatPosition = (SeatPart and SeatPart:IsA("BasePart")) and SeatPart.Position or self.BedOriginalCFrame.Position
-		local TargetPosition = self.TestTargetPosition
+		-- Server rejects trigger from >10 studs even with MaxActivationDistance bumped.
+		-- Stay 9 studs directly below the seat — within range, below ground.
+		local TargetPosition = SeatPosition - Vector3.new(0, 9, 0)
 		local DistanceToSeat = (TargetPosition - SeatPosition).Magnitude
 
 		warn(string.format(
-			"[KELV][OpTraining] TEST v8: teleport char to test position (%.2f studs from seat), bump MaxDist, then fire prompt",
+			"[KELV][OpTraining] v10: teleport char 9 studs below seat (%.2f studs from seat), anchor HRP, fire prompt",
 			DistanceToSeat
 		))
 
