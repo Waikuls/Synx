@@ -7,7 +7,7 @@ return function(Config)
 	local LocalPlayer = Players.LocalPlayer
 	local Notification = Config and Config.Notification
 
-	warn("[KELV][OpTraining] module loaded version=v54-auto-jump-stairs")
+	warn("[KELV][OpTraining] module loaded version=v55-clear-target-between-walks")
 
 	local WaypointStorageFolder = "KELV"
 	local WaypointStoragePath = "KELV/optraining_waypoints.json"
@@ -1154,6 +1154,20 @@ return function(Config)
 				maintainSprint()
 				task.wait(0.05)
 			end
+
+			-- Clear the move target and pause briefly so the Stepped override
+			-- doesn't keep steering the character in one direction while the
+			-- next walkToPosition call is computing its path. Without this,
+			-- the character overshoots the just-reached waypoint toward the
+			-- next target while the next path is still being computed.
+			OpTrainingFeature.CurrentMoveTarget = nil
+
+			local H = getHumanoid()
+			if H then
+				pcall(function() H:Move(Vector3.new(0, 0, 0), false) end)
+			end
+
+			task.wait(0.15)
 
 			return true
 		end
