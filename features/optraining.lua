@@ -7,7 +7,7 @@ return function(Config)
 	local LocalPlayer = Players.LocalPlayer
 	local Notification = Config and Config.Notification
 
-	warn("[KELV][OpTraining] module loaded version=v51-strict-last-waypoint")
+	warn("[KELV][OpTraining] module loaded version=v52-strict-all-waypoints-3d")
 
 	local WaypointStorageFolder = "KELV"
 	local WaypointStoragePath = "KELV/optraining_waypoints.json"
@@ -1168,7 +1168,8 @@ return function(Config)
 	end
 
 	local function walkThroughWaypoints(WaypointList)
-		local StrictArrivalDistance = 4
+		local StrictArrivalDistance = 5
+		local MaxYDelta = 3
 		local MaxRetries = 3
 
 		for Index, Waypoint in ipairs(WaypointList) do
@@ -1179,10 +1180,6 @@ return function(Config)
 			warn(string.format("[KELV][OpTraining] walking to waypoint %d/%d: %s",
 				Index, #WaypointList, tostring(Waypoint)))
 
-			-- Try up to MaxRetries times to actually reach the waypoint.
-			-- Walking once and trusting walkToPosition could leave the
-			-- character stuck a few studs away, which then breaks the next
-			-- pathfinding leg.
 			local Arrived = false
 
 			for Attempt = 1, MaxRetries do
@@ -1195,31 +1192,32 @@ return function(Config)
 				local R = getRootPart()
 
 				if R then
-					local Flat = Waypoint - R.Position
-					Flat = Vector3.new(Flat.X, 0, Flat.Z)
+					local Delta = Waypoint - R.Position
+					local Flat = Vector3.new(Delta.X, 0, Delta.Z)
+					local FlatDist = Flat.Magnitude
+					local YDist = math.abs(Delta.Y)
 
-					if Flat.Magnitude <= StrictArrivalDistance then
+					-- Require both flat AND vertical proximity — catches the
+					-- case where character ended up directly below/above the
+					-- waypoint (different floor) with matching XZ.
+					if FlatDist <= StrictArrivalDistance and YDist <= MaxYDelta then
 						Arrived = true
 						break
 					end
 
 					warn(string.format(
-						"[KELV][OpTraining] waypoint %d attempt %d: still %.1f studs away, retry",
-						Index, Attempt, Flat.Magnitude
+						"[KELV][OpTraining] waypoint %d attempt %d: flat=%.1f Y=%.1f (need flat<=%d Y<=%d)",
+						Index, Attempt, FlatDist, YDist, StrictArrivalDistance, MaxYDelta
 					))
 				end
 			end
 
 			if not Arrived then
-				warn(string.format("[KELV][OpTraining] waypoint %d unreachable after %d attempts — skipping",
+				warn(string.format("[KELV][OpTraining] waypoint %d unreachable after %d attempts",
 					Index, MaxRetries))
-
-				-- On the FINAL waypoint, abort the whole route — we don't
-				-- want to teleport to the bed if we couldn't reach the
-				-- last marked checkpoint.
-				if Index == #WaypointList then
-					return false
-				end
+				-- Abort the whole route if any waypoint fails — don't let
+				-- the character skip to the bed bypassing marked checkpoints.
+				return false
 			end
 		end
 
