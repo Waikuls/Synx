@@ -401,6 +401,7 @@ return function(Config)
 	local function deliverAll()
 		local Visited = {}
 		local First = true
+		local Delivered = false
 		while AutoJobFeature.Enabled do
 			local Spots = getActiveSpots()
 			local Target = nil
@@ -410,7 +411,12 @@ return function(Config)
 					break
 				end
 			end
-			if not Target then return end
+			if not Target then
+				if Delivered then
+					cancellableWait(3.4)
+				end
+				return
+			end
 
 			if not First then
 				if not cancellableWait(20) then return end
@@ -419,6 +425,7 @@ return function(Config)
 
 			Visited[Target.object] = true
 			deliverAt(Target)
+			Delivered = true
 		end
 	end
 
@@ -429,7 +436,7 @@ return function(Config)
 			if not cancellableWait(3) then break end
 			deliverAll()
 			if not AutoJobFeature.Enabled then break end
-			if not cancellableWait(50) then break end
+			if not cancellableWait(10) then break end
 		end
 		restoreCharacter()
 		AutoJobFeature.Thread = nil
