@@ -7,7 +7,7 @@ return function(Config)
 	local LocalPlayer = Players.LocalPlayer
 	local Notification = Config and Config.Notification
 
-	warn("[KELV][OpTraining] module loaded version=v52-strict-all-waypoints-3d")
+	warn("[KELV][OpTraining] module loaded version=v53-fallback-stuck-jump")
 
 	local WaypointStorageFolder = "KELV"
 	local WaypointStoragePath = "KELV/optraining_waypoints.json"
@@ -1145,6 +1145,10 @@ return function(Config)
 
 		OpTrainingFeature.CurrentMoveTarget = TargetPos
 
+		local LastStuckCheckAt = os.clock()
+		local LastStuckPos = Root.Position
+		local StuckCount = 0
+
 		while os.clock() - StartAt < TimeoutSec do
 			if not OpTrainingFeature.Enabled then
 				return false, "disabled"
@@ -1158,6 +1162,40 @@ return function(Config)
 
 			if (R.Position - TargetPos).Magnitude <= OpTrainingFeature.WaypointArriveDistance then
 				return true
+			end
+
+			-- Stuck detection in fallback-direct path too (character often
+			-- grinds against a wall when pathfind had NoPath)
+			if os.clock() - LastStuckCheckAt >= 1.0 then
+				local Moved = (R.Position - LastStuckPos).Magnitude
+
+				if Moved < 1 then
+					StuckCount = StuckCount + 1
+
+					local Hum = getHumanoid()
+
+					if Hum then
+						pcall(function()
+							Hum.Jump = true
+						end)
+					end
+
+					warn(string.format("[KELV][OpTraining] fallback stuck #%d (dist=%.1f moved=%.2f)",
+						StuckCount,
+						(R.Position - TargetPos).Magnitude,
+						Moved
+					))
+
+					if StuckCount >= 3 then
+						warn("[KELV][OpTraining] fallback stuck 3x, giving up to let the caller retry")
+						return false, "fallback stuck"
+					end
+				else
+					StuckCount = 0
+				end
+
+				LastStuckCheckAt = os.clock()
+				LastStuckPos = R.Position
 			end
 
 			maintainSprint()
@@ -1310,12 +1348,24 @@ return function(Config)
 		local WalkOk, WalkReason = walkToPosition(SeatPosition, self.WalkTimeoutSeconds)
 
 		if not WalkOk then
-			warn(string.format("[KELV][OpTraining] walk to seat failed: %s", tostring(WalkReason)))
-			notify("OP Training", "Could not reach bed", "alert-circle")
-			restoreWalkSpeed()
-			stopMoveOverride()
-			self.State = "idle"
-			return
+			-- Pathfind/fallback couldn't put us on top of the seat, but the
+			-- proximity prompt only needs us within its MaxActivationDistance
+			-- (typically 10 studs). If we're close enough, try firing anyway
+			-- instead of aborting.
+			local RCheck = getRootPart()
+			local CloseEnough = RCheck
+				and (RCheck.Position - SeatPosition).Magnitude <= (Prompt.MaxActivationDistance or 10)
+
+			if not CloseEnough then
+				warn(string.format("[KELV][OpTraining] walk to seat failed: %s", tostring(WalkReason)))
+				notify("OP Training", "Could not reach bed", "alert-circle")
+				restoreWalkSpeed()
+				stopMoveOverride()
+				self.State = "idle"
+				return
+			end
+
+			warn("[KELV][OpTraining] seat walk failed but close enough, firing prompt anyway")
 		end
 
 		stopMoveOverride()
