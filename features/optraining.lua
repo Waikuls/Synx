@@ -4,7 +4,7 @@ return function(Config)
 	local LocalPlayer = Players.LocalPlayer
 	local Notification = Config and Config.Notification
 
-	warn("[KELV][OpTraining] module loaded version=v12-user-deep-position")
+	warn("[KELV][OpTraining] module loaded version=v13-anchor-after-seat")
 
 	local OpTrainingFeature = {}
 	OpTrainingFeature.Enabled = false
@@ -329,24 +329,9 @@ return function(Config)
 			warn(string.format("[KELV][OpTraining] Character:PivotTo to %s ok=%s err=%s", tostring(TargetPosition), tostring(CharOk), tostring(CharErr)))
 		end
 
-		task.wait(0.15)
+		task.wait(0.2)
 
-		-- Anchor HRP so seat weld cannot pull us back up
-		local AnchoredRoot = RootPart
-		if AnchoredRoot then
-			pcall(function()
-				AnchoredRoot.Anchored = true
-			end)
-			warn("[KELV][OpTraining] HRP anchored")
-		end
-
-		-- Try raising MaxActivationDistance before firing (server might use property)
-		local OriginalMaxDist = Prompt.MaxActivationDistance
-		pcall(function()
-			Prompt.MaxActivationDistance = 1000
-		end)
-		warn(string.format("[KELV][OpTraining] bumped MaxActivationDistance %s -> %s", tostring(OriginalMaxDist), tostring(Prompt.MaxActivationDistance)))
-
+		-- Fire prompt FIRST while HRP is unanchored (Seat:Sit needs physics-movable HRP)
 		local FireOk, FireErr = pcall(fireproximityprompt, Prompt, Prompt.HoldDuration)
 		warn(string.format("[KELV][OpTraining] fireproximityprompt ok=%s err=%s", tostring(FireOk), tostring(FireErr)))
 
@@ -367,14 +352,10 @@ return function(Config)
 		local Seated = isSeatedOnBed(Bed)
 		warn(string.format("[KELV][OpTraining] after mount wait, seated=%s SeatPart=%s", tostring(Seated), tostring(getHumanoid() and getHumanoid().SeatPart or "nil")))
 
+		local AnchoredRoot = RootPart
+
 		if not Seated then
 			notify("OP Training", "Bed use failed — server rejected or no cash", "alert-circle")
-
-			if AnchoredRoot then
-				pcall(function()
-					AnchoredRoot.Anchored = false
-				end)
-			end
 
 			pcall(function()
 				Bed:PivotTo(self.BedOriginalCFrame)
@@ -390,6 +371,14 @@ return function(Config)
 
 			self.State = "idle"
 			return
+		end
+
+		-- Seat confirmed. Anchor NOW so the weld can't drag HRP around.
+		if AnchoredRoot then
+			pcall(function()
+				AnchoredRoot.Anchored = true
+			end)
+			warn("[KELV][OpTraining] HRP anchored post-seat")
 		end
 
 		-- Server has seated us; anchor keeps HRP fixed so physics can't move it
