@@ -7,7 +7,7 @@ return function(Config)
 	local LocalPlayer = Players.LocalPlayer
 	local Notification = Config and Config.Notification
 
-	warn("[KELV][OpTraining] module loaded version=v41-sprint-no-spin")
+	warn("[KELV][OpTraining] module loaded version=v43-move-override")
 
 	local WaypointStorageFolder = "KELV"
 	local WaypointStoragePath = "KELV/optraining_waypoints.json"
@@ -45,6 +45,8 @@ return function(Config)
 	OpTrainingFeature.ControlsDisabled = false
 	OpTrainingFeature.SprintKeepaliveConnection = nil
 	OpTrainingFeature.SprintKeepaliveInterval = 1
+	OpTrainingFeature.MoveOverrideConnection = nil
+	OpTrainingFeature.CurrentMoveTarget = nil
 
 	local function getCharacter()
 		return LocalPlayer.Character
@@ -872,6 +874,57 @@ return function(Config)
 		end
 	end
 
+	local function startMoveOverride()
+		if OpTrainingFeature.MoveOverrideConnection then
+			return
+		end
+
+		OpTrainingFeature.MoveOverrideConnection = RunService.Stepped:Connect(function()
+			local Target = OpTrainingFeature.CurrentMoveTarget
+
+			if not Target then
+				return
+			end
+
+			local R = getRootPart()
+			local H = getHumanoid()
+
+			if not R or not H then
+				return
+			end
+
+			local Delta = Target - R.Position
+			local Flat = Vector3.new(Delta.X, 0, Delta.Z)
+
+			if Flat.Magnitude < 0.5 then
+				pcall(function()
+					H:Move(Vector3.new(0, 0, 0), false)
+				end)
+			else
+				pcall(function()
+					H:Move(Flat.Unit, false)
+				end)
+			end
+		end)
+	end
+
+	local function stopMoveOverride()
+		OpTrainingFeature.CurrentMoveTarget = nil
+
+		if OpTrainingFeature.MoveOverrideConnection then
+			OpTrainingFeature.MoveOverrideConnection:Disconnect()
+			OpTrainingFeature.MoveOverrideConnection = nil
+		end
+
+		local H = getHumanoid()
+
+		if H then
+			pcall(function()
+				H:Move(Vector3.new(0, 0, 0), false)
+			end)
+		end
+	end
+
 	local function walkToPosition(TargetPos, TimeoutSec)
 		TimeoutSec = TimeoutSec or 20
 
@@ -883,6 +936,7 @@ return function(Config)
 		end
 
 		maintainSprint()
+		startMoveOverride()
 
 		-- Speed measurement (read-only, doesn't touch WalkSpeed)
 		task.spawn(function()
@@ -938,7 +992,7 @@ return function(Config)
 					Hum.Jump = true
 				end
 
-				Hum:MoveTo(Waypoint.Position)
+				OpTrainingFeature.CurrentMoveTarget = Waypoint.Position
 
 				local StepStart = os.clock()
 
@@ -965,15 +1019,9 @@ return function(Config)
 			return true
 		end
 
-		warn(string.format("[KELV][OpTraining] pathfind failed (status=%s), fallback direct MoveTo", tostring(Path.Status)))
+		warn(string.format("[KELV][OpTraining] pathfind failed (status=%s), fallback direct", tostring(Path.Status)))
 
-		local Hum = getHumanoid()
-
-		if not Hum then
-			return false, "no humanoid"
-		end
-
-		Hum:MoveTo(TargetPos)
+		OpTrainingFeature.CurrentMoveTarget = TargetPos
 
 		while os.clock() - StartAt < TimeoutSec do
 			if not OpTrainingFeature.Enabled then
@@ -991,10 +1039,7 @@ return function(Config)
 			end
 
 			maintainSprint()
-			task.wait(0.2)
-
-			local H = getHumanoid()
-			if H then H:MoveTo(TargetPos) end
+			task.wait(0.1)
 		end
 
 		return false, "fallback timeout"
@@ -1105,10 +1150,12 @@ return function(Config)
 			warn(string.format("[KELV][OpTraining] walk to seat failed: %s", tostring(WalkReason)))
 			notify("OP Training", "Could not reach bed", "alert-circle")
 			restoreWalkSpeed()
+			stopMoveOverride()
 			self.State = "idle"
 			return
 		end
 
+		stopMoveOverride()
 		restoreWalkSpeed()
 
 		-- Fire prompt while close to the seat
@@ -1182,6 +1229,7 @@ return function(Config)
 			walkToPosition(self.PlayerReturnCFrame.Position, self.WalkTimeoutSeconds)
 		end
 
+		stopMoveOverride()
 		restoreWalkSpeed()
 
 		notify("OP Training", "Done — fatigue recovered", "check-circle")
@@ -1275,6 +1323,7 @@ return function(Config)
 			notify("OP Training", "Enabled — camera locked, auto bed active")
 		else
 			restoreWalkSpeed()
+			stopMoveOverride()
 			unlockCamera()
 			notify("OP Training", "Disabled", "x-circle")
 		end
