@@ -7,7 +7,7 @@ return function(Config)
 	local LocalPlayer = Players.LocalPlayer
 	local Notification = Config and Config.Notification
 
-	warn("[KELV][OpTraining] module loaded version=v20-walkspeed-sprint")
+	warn("[KELV][OpTraining] module loaded version=v21-speed-enforcer")
 
 	local WaypointStorageFolder = "KELV"
 	local WaypointStoragePath = "KELV/optraining_waypoints.json"
@@ -28,7 +28,7 @@ return function(Config)
 	OpTrainingFeature.WalkTimeoutSeconds = 20
 	OpTrainingFeature.WaypointArriveDistance = 4
 	OpTrainingFeature.LowStaminaPercent = 3
-	OpTrainingFeature.RunWalkSpeed = 24
+	OpTrainingFeature.RunWalkSpeed = 32
 	OpTrainingFeature.FallbackWalkSpeed = 16
 
 	-- Waypoints keyed by AutoTrain machine type (Bike, Bench, Treadmill, ...).
@@ -42,9 +42,9 @@ return function(Config)
 	OpTrainingFeature.LastAttemptAt = 0
 	OpTrainingFeature.InputConnection = nil
 	OpTrainingFeature.CameraConnection = nil
+	OpTrainingFeature.SpeedConnection = nil
 	OpTrainingFeature.SavedCameraType = nil
 	OpTrainingFeature.SavedCameraOffset = nil
-	OpTrainingFeature.SavedMouseBehavior = nil
 
 	local function getCharacter()
 		return LocalPlayer.Character
@@ -133,10 +133,8 @@ return function(Config)
 
 		OpTrainingFeature.SavedCameraType = Camera.CameraType
 		OpTrainingFeature.SavedCameraOffset = Root.CFrame:ToObjectSpace(Camera.CFrame)
-		OpTrainingFeature.SavedMouseBehavior = UserInputService.MouseBehavior
 
 		Camera.CameraType = Enum.CameraType.Scriptable
-		UserInputService.MouseBehavior = Enum.MouseBehavior.LockCurrentPosition
 
 		OpTrainingFeature.CameraConnection = RunService.RenderStepped:Connect(function()
 			local R = getRootPart()
@@ -151,7 +149,7 @@ return function(Config)
 			end
 		end)
 
-		warn("[KELV][OpTraining] camera locked")
+		warn("[KELV][OpTraining] camera locked (mouse free)")
 	end
 
 	local function unlockCamera()
@@ -166,13 +164,8 @@ return function(Config)
 			Camera.CameraType = OpTrainingFeature.SavedCameraType
 		end
 
-		if OpTrainingFeature.SavedMouseBehavior then
-			UserInputService.MouseBehavior = OpTrainingFeature.SavedMouseBehavior
-		end
-
 		OpTrainingFeature.SavedCameraType = nil
 		OpTrainingFeature.SavedCameraOffset = nil
-		OpTrainingFeature.SavedMouseBehavior = nil
 
 		warn("[KELV][OpTraining] camera unlocked")
 	end
@@ -190,6 +183,61 @@ return function(Config)
 	local SprintOn = false
 	local OriginalWalkSpeed = nil
 
+	local function tapWKeyOnce()
+		local VIM = getVirtualInputManager()
+
+		if not VIM then
+			return
+		end
+
+		task.spawn(function()
+			pcall(function()
+				VIM:SendKeyEvent(true, Enum.KeyCode.W, false, game)
+				task.wait(0.03)
+				VIM:SendKeyEvent(false, Enum.KeyCode.W, false, game)
+			end)
+		end)
+	end
+
+	local function triggerGameSprint()
+		-- Fire a double-tap of W to trigger the game's internal sprint state.
+		-- No hold afterwards so MoveTo keeps clean control of direction.
+		task.spawn(function()
+			tapWKeyOnce()
+			task.wait(0.08)
+			tapWKeyOnce()
+		end)
+	end
+
+	local function startSpeedEnforcer()
+		if OpTrainingFeature.SpeedConnection then
+			return
+		end
+
+		OpTrainingFeature.SpeedConnection = RunService.Heartbeat:Connect(function()
+			local Hum = getHumanoid()
+
+			if not Hum then
+				return
+			end
+
+			local Target = SprintOn and OpTrainingFeature.RunWalkSpeed or OpTrainingFeature.FallbackWalkSpeed
+
+			if Hum.WalkSpeed ~= Target then
+				pcall(function()
+					Hum.WalkSpeed = Target
+				end)
+			end
+		end)
+	end
+
+	local function stopSpeedEnforcer()
+		if OpTrainingFeature.SpeedConnection then
+			OpTrainingFeature.SpeedConnection:Disconnect()
+			OpTrainingFeature.SpeedConnection = nil
+		end
+	end
+
 	local function sprintOn()
 		if SprintOn then
 			return
@@ -205,11 +253,9 @@ return function(Config)
 			OriginalWalkSpeed = Humanoid.WalkSpeed
 		end
 
-		pcall(function()
-			Humanoid.WalkSpeed = OpTrainingFeature.RunWalkSpeed
-		end)
-
 		SprintOn = true
+		startSpeedEnforcer()
+		triggerGameSprint()
 	end
 
 	local function sprintOff()
@@ -217,19 +263,13 @@ return function(Config)
 			return
 		end
 
-		local Humanoid = getHumanoid()
-
-		if Humanoid then
-			pcall(function()
-				Humanoid.WalkSpeed = OpTrainingFeature.FallbackWalkSpeed
-			end)
-		end
-
 		SprintOn = false
+		-- Speed enforcer will push WalkSpeed down to FallbackWalkSpeed next frame
 	end
 
 	local function restoreWalkSpeed()
 		SprintOn = false
+		stopSpeedEnforcer()
 
 		local Humanoid = getHumanoid()
 
