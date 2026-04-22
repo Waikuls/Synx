@@ -7,7 +7,7 @@ return function(Config)
 	local LocalPlayer = Players.LocalPlayer
 	local Notification = Config and Config.Notification
 
-	warn("[KELV][OpTraining] module loaded version=v27-sprint-keepalive")
+	warn("[KELV][OpTraining] module loaded version=v28-keypress-plus-toggle")
 
 	local WaypointStorageFolder = "KELV"
 	local WaypointStoragePath = "KELV/optraining_waypoints.json"
@@ -357,6 +357,36 @@ return function(Config)
 		end
 	end
 
+	local W_VK = 0x57
+
+	local function osPressW()
+		if type(keypress) == "function" then
+			return pcall(keypress, W_VK)
+		end
+
+		return false
+	end
+
+	local function osReleaseW()
+		if type(keyrelease) == "function" then
+			return pcall(keyrelease, W_VK)
+		end
+
+		return false
+	end
+
+	local function vimPressW(IsDown)
+		local VIM = getVirtualInputManager()
+
+		if not VIM then
+			return false
+		end
+
+		return pcall(function()
+			VIM:SendKeyEvent(IsDown, Enum.KeyCode.W, false, game)
+		end)
+	end
+
 	local function sprintOn()
 		if SprintHeld then
 			return
@@ -364,10 +394,35 @@ return function(Config)
 
 		SprintHeld = true
 
+		-- Disable ControlScript so W press doesn't fight MoveTo direction
+		disableDefaultControls()
+
+		-- Try OS-level keypress first (more likely to reach game's client sprint module),
+		-- fall back to VIM if executor lacks keypress.
+		local OsOk, _ = pcall(function()
+			task.spawn(function()
+				-- First tap
+				local pressed = osPressW()
+				if not pressed then vimPressW(true) end
+				task.wait(0.03)
+
+				local released = osReleaseW()
+				if not released then vimPressW(false) end
+				task.wait(0.08)
+
+				if not SprintHeld then return end
+
+				-- Second press + HOLD
+				local pressed2 = osPressW()
+				if not pressed2 then vimPressW(true) end
+			end)
+		end)
+
+		-- Also fire the game's Run toggle remote as a complement
 		if fireRunToggle(true) then
-			warn(string.format("[KELV][OpTraining] Run toggle ON (Agility=%.2f)", getAgility()))
+			warn(string.format("[KELV][OpTraining] Run toggle ON (Agility=%.2f), keypress=%s", getAgility(), tostring(type(keypress) == "function")))
 		else
-			warn("[KELV][OpTraining] Run toggle ON failed — Toggle? remote not found")
+			warn("[KELV][OpTraining] Run toggle ON failed")
 		end
 
 		startSprintKeepalive()
@@ -381,6 +436,10 @@ return function(Config)
 		SprintHeld = false
 		stopSprintKeepalive()
 
+		-- Release W at OS level AND VIM level
+		osReleaseW()
+		vimPressW(false)
+
 		if fireRunToggle(false) then
 			warn("[KELV][OpTraining] Run toggle OFF")
 		end
@@ -388,6 +447,7 @@ return function(Config)
 
 	local function restoreWalkSpeed()
 		sprintOff()
+		enableDefaultControls()
 	end
 
 	local function findBedFromPrompt(Prompt)
