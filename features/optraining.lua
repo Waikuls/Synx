@@ -27,7 +27,8 @@ return function(Config)
 	OpTrainingFeature.RetryCooldownSeconds = 5
 	OpTrainingFeature.WalkTimeoutSeconds = 20
 	OpTrainingFeature.WaypointArriveDistance = 4
-	OpTrainingFeature.LowStaminaPercent = 20
+	OpTrainingFeature.SprintStopPercent = 3
+	OpTrainingFeature.SprintResumePercent = 20
 
 	-- Waypoints keyed by AutoTrain machine type (Bike, Bench, Treadmill, ...).
 	-- Each value is an array of Vector3 walked in order before reaching the
@@ -910,12 +911,18 @@ return function(Config)
 
 	local function maintainSprint()
 		local Stamina = getStaminaPercent()
-		local ShouldSprint = Stamina >= OpTrainingFeature.LowStaminaPercent
 
-		if ShouldSprint and not SprintHeld then
-			sprintOn()
-		elseif (not ShouldSprint) and SprintHeld then
-			sprintOff()
+		-- Hysteresis: sprint until stamina drops to SprintStopPercent,
+		-- then walk until stamina recovers above SprintResumePercent.
+		-- Between those two thresholds, keep the current mode.
+		if SprintHeld then
+			if Stamina <= OpTrainingFeature.SprintStopPercent then
+				sprintOff()
+			end
+		else
+			if Stamina >= OpTrainingFeature.SprintResumePercent then
+				sprintOn()
+			end
 		end
 	end
 
