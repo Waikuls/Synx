@@ -95,6 +95,7 @@ return function(Config)
 	AutoTrainFeature.LastProximityTriggerAt = 0
 	AutoTrainFeature.LastUiKeyAt = 0
 	AutoTrainFeature.StaminaThreshold = 3
+	AutoTrainFeature.StartStaminaPercent = 60
 	AutoTrainFeature.ContinueLevel = "mid"
 	AutoTrainFeature.StaminaPaused = false
 	AutoTrainFeature.MaxFatigueAction = "Do nothing"
@@ -1826,6 +1827,24 @@ return function(Config)
 							self:TryBikeLeave()
 						end
 					end
+					return
+				end
+			end
+		end
+
+		do
+			local StaminaPct = getStaminaPercent()
+
+			if StaminaPct < self.StartStaminaPercent then
+				local IsActive = false
+
+				if isRemoteMachine(self.SelectedType) then
+					IsActive = (self.BikeRideStartedAt > 0) or isBikeRideActive(Now)
+				elseif self.SelectedType == "Strength" or self.SelectedType == "Attack speed" then
+					IsActive = self.StrengthGlovesActive
+				end
+
+				if not IsActive then
 					return
 				end
 			end
