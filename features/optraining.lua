@@ -7,7 +7,7 @@ return function(Config)
 	local LocalPlayer = Players.LocalPlayer
 	local Notification = Config and Config.Notification
 
-	warn("[KELV][OpTraining] module loaded version=v36-firesignal-uis")
+	warn("[KELV][OpTraining] module loaded version=v37-sethidden-fakeinput")
 
 	local WaypointStorageFolder = "KELV"
 	local WaypointStoragePath = "KELV/optraining_waypoints.json"
@@ -474,29 +474,64 @@ return function(Config)
 	-- the game's own sprint detector (which is tied to UIS events) runs
 	-- exactly as it would on a real W+W keypress. Uses executor-provided
 	-- firesignal / getconnections hooks — does NOT touch WalkSpeed.
+	local function buildFakeInput(IsDown)
+		local State = IsDown and Enum.UserInputState.Begin or Enum.UserInputState.End
+
+		-- Try Instance.new("InputObject") with sethiddenproperty (some executors)
+		local FakeInput
+
+		pcall(function()
+			FakeInput = Instance.new("InputObject")
+		end)
+
+		if FakeInput then
+			local SetOk = true
+
+			if type(sethiddenproperty) == "function" then
+				pcall(sethiddenproperty, FakeInput, "KeyCode", Enum.KeyCode.W)
+				pcall(sethiddenproperty, FakeInput, "UserInputType", Enum.UserInputType.Keyboard)
+				pcall(sethiddenproperty, FakeInput, "UserInputState", State)
+			else
+				local TryOk1 = pcall(function() FakeInput.KeyCode = Enum.KeyCode.W end)
+				local TryOk2 = pcall(function() FakeInput.UserInputType = Enum.UserInputType.Keyboard end)
+				local TryOk3 = pcall(function() FakeInput.UserInputState = State end)
+
+				if not (TryOk1 and TryOk2 and TryOk3) then
+					SetOk = false
+				end
+			end
+
+			if SetOk and FakeInput.KeyCode == Enum.KeyCode.W then
+				return FakeInput
+			end
+		end
+
+		-- Fallback: raw table with same shape. Handlers that duck-type
+		-- via input.KeyCode, input.UserInputType, input.UserInputState
+		-- will work with this.
+		return {
+			KeyCode = Enum.KeyCode.W,
+			UserInputType = Enum.UserInputType.Keyboard,
+			UserInputState = State,
+		}
+	end
+
 	local function fireWInputSignal(IsDown)
 		local UIS = game:GetService("UserInputService")
 		local Signal = IsDown and UIS.InputBegan or UIS.InputEnded
+		local FakeInput = buildFakeInput(IsDown)
 
-		local FakeInput
-
-		local ObjOk = pcall(function()
-			FakeInput = Instance.new("InputObject")
-			FakeInput.KeyCode = Enum.KeyCode.W
-			FakeInput.UserInputType = Enum.UserInputType.Keyboard
-			FakeInput.UserInputState = IsDown and Enum.UserInputState.Begin or Enum.UserInputState.End
-		end)
-
-		if not ObjOk or not FakeInput then
-			return false
-		end
-
+		local IsRealInstance = typeof(FakeInput) == "Instance"
 		local Fired = false
+		local ErrSummary = {}
 
 		if type(firesignal) == "function" then
-			local Ok = pcall(firesignal, Signal, FakeInput, false)
+			local Ok, Err = pcall(firesignal, Signal, FakeInput, false)
+
 			if Ok then
 				Fired = true
+			else
+				table.insert(ErrSummary, "firesignal:" .. tostring(Err))
 			end
 		end
 
@@ -504,18 +539,35 @@ return function(Config)
 			local Ok, Conns = pcall(getconnections, Signal)
 
 			if Ok and type(Conns) == "table" then
+				local Count = 0
+
 				for _, Conn in ipairs(Conns) do
-					pcall(function()
+					local FireOk = pcall(function()
 						if type(Conn.Fire) == "function" then
 							Conn:Fire(FakeInput, false)
 						elseif type(Conn.Replicate) == "function" then
 							Conn:Replicate(FakeInput, false)
 						end
 					end)
+
+					if FireOk then
+						Count = Count + 1
+					end
 				end
 
-				Fired = #Conns > 0
+				if Count > 0 then
+					Fired = true
+				else
+					table.insert(ErrSummary, "getconnections:no fires")
+				end
+			else
+				table.insert(ErrSummary, "getconnections:" .. tostring(Conns))
 			end
+		end
+
+		if not Fired then
+			warn(string.format("[KELV][OpTraining] fireWInputSignal failed: inst=%s errs=%s",
+				tostring(IsRealInstance), table.concat(ErrSummary, " | ")))
 		end
 
 		return Fired
