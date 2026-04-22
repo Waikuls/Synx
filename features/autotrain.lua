@@ -7,6 +7,7 @@ return function(Config)
 	local Webhook = Config and Config.Webhook
 	local FoodFeature = Config and Config.FoodFeature
 	local WheyFeature = Config and Config.WheyFeature
+	local OpTrainingFeature = Config and Config.OpTrainingFeature
 
 	local AvailableTypes = {
 		"Attack speed",
@@ -2008,11 +2009,20 @@ return function(Config)
 	end
 
 	function AutoTrainFeature:IsOpTrainingEnabled()
+		if OpTrainingFeature and type(OpTrainingFeature.IsEnabled) == "function" then
+			return OpTrainingFeature:IsEnabled()
+		end
+
 		return self.OpTrainingEnabled == true
 	end
 
 	function AutoTrainFeature:SetOpTrainingEnabled(Value)
 		self.OpTrainingEnabled = Value and true or false
+
+		if OpTrainingFeature and type(OpTrainingFeature.SetEnabled) == "function" then
+			OpTrainingFeature:SetEnabled(self.OpTrainingEnabled)
+		end
+
 		return self.OpTrainingEnabled
 	end
 

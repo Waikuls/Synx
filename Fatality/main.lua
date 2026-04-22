@@ -392,6 +392,21 @@ local function createFallbackAutoTrainFeature(ErrorMessage)
 	}
 end
 
+local function createFallbackOpTrainingFeature(ErrorMessage)
+	notifyModuleFailure("features/optraining.lua", ErrorMessage)
+
+	return {
+		SetEnabled = function()
+			return false
+		end,
+		IsEnabled = function()
+			return false
+		end,
+		Destroy = function()
+		end
+	}
+end
+
 local function createFallbackWebhookFeature(ErrorMessage)
 	notifyModuleFailure("features/webhook.lua", ErrorMessage)
 
@@ -573,6 +588,7 @@ local CreateESP = safeLoadModule("features/esp.lua", createFallbackESP)
 local CreateFreecamFeature = safeLoadModule("features/freecam.lua", createFallbackFreecamFeature)
 local CreateFoodFeature = safeLoadModule("features/food.lua", createFallbackFoodFeature)
 local CreateAutoTrainFeature = safeLoadModule("features/autotrain.lua", createFallbackAutoTrainFeature)
+local CreateOpTrainingFeature = safeLoadModule("features/optraining.lua", createFallbackOpTrainingFeature)
 local CreateAutoJobFeature = safeLoadModule("features/autojob.lua", createFallbackAutoJobFeature)
 local CreateStaminaFeature = safeLoadModule("features/stamina.lua", createFallbackStaminaFeature)
 local CreateWebhookFeature = safeLoadModule("features/webhook.lua", createFallbackWebhookFeature)
@@ -608,11 +624,15 @@ local WebhookFeature = safeCreateModule("features/webhook.lua", CreateWebhookFea
 local WheyFeature = safeCreateModule("features/whey.lua", CreateWheyFeature, {
 	Notification = Notification
 }, createFallbackWheyFeature)
+local OpTrainingFeature = safeCreateModule("features/optraining.lua", CreateOpTrainingFeature, {
+	Notification = Notification
+}, createFallbackOpTrainingFeature)
 local AutoTrainFeature = safeCreateModule("features/autotrain.lua", CreateAutoTrainFeature, {
 	Notification = Notification,
 	Webhook = WebhookFeature,
 	FoodFeature = FoodFeature,
-	WheyFeature = WheyFeature
+	WheyFeature = WheyFeature,
+	OpTrainingFeature = OpTrainingFeature
 }, createFallbackAutoTrainFeature)
 local AutoJobFeature = safeCreateModule("features/autojob.lua", CreateAutoJobFeature, {
 	Notification = Notification
@@ -993,6 +1013,7 @@ safeBuildBlock("Fatality/main.lua:MISC_STATIC", function()
 			FreecamFeature:Destroy()
 			FoodFeature:Destroy()
 			AutoTrainFeature:Destroy()
+			OpTrainingFeature:Destroy()
 			AutoJobFeature:Destroy()
 			StaminaFeature:Destroy()
 			StatsUI:Destroy()
