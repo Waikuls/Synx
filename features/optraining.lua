@@ -7,7 +7,7 @@ return function(Config)
 	local LocalPlayer = Players.LocalPlayer
 	local Notification = Config and Config.Notification
 
-	warn("[KELV][OpTraining] module loaded version=v55-clear-target-between-walks")
+	warn("[KELV][OpTraining] module loaded version=v56-sparse-path")
 
 	local WaypointStorageFolder = "KELV"
 	local WaypointStoragePath = "KELV/optraining_waypoints.json"
@@ -1015,7 +1015,10 @@ return function(Config)
 			AgentCanClimb = true,
 			AgentJumpHeight = 7,
 			AgentMaxSlope = 80,
-			WaypointSpacing = 4,
+			-- Sparser waypoints = smoother straight-line runs between them.
+			-- Pathfinding still bends around walls, but the character doesn't
+			-- wobble through tightly-packed intermediate waypoints.
+			WaypointSpacing = math.huge,
 		})
 
 		local ComputeOk = pcall(function()
