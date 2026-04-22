@@ -7,7 +7,7 @@ return function(Config)
 	local LocalPlayer = Players.LocalPlayer
 	local Notification = Config and Config.Notification
 
-	warn("[KELV][OpTraining] module loaded version=v48-no-arrival-stop")
+	warn("[KELV][OpTraining] module loaded version=v49-stuck-jump")
 
 	local WaypointStorageFolder = "KELV"
 	local WaypointStoragePath = "KELV/optraining_waypoints.json"
@@ -1012,7 +1012,10 @@ return function(Config)
 			AgentRadius = 2,
 			AgentHeight = 5,
 			AgentCanJump = true,
-			AgentMaxSlope = 60,
+			AgentCanClimb = true,
+			AgentJumpHeight = 7,
+			AgentMaxSlope = 80,
+			WaypointSpacing = 4,
 		})
 
 		local ComputeOk = pcall(function()
@@ -1049,6 +1052,8 @@ return function(Config)
 					PathIdx, #PathWaypoints, Waypoint.Position.X, Waypoint.Position.Y, Waypoint.Position.Z))
 
 				local StepStart = os.clock()
+				local LastStuckCheckAt = os.clock()
+				local LastStuckPos = Root.Position
 
 				while os.clock() - StepStart < 6 do
 					if not OpTrainingFeature.Enabled then
@@ -1063,6 +1068,25 @@ return function(Config)
 
 					if (R.Position - Waypoint.Position).Magnitude <= OpTrainingFeature.WaypointArriveDistance then
 						break
+					end
+
+					-- Stuck detection: if the character hasn't moved in 1.2s,
+					-- try a jump to unstick from ledges/stairs/small obstacles.
+					if os.clock() - LastStuckCheckAt >= 1.2 then
+						local Moved = (R.Position - LastStuckPos).Magnitude
+
+						if Moved < 1 then
+							local Hum = getHumanoid()
+							if Hum then
+								pcall(function()
+									Hum.Jump = true
+								end)
+								warn(string.format("[KELV][OpTraining] stuck at target %d (moved %.2f in 1.2s), jumping", PathIdx, Moved))
+							end
+						end
+
+						LastStuckCheckAt = os.clock()
+						LastStuckPos = R.Position
 					end
 
 					maintainSprint()
