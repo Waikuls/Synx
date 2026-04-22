@@ -4,7 +4,7 @@ return function(Config)
 	local LocalPlayer = Players.LocalPlayer
 	local Notification = Config and Config.Notification
 
-	warn("[KELV][OpTraining] module loaded version=v10-below-seat-anchored")
+	warn("[KELV][OpTraining] module loaded version=v11-deep-dive-after-seat")
 
 	local OpTrainingFeature = {}
 	OpTrainingFeature.Enabled = false
@@ -21,6 +21,7 @@ return function(Config)
 	OpTrainingFeature.SleepTimeoutSeconds = 180
 	OpTrainingFeature.RetryCooldownSeconds = 5
 	OpTrainingFeature.TestTargetPosition = Vector3.new(1743.629, 38.101, -526.156)
+	OpTrainingFeature.DeepDiveOffsetY = -500
 
 	-- Runtime state
 	OpTrainingFeature.State = "idle"
@@ -392,7 +393,22 @@ return function(Config)
 			return
 		end
 
-		notify("OP Training", "Sleeping (HRP anchored below seat)")
+		-- Now that the server has seated us, anchor keeps HRP fixed.
+		-- Weld points to HRP but cannot move it. Setting CFrame directly on
+		-- an anchored part still works — drop deep underground.
+		if AnchoredRoot then
+			local DeepCFrame = CFrame.new(SeatPosition + Vector3.new(0, self.DeepDiveOffsetY, 0))
+			pcall(function()
+				AnchoredRoot.CFrame = DeepCFrame
+			end)
+			warn(string.format(
+				"[KELV][OpTraining] after seat: HRP.CFrame set to %s (%.0f studs under seat)",
+				tostring(DeepCFrame.Position),
+				math.abs(self.DeepDiveOffsetY)
+			))
+		end
+
+		notify("OP Training", string.format("Sleeping %d studs underground", math.abs(self.DeepDiveOffsetY)))
 
 		local SleepStart = os.clock()
 
@@ -414,7 +430,15 @@ return function(Config)
 			Bed:PivotTo(self.BedOriginalCFrame)
 		end)
 
-		task.wait(0.2)
+		-- Teleport HRP back to surface first (still anchored — no gravity free-fall)
+		if AnchoredRoot and self.PlayerReturnCFrame then
+			pcall(function()
+				AnchoredRoot.CFrame = self.PlayerReturnCFrame
+			end)
+			warn("[KELV][OpTraining] HRP moved back to return position (still anchored)")
+		end
+
+		task.wait(0.1)
 
 		local Humanoid = getHumanoid()
 
@@ -428,21 +452,13 @@ return function(Config)
 			end)
 		end
 
+		task.wait(0.2)
+
 		if AnchoredRoot then
 			pcall(function()
 				AnchoredRoot.Anchored = false
 			end)
 			warn("[KELV][OpTraining] HRP unanchored")
-		end
-
-		task.wait(0.3)
-
-		local Character2 = getCharacter()
-
-		if Character2 and self.PlayerReturnCFrame then
-			pcall(function()
-				Character2:PivotTo(self.PlayerReturnCFrame)
-			end)
 		end
 
 		notify("OP Training", "Done — fatigue recovered", "check-circle")
