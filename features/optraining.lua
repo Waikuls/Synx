@@ -7,7 +7,7 @@ return function(Config)
 	local LocalPlayer = Players.LocalPlayer
 	local Notification = Config and Config.Notification
 
-	warn("[KELV][OpTraining] module loaded version=v49-stuck-jump")
+	warn("[KELV][OpTraining] module loaded version=v50-diagnostic-stuck")
 
 	local WaypointStorageFolder = "KELV"
 	local WaypointStoragePath = "KELV/optraining_waypoints.json"
@@ -1048,14 +1048,15 @@ return function(Config)
 				end
 
 				OpTrainingFeature.CurrentMoveTarget = Waypoint.Position
-				warn(string.format("[KELV][OpTraining] target %d/%d: %.0f,%.0f,%.0f",
+				warn(string.format("[KELV][OpTraining] target %d/%d: %.1f,%.1f,%.1f",
 					PathIdx, #PathWaypoints, Waypoint.Position.X, Waypoint.Position.Y, Waypoint.Position.Z))
 
 				local StepStart = os.clock()
 				local LastStuckCheckAt = os.clock()
 				local LastStuckPos = Root.Position
+				local StuckCount = 0
 
-				while os.clock() - StepStart < 6 do
+				while os.clock() - StepStart < 4 do
 					if not OpTrainingFeature.Enabled then
 						return false, "disabled"
 					end
@@ -1070,19 +1071,37 @@ return function(Config)
 						break
 					end
 
-					-- Stuck detection: if the character hasn't moved in 1.2s,
-					-- try a jump to unstick from ledges/stairs/small obstacles.
-					if os.clock() - LastStuckCheckAt >= 1.2 then
+					-- Stuck detection with logging
+					if os.clock() - LastStuckCheckAt >= 1.0 then
 						local Moved = (R.Position - LastStuckPos).Magnitude
 
 						if Moved < 1 then
+							StuckCount = StuckCount + 1
 							local Hum = getHumanoid()
+
 							if Hum then
 								pcall(function()
 									Hum.Jump = true
 								end)
-								warn(string.format("[KELV][OpTraining] stuck at target %d (moved %.2f in 1.2s), jumping", PathIdx, Moved))
 							end
+
+							local Dist = (R.Position - Waypoint.Position).Magnitude
+							warn(string.format(
+								"[KELV][OpTraining] stuck #%d at target %d: char=(%.1f,%.1f,%.1f) target=(%.1f,%.1f,%.1f) dist=%.1f moved=%.2f",
+								StuckCount, PathIdx,
+								R.Position.X, R.Position.Y, R.Position.Z,
+								Waypoint.Position.X, Waypoint.Position.Y, Waypoint.Position.Z,
+								Dist, Moved
+							))
+
+							-- After 3 stuck cycles on the same path waypoint,
+							-- skip to the next one instead of wasting time
+							if StuckCount >= 3 then
+								warn("[KELV][OpTraining] stuck 3x, skipping to next path waypoint")
+								break
+							end
+						else
+							StuckCount = 0
 						end
 
 						LastStuckCheckAt = os.clock()
