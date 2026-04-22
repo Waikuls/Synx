@@ -7,7 +7,7 @@ return function(Config)
 	local LocalPlayer = Players.LocalPlayer
 	local Notification = Config and Config.Notification
 
-	warn("[KELV][OpTraining] module loaded version=v38-hook-iskeydown")
+	warn("[KELV][OpTraining] module loaded version=v39-walk-clean")
 
 	local WaypointStorageFolder = "KELV"
 	local WaypointStoragePath = "KELV/optraining_waypoints.json"
@@ -474,134 +474,11 @@ return function(Config)
 	-- the game's own sprint detector (which is tied to UIS events) runs
 	-- exactly as it would on a real W+W keypress. Uses executor-provided
 	-- firesignal / getconnections hooks — does NOT touch WalkSpeed.
-	local function buildFakeInput(IsDown)
-		local State = IsDown and Enum.UserInputState.Begin or Enum.UserInputState.End
-
-		-- Try Instance.new("InputObject") with sethiddenproperty (some executors)
-		local FakeInput
-
-		pcall(function()
-			FakeInput = Instance.new("InputObject")
-		end)
-
-		if FakeInput then
-			local SetOk = true
-
-			if type(sethiddenproperty) == "function" then
-				pcall(sethiddenproperty, FakeInput, "KeyCode", Enum.KeyCode.W)
-				pcall(sethiddenproperty, FakeInput, "UserInputType", Enum.UserInputType.Keyboard)
-				pcall(sethiddenproperty, FakeInput, "UserInputState", State)
-			else
-				local TryOk1 = pcall(function() FakeInput.KeyCode = Enum.KeyCode.W end)
-				local TryOk2 = pcall(function() FakeInput.UserInputType = Enum.UserInputType.Keyboard end)
-				local TryOk3 = pcall(function() FakeInput.UserInputState = State end)
-
-				if not (TryOk1 and TryOk2 and TryOk3) then
-					SetOk = false
-				end
-			end
-
-			if SetOk and FakeInput.KeyCode == Enum.KeyCode.W then
-				return FakeInput
-			end
-		end
-
-		-- Fallback: raw table with same shape. Handlers that duck-type
-		-- via input.KeyCode, input.UserInputType, input.UserInputState
-		-- will work with this.
-		return {
-			KeyCode = Enum.KeyCode.W,
-			UserInputType = Enum.UserInputType.Keyboard,
-			UserInputState = State,
-		}
-	end
-
-	local function fireWInputSignal(IsDown)
-		local UIS = game:GetService("UserInputService")
-		local Signal = IsDown and UIS.InputBegan or UIS.InputEnded
-		local FakeInput = buildFakeInput(IsDown)
-
-		local IsRealInstance = typeof(FakeInput) == "Instance"
-		local Fired = false
-		local ErrSummary = {}
-
-		if type(firesignal) == "function" then
-			local Ok, Err = pcall(firesignal, Signal, FakeInput, false)
-
-			if Ok then
-				Fired = true
-			else
-				table.insert(ErrSummary, "firesignal:" .. tostring(Err))
-			end
-		end
-
-		if not Fired and type(getconnections) == "function" then
-			local Ok, Conns = pcall(getconnections, Signal)
-
-			if Ok and type(Conns) == "table" then
-				local Count = 0
-
-				for _, Conn in ipairs(Conns) do
-					local FireOk = pcall(function()
-						if type(Conn.Fire) == "function" then
-							Conn:Fire(FakeInput, false)
-						elseif type(Conn.Replicate) == "function" then
-							Conn:Replicate(FakeInput, false)
-						end
-					end)
-
-					if FireOk then
-						Count = Count + 1
-					end
-				end
-
-				if Count > 0 then
-					Fired = true
-				else
-					table.insert(ErrSummary, "getconnections:no fires")
-				end
-			else
-				table.insert(ErrSummary, "getconnections:" .. tostring(Conns))
-			end
-		end
-
-		if not Fired then
-			warn(string.format("[KELV][OpTraining] fireWInputSignal failed: inst=%s errs=%s",
-				tostring(IsRealInstance), table.concat(ErrSummary, " | ")))
-		end
-
-		return Fired
-	end
-
-	-- Install IsKeyDown hook once so that any polling-based sprint
-	-- detector in the game sees W as held while SprintHeld is true.
-	local IsKeyDownHookInstalled = false
-
-	local function installIsKeyDownHook()
-		if IsKeyDownHookInstalled then
-			return
-		end
-
-		if type(hookfunction) ~= "function" then
-			warn("[KELV][OpTraining] hookfunction unavailable — can't fake IsKeyDown")
-			return
-		end
-
-		local UIS = game:GetService("UserInputService")
-
-		local OldIsKeyDown
-		OldIsKeyDown = hookfunction(UIS.IsKeyDown, function(self, KeyCode)
-			if SprintHeld and (KeyCode == Enum.KeyCode.W or KeyCode == 0x57) then
-				return true
-			end
-
-			return OldIsKeyDown(self, KeyCode)
-		end)
-
-		IsKeyDownHookInstalled = true
-		warn("[KELV][OpTraining] IsKeyDown hook installed")
-	end
-
+	-- Couldn't find a script-triggerable path to the game's sprint speed
+	-- detector (firesignal UIS.InputBegan, getconnections, hookfunction
+	-- IsKeyDown, IsSprinting Changed all fail to flip WalkSpeed).
+	-- Keep IsSprinting + Toggle? for animation and stamina drain so the
+	-- visual reads "jogging" even if actual speed stays at walk.
 	local function sprintOn()
 		if SprintHeld then
 			return
@@ -610,36 +487,10 @@ return function(Config)
 		SprintHeld = true
 		disableDefaultControls()
 
-		-- Flip IsSprinting for animation
 		setSprintingState(true)
 		fireRunToggle(true)
 
-		-- Install IsKeyDown hook so polling detectors see W held
-		installIsKeyDownHook()
-
-		-- Fire W InputBegan twice (double-tap) for any event-based detector
-		task.spawn(function()
-			local SignalOk = fireWInputSignal(true)
-			warn(string.format("[KELV][OpTraining] fake W Begin ok=%s (firesignal=%s, getconnections=%s, hookfunction=%s)",
-				tostring(SignalOk),
-				tostring(type(firesignal) == "function"),
-				tostring(type(getconnections) == "function"),
-				tostring(type(hookfunction) == "function")))
-
-			task.wait(0.05)
-
-			if not SprintHeld then return end
-
-			fireWInputSignal(false)
-			task.wait(0.15)
-
-			if not SprintHeld then return end
-
-			fireWInputSignal(true)
-			warn("[KELV][OpTraining] fake W double-tap done")
-		end)
-
-		warn("[KELV][OpTraining] jog ON")
+		warn("[KELV][OpTraining] jog ON (animation only — game uses internal sprint detection we can't spoof)")
 	end
 
 	local function sprintOff()
@@ -651,7 +502,6 @@ return function(Config)
 
 		setSprintingState(false)
 		fireRunToggle(false)
-		fireWInputSignal(false)
 
 		warn("[KELV][OpTraining] jog OFF")
 	end
