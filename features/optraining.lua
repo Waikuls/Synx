@@ -7,7 +7,7 @@ return function(Config)
 	local LocalPlayer = Players.LocalPlayer
 	local Notification = Config and Config.Notification
 
-	warn("[KELV][OpTraining] module loaded version=v29-sprint-human-timing")
+	warn("[KELV][OpTraining] module loaded version=v30-walk-only-controls-off")
 
 	local WaypointStorageFolder = "KELV"
 	local WaypointStoragePath = "KELV/optraining_waypoints.json"
@@ -387,55 +387,19 @@ return function(Config)
 		end)
 	end
 
+	-- Sprint was removed: couldn't reliably trigger the game's run state
+	-- from script (Toggle? remote alone doesn't run, keypress events don't
+	-- reach the game's sprint listener, and holding W via VIM fights MoveTo).
+	-- Character walks to the bed at default speed. Controls are still
+	-- disabled during the routine so ControlScript doesn't pull
+	-- MoveDirection away from MoveTo target.
 	local function sprintOn()
 		if SprintHeld then
 			return
 		end
 
 		SprintHeld = true
-
-		-- Do NOT disable Controls — game's sprint detector might live inside
-		-- PlayerModule or rely on ControlScript. Camera lock keeps camera
-		-- forward aligned with MoveTo target, minimising direction conflict.
-
-		-- Human-realistic double-tap timing
-		task.spawn(function()
-			-- First tap: press 50ms, release
-			if not osPressW() then vimPressW(true) end
-			task.wait(0.05)
-
-			if not SprintHeld then
-				osReleaseW()
-				vimPressW(false)
-				return
-			end
-
-			if not osReleaseW() then vimPressW(false) end
-			task.wait(0.18)
-
-			if not SprintHeld then return end
-
-			-- Second press, HOLD
-			if not osPressW() then vimPressW(true) end
-
-			-- Re-assert hold every 300ms while sprinting to keep key state alive
-			while SprintHeld and OpTrainingFeature.Enabled do
-				task.wait(0.3)
-
-				if not SprintHeld then break end
-
-				if not osPressW() then vimPressW(true) end
-			end
-		end)
-
-		if fireRunToggle(true) then
-			warn(string.format("[KELV][OpTraining] sprint fired: Agility=%.2f keypress=%s VIM=%s",
-				getAgility(),
-				tostring(type(keypress) == "function"),
-				tostring(getVirtualInputManager() ~= nil)))
-		end
-
-		startSprintKeepalive()
+		disableDefaultControls()
 	end
 
 	local function sprintOff()
@@ -444,19 +408,11 @@ return function(Config)
 		end
 
 		SprintHeld = false
-		stopSprintKeepalive()
-
-		-- Release W at OS level AND VIM level
-		osReleaseW()
-		vimPressW(false)
-
-		if fireRunToggle(false) then
-			warn("[KELV][OpTraining] Run toggle OFF")
-		end
 	end
 
 	local function restoreWalkSpeed()
 		sprintOff()
+		enableDefaultControls()
 	end
 
 	local function findBedFromPrompt(Prompt)
@@ -746,21 +702,9 @@ return function(Config)
 	local LastSprintLogAt = 0
 
 	local function maintainSprint()
-		local Stamina = getStaminaPercent()
-		local ShouldSprint = Stamina >= OpTrainingFeature.LowStaminaPercent
-		local Now = os.clock()
-
-		if ShouldSprint and not SprintHeld then
-			warn(string.format("[KELV][OpTraining] stamina %.1f%% >= %d%%, sprint ON (Run toggle)", Stamina, OpTrainingFeature.LowStaminaPercent))
+		-- Call once to ensure Controls are disabled during walks
+		if not SprintHeld then
 			sprintOn()
-			LastSprintLogAt = Now
-		elseif (not ShouldSprint) and SprintHeld then
-			warn(string.format("[KELV][OpTraining] stamina %.1f%% < %d%%, sprint OFF (Run toggle off)", Stamina, OpTrainingFeature.LowStaminaPercent))
-			sprintOff()
-			LastSprintLogAt = Now
-		elseif (Now - LastSprintLogAt) >= 3 then
-			LastSprintLogAt = Now
-			warn(string.format("[KELV][OpTraining] stamina %.1f%% sprinting=%s", Stamina, tostring(SprintHeld)))
 		end
 	end
 
