@@ -7,7 +7,7 @@ return function(Config)
 	local LocalPlayer = Players.LocalPlayer
 	local Notification = Config and Config.Notification
 
-	warn("[KELV][OpTraining] module loaded version=v37-sethidden-fakeinput")
+	warn("[KELV][OpTraining] module loaded version=v38-hook-iskeydown")
 
 	local WaypointStorageFolder = "KELV"
 	local WaypointStoragePath = "KELV/optraining_waypoints.json"
@@ -573,6 +573,35 @@ return function(Config)
 		return Fired
 	end
 
+	-- Install IsKeyDown hook once so that any polling-based sprint
+	-- detector in the game sees W as held while SprintHeld is true.
+	local IsKeyDownHookInstalled = false
+
+	local function installIsKeyDownHook()
+		if IsKeyDownHookInstalled then
+			return
+		end
+
+		if type(hookfunction) ~= "function" then
+			warn("[KELV][OpTraining] hookfunction unavailable — can't fake IsKeyDown")
+			return
+		end
+
+		local UIS = game:GetService("UserInputService")
+
+		local OldIsKeyDown
+		OldIsKeyDown = hookfunction(UIS.IsKeyDown, function(self, KeyCode)
+			if SprintHeld and (KeyCode == Enum.KeyCode.W or KeyCode == 0x57) then
+				return true
+			end
+
+			return OldIsKeyDown(self, KeyCode)
+		end)
+
+		IsKeyDownHookInstalled = true
+		warn("[KELV][OpTraining] IsKeyDown hook installed")
+	end
+
 	local function sprintOn()
 		if SprintHeld then
 			return
@@ -581,18 +610,21 @@ return function(Config)
 		SprintHeld = true
 		disableDefaultControls()
 
-		-- Also flip IsSprinting directly so animation kicks in immediately
+		-- Flip IsSprinting for animation
 		setSprintingState(true)
 		fireRunToggle(true)
 
-		-- Hook-fire UIS.InputBegan for W twice (double-tap) so the game's
-		-- sprint detector runs and sets WalkSpeed just like a manual press
+		-- Install IsKeyDown hook so polling detectors see W held
+		installIsKeyDownHook()
+
+		-- Fire W InputBegan twice (double-tap) for any event-based detector
 		task.spawn(function()
 			local SignalOk = fireWInputSignal(true)
-			warn(string.format("[KELV][OpTraining] fake W Begin ok=%s (firesignal=%s, getconnections=%s)",
+			warn(string.format("[KELV][OpTraining] fake W Begin ok=%s (firesignal=%s, getconnections=%s, hookfunction=%s)",
 				tostring(SignalOk),
 				tostring(type(firesignal) == "function"),
-				tostring(type(getconnections) == "function")))
+				tostring(type(getconnections) == "function"),
+				tostring(type(hookfunction) == "function")))
 
 			task.wait(0.05)
 
@@ -603,7 +635,6 @@ return function(Config)
 
 			if not SprintHeld then return end
 
-			-- Second W Begin, don't End (to mimic "W held")
 			fireWInputSignal(true)
 			warn("[KELV][OpTraining] fake W double-tap done")
 		end)
