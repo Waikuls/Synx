@@ -7,7 +7,7 @@ return function(Config)
 	local LocalPlayer = Players.LocalPlayer
 	local Notification = Config and Config.Notification
 
-	warn("[KELV][OpTraining] module loaded version=v30-walk-only-controls-off")
+	warn("[KELV][OpTraining] module loaded version=v31-camera-fixed-view")
 
 	local WaypointStorageFolder = "KELV"
 	local WaypointStoragePath = "KELV/optraining_waypoints.json"
@@ -132,7 +132,10 @@ return function(Config)
 		end
 
 		OpTrainingFeature.SavedCameraType = Camera.CameraType
-		OpTrainingFeature.SavedCameraOffset = Root.CFrame:ToObjectSpace(Camera.CFrame)
+		-- Save WORLD-space offset (position only) so camera doesn't rotate
+		-- with the character. Camera will always look at the character from
+		-- the same world direction, regardless of how the character turns.
+		OpTrainingFeature.SavedCameraOffset = Camera.CFrame.Position - Root.Position
 
 		Camera.CameraType = Enum.CameraType.Scriptable
 
@@ -145,11 +148,12 @@ return function(Config)
 			end
 
 			if OpTrainingFeature.SavedCameraOffset then
-				Cam.CFrame = R.CFrame * OpTrainingFeature.SavedCameraOffset
+				local NewPos = R.Position + OpTrainingFeature.SavedCameraOffset
+				Cam.CFrame = CFrame.new(NewPos, R.Position)
 			end
 		end)
 
-		warn("[KELV][OpTraining] camera locked (mouse free)")
+		warn("[KELV][OpTraining] camera locked (fixed world view, looks at character)")
 	end
 
 	local function unlockCamera()
