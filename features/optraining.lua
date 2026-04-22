@@ -2,10 +2,14 @@ return function(Config)
 	local Players = game:GetService("Players")
 	local RunService = game:GetService("RunService")
 	local PathfindingService = game:GetService("PathfindingService")
+	local UserInputService = game:GetService("UserInputService")
 	local LocalPlayer = Players.LocalPlayer
 	local Notification = Config and Config.Notification
 
-	warn("[KELV][OpTraining] module loaded version=v14-walk-path")
+	warn("[KELV][OpTraining] module loaded version=v15-waypoint-keybinds")
+
+	local WaypointStorageFolder = "KELV"
+	local WaypointStoragePath = "KELV/optraining_waypoints.txt"
 
 	local OpTrainingFeature = {}
 	OpTrainingFeature.Enabled = false
@@ -31,6 +35,7 @@ return function(Config)
 	OpTrainingFeature.State = "idle"
 	OpTrainingFeature.PlayerReturnCFrame = nil
 	OpTrainingFeature.LastAttemptAt = 0
+	OpTrainingFeature.InputConnection = nil
 
 	local function getCharacter()
 		return LocalPlayer.Character
@@ -249,6 +254,59 @@ return function(Config)
 				Icon = Icon or "bed"
 			})
 		end)
+	end
+
+	local function serializeWaypoints(WaypointList)
+		local Lines = {}
+
+		for _, Waypoint in ipairs(WaypointList) do
+			table.insert(Lines, string.format("%f,%f,%f", Waypoint.X, Waypoint.Y, Waypoint.Z))
+		end
+
+		return table.concat(Lines, "\n")
+	end
+
+	local function deserializeWaypoints(Text)
+		local Result = {}
+
+		if type(Text) ~= "string" or Text == "" then
+			return Result
+		end
+
+		for Line in string.gmatch(Text, "[^\n]+") do
+			local X, Y, Z = string.match(Line, "([%-%.%d]+),([%-%.%d]+),([%-%.%d]+)")
+
+			if X and Y and Z then
+				table.insert(Result, Vector3.new(tonumber(X), tonumber(Y), tonumber(Z)))
+			end
+		end
+
+		return Result
+	end
+
+	local function saveWaypointsToFile()
+		if type(writefile) ~= "function" then
+			return
+		end
+
+		if type(makefolder) == "function" then
+			pcall(makefolder, WaypointStorageFolder)
+		end
+
+		pcall(writefile, WaypointStoragePath, serializeWaypoints(OpTrainingFeature.Waypoints))
+	end
+
+	local function loadWaypointsFromFile()
+		if type(readfile) ~= "function" then
+			return
+		end
+
+		local Ok, Result = pcall(readfile, WaypointStoragePath)
+
+		if Ok and type(Result) == "string" and Result ~= "" then
+			OpTrainingFeature.Waypoints = deserializeWaypoints(Result)
+			warn(string.format("[KELV][OpTraining] loaded %d waypoints from disk", #OpTrainingFeature.Waypoints))
+		end
 	end
 
 	local function walkToPosition(TargetPos, TimeoutSec)
@@ -635,9 +693,100 @@ return function(Config)
 		self.AutoTrainRef = Feature
 	end
 
+	function OpTrainingFeature:AddWaypoint(Position)
+		if not Position then
+			local Root = getRootPart()
+
+			if not Root then
+				notify("OP Training", "Character not ready", "alert-circle")
+				return false
+			end
+
+			Position = Root.Position
+		end
+
+		table.insert(self.Waypoints, Position)
+		saveWaypointsToFile()
+
+		notify("OP Training", string.format(
+			"Waypoint %d added (%.0f, %.0f, %.0f)",
+			#self.Waypoints,
+			Position.X,
+			Position.Y,
+			Position.Z
+		), "map-pin")
+
+		warn(string.format("[KELV][OpTraining] waypoint %d added at %s", #self.Waypoints, tostring(Position)))
+		return true
+	end
+
+	function OpTrainingFeature:RemoveLastWaypoint()
+		if #self.Waypoints == 0 then
+			notify("OP Training", "No waypoints to remove", "alert-circle")
+			return false
+		end
+
+		local Removed = table.remove(self.Waypoints)
+		saveWaypointsToFile()
+
+		notify("OP Training", string.format("Removed last waypoint (%d remain)", #self.Waypoints), "minus-circle")
+		warn(string.format("[KELV][OpTraining] removed waypoint at %s, %d remain", tostring(Removed), #self.Waypoints))
+		return true
+	end
+
+	function OpTrainingFeature:ClearWaypoints()
+		local Count = #self.Waypoints
+		self.Waypoints = {}
+		saveWaypointsToFile()
+
+		notify("OP Training", string.format("Cleared %d waypoints", Count), "trash-2")
+		warn(string.format("[KELV][OpTraining] cleared %d waypoints", Count))
+		return true
+	end
+
+	function OpTrainingFeature:GetWaypoints()
+		local Copy = {}
+
+		for Index, Waypoint in ipairs(self.Waypoints) do
+			Copy[Index] = Waypoint
+		end
+
+		return Copy
+	end
+
+	function OpTrainingFeature:SetupKeybinds()
+		if self.InputConnection then
+			return
+		end
+
+		self.InputConnection = UserInputService.InputBegan:Connect(function(Input, Processed)
+			if Processed then
+				return
+			end
+
+			if Input.KeyCode == Enum.KeyCode.Semicolon then
+				OpTrainingFeature:AddWaypoint()
+			elseif Input.KeyCode == Enum.KeyCode.Minus then
+				OpTrainingFeature:RemoveLastWaypoint()
+			elseif Input.KeyCode == Enum.KeyCode.Quote then
+				OpTrainingFeature:ClearWaypoints()
+			end
+		end)
+
+		warn("[KELV][OpTraining] keybinds: ';' add wp | '-' remove last | \"'\" clear all")
+	end
+
 	function OpTrainingFeature:Destroy()
 		self:SetEnabled(false)
+
+		if self.InputConnection then
+			self.InputConnection:Disconnect()
+			self.InputConnection = nil
+		end
 	end
+
+	loadWaypointsFromFile()
+	OpTrainingFeature:SetupKeybinds()
 
 	return OpTrainingFeature
 end
