@@ -7,7 +7,7 @@ return function(Config)
 	local LocalPlayer = Players.LocalPlayer
 	local Notification = Config and Config.Notification
 
-	warn("[KELV][OpTraining] module loaded version=v40-back-to-v18-sprint")
+	warn("[KELV][OpTraining] module loaded version=v41-sprint-no-spin")
 
 	local WaypointStorageFolder = "KELV"
 	local WaypointStoragePath = "KELV/optraining_waypoints.json"
@@ -132,12 +132,10 @@ return function(Config)
 		end
 
 		OpTrainingFeature.SavedCameraType = Camera.CameraType
-		-- Save character-relative CFrame offset (includes rotation).
-		-- When character rotates, camera rotates with it, so camera
-		-- forward stays aligned with character forward. That keeps
-		-- W direction (camera forward in ControlScript) aligned with
-		-- MoveTo target direction — no drift.
-		OpTrainingFeature.SavedCameraOffset = Root.CFrame:ToObjectSpace(Camera.CFrame)
+		-- Fixed world-space view: save position offset only, look at
+		-- character each frame. Camera stays at the same world direction
+		-- regardless of how the character rotates.
+		OpTrainingFeature.SavedCameraOffset = Camera.CFrame.Position - Root.Position
 
 		Camera.CameraType = Enum.CameraType.Scriptable
 
@@ -150,11 +148,22 @@ return function(Config)
 			end
 
 			if OpTrainingFeature.SavedCameraOffset then
-				Cam.CFrame = R.CFrame * OpTrainingFeature.SavedCameraOffset
+				local NewPos = R.Position + OpTrainingFeature.SavedCameraOffset
+				Cam.CFrame = CFrame.new(NewPos, R.Position)
 			end
 		end)
 
-		warn("[KELV][OpTraining] camera locked (follows character rotation)")
+		-- Also freeze character rotation so camera-fixed W direction doesn't
+		-- cause the body to spin when ControlScript + MoveTo compete.
+		local Hum = getHumanoid()
+
+		if Hum then
+			pcall(function()
+				Hum.AutoRotate = false
+			end)
+		end
+
+		warn("[KELV][OpTraining] camera locked (fixed world view, AutoRotate off)")
 	end
 
 	local function unlockCamera()
@@ -167,6 +176,14 @@ return function(Config)
 
 		if Camera and OpTrainingFeature.SavedCameraType then
 			Camera.CameraType = OpTrainingFeature.SavedCameraType
+		end
+
+		local Hum = getHumanoid()
+
+		if Hum then
+			pcall(function()
+				Hum.AutoRotate = true
+			end)
 		end
 
 		OpTrainingFeature.SavedCameraType = nil
