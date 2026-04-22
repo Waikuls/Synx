@@ -7,7 +7,7 @@ return function(Config)
 	local LocalPlayer = Players.LocalPlayer
 	local Notification = Config and Config.Notification
 
-	warn("[KELV][OpTraining] module loaded version=v16-waypoints-per-type")
+	warn("[KELV][OpTraining] module loaded version=v17-sprint-double-tap-w")
 
 	local WaypointStorageFolder = "KELV"
 	local WaypointStoragePath = "KELV/optraining_waypoints.json"
@@ -27,6 +27,9 @@ return function(Config)
 	OpTrainingFeature.RetryCooldownSeconds = 5
 	OpTrainingFeature.WalkTimeoutSeconds = 20
 	OpTrainingFeature.WaypointArriveDistance = 4
+	OpTrainingFeature.LowStaminaPercent = 3
+	OpTrainingFeature.SprintReinforceInterval = 2.5
+	OpTrainingFeature.DoubleTapGapSec = 0.1
 
 	-- Waypoints keyed by AutoTrain machine type (Bike, Bench, Treadmill, ...).
 	-- Each value is an array of Vector3 walked in order before reaching the
@@ -89,6 +92,54 @@ return function(Config)
 		end
 
 		return 0
+	end
+
+	local function getStaminaPercent()
+		local Ref = OpTrainingFeature.AutoTrainRef
+
+		if Ref and type(Ref.GetStaminaPercent) == "function" then
+			local Ok, Value = pcall(function()
+				return Ref:GetStaminaPercent()
+			end)
+
+			if Ok and type(Value) == "number" then
+				return Value
+			end
+		end
+
+		return 100
+	end
+
+	local function getVirtualInputManager()
+		local Ok, VIM = pcall(game.GetService, game, "VirtualInputManager")
+
+		if Ok then
+			return VIM
+		end
+
+		return nil
+	end
+
+	local function tapWKey()
+		local VIM = getVirtualInputManager()
+
+		if not VIM then
+			return false
+		end
+
+		return pcall(function()
+			VIM:SendKeyEvent(true, Enum.KeyCode.W, false, game)
+			task.wait(0.03)
+			VIM:SendKeyEvent(false, Enum.KeyCode.W, false, game)
+		end)
+	end
+
+	local function startSprint()
+		task.spawn(function()
+			tapWKey()
+			task.wait(OpTrainingFeature.DoubleTapGapSec)
+			tapWKey()
+		end)
 	end
 
 	local function findBedFromPrompt(Prompt)
@@ -375,6 +426,24 @@ return function(Config)
 		end
 	end
 
+	local function maintainSprint(LastSprintAt)
+		local Now = os.clock()
+
+		if (Now - LastSprintAt) < OpTrainingFeature.SprintReinforceInterval then
+			return LastSprintAt
+		end
+
+		local Stamina = getStaminaPercent()
+
+		if Stamina >= OpTrainingFeature.LowStaminaPercent then
+			startSprint()
+			return Now
+		end
+
+		-- Stamina too low — don't sprint, let the game slow us back to walk
+		return LastSprintAt
+	end
+
 	local function walkToPosition(TargetPos, TimeoutSec)
 		TimeoutSec = TimeoutSec or 20
 
@@ -383,6 +452,14 @@ return function(Config)
 
 		if not Humanoid or not Root then
 			return false, "no humanoid/root"
+		end
+
+		-- Kick off sprint at the start; maintenance loop re-issues as needed
+		local LastSprintAt = 0
+
+		if getStaminaPercent() >= OpTrainingFeature.LowStaminaPercent then
+			startSprint()
+			LastSprintAt = os.clock()
 		end
 
 		local Path = PathfindingService:CreatePath({
@@ -440,6 +517,7 @@ return function(Config)
 						break
 					end
 
+					LastSprintAt = maintainSprint(LastSprintAt)
 					task.wait(0.1)
 				end
 			end
@@ -472,6 +550,7 @@ return function(Config)
 				return true
 			end
 
+			LastSprintAt = maintainSprint(LastSprintAt)
 			task.wait(0.2)
 
 			local H = getHumanoid()

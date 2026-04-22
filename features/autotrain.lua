@@ -1929,6 +1929,10 @@ return function(Config)
 		return getBodyFatigue()
 	end
 
+	function AutoTrainFeature:GetStaminaPercent()
+		return getStaminaPercent()
+	end
+
 	function AutoTrainFeature:GetSelectedType()
 		return self.SelectedType
 	end
