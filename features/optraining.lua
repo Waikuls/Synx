@@ -1,10 +1,11 @@
 return function(Config)
 	local Players = game:GetService("Players")
 	local RunService = game:GetService("RunService")
+	local PathfindingService = game:GetService("PathfindingService")
 	local LocalPlayer = Players.LocalPlayer
 	local Notification = Config and Config.Notification
 
-	warn("[KELV][OpTraining] module loaded version=v13-anchor-after-seat")
+	warn("[KELV][OpTraining] module loaded version=v14-walk-path")
 
 	local OpTrainingFeature = {}
 	OpTrainingFeature.Enabled = false
@@ -14,17 +15,20 @@ return function(Config)
 	OpTrainingFeature.AutoTrainRef = nil
 
 	-- Behavior knobs
-	OpTrainingFeature.BedOffsetY = -21
 	OpTrainingFeature.FatigueTriggerPercent = 40
 	OpTrainingFeature.FatigueExitPercent = 0
 	OpTrainingFeature.MountWaitSeconds = 3
 	OpTrainingFeature.SleepTimeoutSeconds = 180
 	OpTrainingFeature.RetryCooldownSeconds = 5
-	OpTrainingFeature.DeepDivePosition = Vector3.new(1745, 27, -516)
+	OpTrainingFeature.WalkTimeoutSeconds = 20
+	OpTrainingFeature.WaypointArriveDistance = 4
+
+	-- Optional waypoints (Vector3) walked in order before reaching the bed,
+	-- and walked in reverse on the way back. Empty = go straight.
+	OpTrainingFeature.Waypoints = {}
 
 	-- Runtime state
 	OpTrainingFeature.State = "idle"
-	OpTrainingFeature.BedOriginalCFrame = nil
 	OpTrainingFeature.PlayerReturnCFrame = nil
 	OpTrainingFeature.LastAttemptAt = 0
 
@@ -247,6 +251,140 @@ return function(Config)
 		end)
 	end
 
+	local function walkToPosition(TargetPos, TimeoutSec)
+		TimeoutSec = TimeoutSec or 20
+
+		local Humanoid = getHumanoid()
+		local Root = getRootPart()
+
+		if not Humanoid or not Root then
+			return false, "no humanoid/root"
+		end
+
+		local Path = PathfindingService:CreatePath({
+			AgentRadius = 2,
+			AgentHeight = 5,
+			AgentCanJump = true,
+			AgentMaxSlope = 60,
+		})
+
+		local ComputeOk = pcall(function()
+			Path:ComputeAsync(Root.Position, TargetPos)
+		end)
+
+		local StartAt = os.clock()
+
+		if ComputeOk and Path.Status == Enum.PathStatus.Success then
+			local PathWaypoints = Path:GetWaypoints()
+			warn(string.format("[KELV][OpTraining] path computed %d waypoints", #PathWaypoints))
+
+			for _, Waypoint in ipairs(PathWaypoints) do
+				if not OpTrainingFeature.Enabled then
+					return false, "disabled"
+				end
+
+				if os.clock() - StartAt > TimeoutSec then
+					return false, "timeout"
+				end
+
+				local Hum = getHumanoid()
+
+				if not Hum then
+					return false, "humanoid gone"
+				end
+
+				if Waypoint.Action == Enum.PathWaypointAction.Jump then
+					Hum.Jump = true
+				end
+
+				Hum:MoveTo(Waypoint.Position)
+
+				local StepStart = os.clock()
+
+				while os.clock() - StepStart < 6 do
+					if not OpTrainingFeature.Enabled then
+						return false, "disabled"
+					end
+
+					local R = getRootPart()
+
+					if not R then
+						return false, "root gone"
+					end
+
+					if (R.Position - Waypoint.Position).Magnitude <= OpTrainingFeature.WaypointArriveDistance then
+						break
+					end
+
+					task.wait(0.1)
+				end
+			end
+
+			return true
+		end
+
+		warn(string.format("[KELV][OpTraining] pathfind failed (status=%s), fallback direct MoveTo", tostring(Path.Status)))
+
+		local Hum = getHumanoid()
+
+		if not Hum then
+			return false, "no humanoid"
+		end
+
+		Hum:MoveTo(TargetPos)
+
+		while os.clock() - StartAt < TimeoutSec do
+			if not OpTrainingFeature.Enabled then
+				return false, "disabled"
+			end
+
+			local R = getRootPart()
+
+			if not R then
+				return false, "root gone"
+			end
+
+			if (R.Position - TargetPos).Magnitude <= OpTrainingFeature.WaypointArriveDistance then
+				return true
+			end
+
+			task.wait(0.2)
+
+			local H = getHumanoid()
+			if H then H:MoveTo(TargetPos) end
+		end
+
+		return false, "fallback timeout"
+	end
+
+	local function walkThroughWaypoints(WaypointList)
+		for Index, Waypoint in ipairs(WaypointList) do
+			if not OpTrainingFeature.Enabled then
+				return false
+			end
+
+			warn(string.format("[KELV][OpTraining] walking to waypoint %d: %s", Index, tostring(Waypoint)))
+			local Ok, Reason = walkToPosition(Waypoint, OpTrainingFeature.WalkTimeoutSeconds)
+
+			if not Ok then
+				warn(string.format("[KELV][OpTraining] waypoint %d failed: %s", Index, tostring(Reason)))
+				return false
+			end
+		end
+
+		return true
+	end
+
+	local function reverseArray(Source)
+		local Result = {}
+
+		for Index = #Source, 1, -1 do
+			table.insert(Result, Source[Index])
+		end
+
+		return Result
+	end
+
 	function OpTrainingFeature:RunBedRoutine()
 		warn(string.format("[KELV][OpTraining] RunBedRoutine entry state=%s", tostring(self.State)))
 
@@ -258,80 +396,72 @@ return function(Config)
 		self.State = "busy"
 		self.LastAttemptAt = os.clock()
 
-		notify("OP Training", "Triggered — starting bed routine")
+		notify("OP Training", "Triggered — walking to bed")
 		warn("[KELV][OpTraining] state=busy, looking for bed prompt")
 
 		local Prompt = findBedPrompt(nil)
 
 		if not Prompt then
-			warn("[KELV][OpTraining] v6 RESULT: no bed prompt in workspace")
-			notify("OP Training", "Bed prompt not found anywhere", "alert-circle")
+			notify("OP Training", "Bed prompt not found", "alert-circle")
 			self.State = "idle"
 			return
 		end
 
 		warn(string.format(
-			"[KELV][OpTraining] Prompt found at %s: action=%s object=%s maxDist=%s",
+			"[KELV][OpTraining] Prompt at %s: action=%s",
 			Prompt:GetFullName(),
-			tostring(Prompt.ActionText),
-			tostring(Prompt.ObjectText),
-			tostring(Prompt.MaxActivationDistance)
+			tostring(Prompt.ActionText)
 		))
 
 		local Bed = findBedFromPrompt(Prompt)
 
 		if not Bed then
-			warn("[KELV][OpTraining] FAIL: could not derive bed model from prompt")
-			notify("OP Training", "Bed model not found via prompt", "alert-circle")
+			notify("OP Training", "Bed model not found", "alert-circle")
 			self.State = "idle"
 			return
 		end
 
-		warn(string.format("[KELV][OpTraining] Bed derived: %s", Bed:GetFullName()))
-
 		local RootPart = getRootPart()
 
 		if not RootPart then
-			warn("[KELV][OpTraining] FAIL: no root part")
-			notify("OP Training", "Character root part not found", "alert-circle")
+			notify("OP Training", "Character not ready", "alert-circle")
 			self.State = "idle"
 			return
 		end
 
 		if type(fireproximityprompt) ~= "function" then
-			warn("[KELV][OpTraining] FAIL: fireproximityprompt not a function, type=" .. type(fireproximityprompt))
-			notify("OP Training", "fireproximityprompt unavailable in executor", "alert-circle")
+			notify("OP Training", "fireproximityprompt unavailable", "alert-circle")
 			self.State = "idle"
 			return
 		end
 
-		self.BedOriginalCFrame = Bed:GetPivot()
 		self.PlayerReturnCFrame = RootPart.CFrame
 
 		local SeatPart = Prompt.Parent
-		local SeatPosition = (SeatPart and SeatPart:IsA("BasePart")) and SeatPart.Position or self.BedOriginalCFrame.Position
-		-- Server rejects trigger from >10 studs even with MaxActivationDistance bumped.
-		-- Stay 9 studs directly below the seat — within range, below ground.
-		local TargetPosition = SeatPosition - Vector3.new(0, 9, 0)
-		local DistanceToSeat = (TargetPosition - SeatPosition).Magnitude
+		local SeatPosition = (SeatPart and SeatPart:IsA("BasePart")) and SeatPart.Position or Bed:GetPivot().Position
 
-		warn(string.format(
-			"[KELV][OpTraining] v10: teleport char 9 studs below seat (%.2f studs from seat), anchor HRP, fire prompt",
-			DistanceToSeat
-		))
+		-- Walk forward through waypoints, then to the seat
+		if #self.Waypoints > 0 then
+			warn(string.format("[KELV][OpTraining] walking %d forward waypoints", #self.Waypoints))
 
-		local Character = getCharacter()
-
-		if Character then
-			local CharOk, CharErr = pcall(function()
-				Character:PivotTo(CFrame.new(TargetPosition))
-			end)
-			warn(string.format("[KELV][OpTraining] Character:PivotTo to %s ok=%s err=%s", tostring(TargetPosition), tostring(CharOk), tostring(CharErr)))
+			if not walkThroughWaypoints(self.Waypoints) then
+				notify("OP Training", "Failed to follow waypoints", "alert-circle")
+				self.State = "idle"
+				return
+			end
 		end
 
-		task.wait(0.2)
+		warn(string.format("[KELV][OpTraining] walking to seat at %s", tostring(SeatPosition)))
+		local WalkOk, WalkReason = walkToPosition(SeatPosition, self.WalkTimeoutSeconds)
 
-		-- Fire prompt FIRST while HRP is unanchored (Seat:Sit needs physics-movable HRP)
+		if not WalkOk then
+			warn(string.format("[KELV][OpTraining] walk to seat failed: %s", tostring(WalkReason)))
+			notify("OP Training", "Could not reach bed", "alert-circle")
+			self.State = "idle"
+			return
+		end
+
+		-- Fire prompt while close to the seat
 		local FireOk, FireErr = pcall(fireproximityprompt, Prompt, Prompt.HoldDuration)
 		warn(string.format("[KELV][OpTraining] fireproximityprompt ok=%s err=%s", tostring(FireOk), tostring(FireErr)))
 
@@ -350,52 +480,15 @@ return function(Config)
 		end
 
 		local Seated = isSeatedOnBed(Bed)
-		warn(string.format("[KELV][OpTraining] after mount wait, seated=%s SeatPart=%s", tostring(Seated), tostring(getHumanoid() and getHumanoid().SeatPart or "nil")))
-
-		local AnchoredRoot = RootPart
+		warn(string.format("[KELV][OpTraining] seated=%s SeatPart=%s", tostring(Seated), tostring(getHumanoid() and getHumanoid().SeatPart or "nil")))
 
 		if not Seated then
-			notify("OP Training", "Bed use failed — server rejected or no cash", "alert-circle")
-
-			pcall(function()
-				Bed:PivotTo(self.BedOriginalCFrame)
-			end)
-
-			local CharacterRestore = getCharacter()
-
-			if CharacterRestore and self.PlayerReturnCFrame then
-				pcall(function()
-					CharacterRestore:PivotTo(self.PlayerReturnCFrame)
-				end)
-			end
-
+			notify("OP Training", "Bed use failed — not enough cash?", "alert-circle")
 			self.State = "idle"
 			return
 		end
 
-		-- Seat confirmed. Anchor NOW so the weld can't drag HRP around.
-		if AnchoredRoot then
-			pcall(function()
-				AnchoredRoot.Anchored = true
-			end)
-			warn("[KELV][OpTraining] HRP anchored post-seat")
-		end
-
-		-- Server has seated us; anchor keeps HRP fixed so physics can't move it
-		-- and the seat weld can't drag it. Setting CFrame on an anchored part
-		-- still works — teleport to the user-specified deep position.
-		if AnchoredRoot then
-			local DeepCFrame = CFrame.new(self.DeepDivePosition)
-			pcall(function()
-				AnchoredRoot.CFrame = DeepCFrame
-			end)
-			warn(string.format(
-				"[KELV][OpTraining] after seat: HRP.CFrame set to %s",
-				tostring(self.DeepDivePosition)
-			))
-		end
-
-		notify("OP Training", "Sleeping at deep position")
+		notify("OP Training", "Sleeping — fatigue recovering")
 
 		local SleepStart = os.clock()
 
@@ -413,20 +506,7 @@ return function(Config)
 			task.wait(0.5)
 		end
 
-		pcall(function()
-			Bed:PivotTo(self.BedOriginalCFrame)
-		end)
-
-		-- Teleport HRP back to surface first (still anchored — no gravity free-fall)
-		if AnchoredRoot and self.PlayerReturnCFrame then
-			pcall(function()
-				AnchoredRoot.CFrame = self.PlayerReturnCFrame
-			end)
-			warn("[KELV][OpTraining] HRP moved back to return position (still anchored)")
-		end
-
-		task.wait(0.1)
-
+		-- Stand up
 		local Humanoid = getHumanoid()
 
 		if Humanoid then
@@ -439,13 +519,17 @@ return function(Config)
 			end)
 		end
 
-		task.wait(0.2)
+		task.wait(0.5)
 
-		if AnchoredRoot then
-			pcall(function()
-				AnchoredRoot.Anchored = false
-			end)
-			warn("[KELV][OpTraining] HRP unanchored")
+		-- Walk back through reversed waypoints, then to the original position
+		if #self.Waypoints > 0 then
+			warn("[KELV][OpTraining] walking back through reversed waypoints")
+			walkThroughWaypoints(reverseArray(self.Waypoints))
+		end
+
+		if self.PlayerReturnCFrame then
+			warn(string.format("[KELV][OpTraining] walking back to return position"))
+			walkToPosition(self.PlayerReturnCFrame.Position, self.WalkTimeoutSeconds)
 		end
 
 		notify("OP Training", "Done — fatigue recovered", "check-circle")
