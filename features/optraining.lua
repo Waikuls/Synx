@@ -7,7 +7,7 @@ return function(Config)
 	local LocalPlayer = Players.LocalPlayer
 	local Notification = Config and Config.Notification
 
-	warn("[KELV][OpTraining] module loaded version=v53-fallback-stuck-jump")
+	warn("[KELV][OpTraining] module loaded version=v54-auto-jump-stairs")
 
 	local WaypointStorageFolder = "KELV"
 	local WaypointStoragePath = "KELV/optraining_waypoints.json"
@@ -1043,8 +1043,25 @@ return function(Config)
 					return false, "humanoid gone"
 				end
 
-				if Waypoint.Action == Enum.PathWaypointAction.Jump then
-					Hum.Jump = true
+				-- Auto-jump on stairs/ledges. Pathfinding doesn't always mark
+				-- stair waypoints with the Jump action even when the
+				-- character physically needs a jump to climb.
+				local ShouldJump = Waypoint.Action == Enum.PathWaypointAction.Jump
+
+				if not ShouldJump then
+					local CurR = getRootPart()
+					if CurR then
+						local YRise = Waypoint.Position.Y - CurR.Position.Y
+						if YRise > 1.5 then
+							ShouldJump = true
+						end
+					end
+				end
+
+				if ShouldJump then
+					pcall(function()
+						Hum.Jump = true
+					end)
 				end
 
 				OpTrainingFeature.CurrentMoveTarget = Waypoint.Position
