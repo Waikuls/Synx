@@ -7,7 +7,7 @@ return function(Config)
 	local LocalPlayer = Players.LocalPlayer
 	local Notification = Config and Config.Notification
 
-	warn("[KELV][OpTraining] module loaded version=v35-speed-measurement")
+	warn("[KELV][OpTraining] module loaded version=v36-firesignal-uis")
 
 	local WaypointStorageFolder = "KELV"
 	local WaypointStoragePath = "KELV/optraining_waypoints.json"
@@ -470,11 +470,57 @@ return function(Config)
 		return false
 	end
 
-	-- The game exposes 2 run modes: jogging (IsSprinting) and sprint
-	-- (IsBoostedSprinting). Setting IsSprinting = true activates jog mode,
-	-- which is what we use while walking the path. The game recalculates
-	-- WalkSpeed itself from Agility + current jog/sprint state, so we don't
-	-- touch Humanoid.WalkSpeed.
+	-- Fire UserInputService.InputBegan/Ended with a fake W InputObject so
+	-- the game's own sprint detector (which is tied to UIS events) runs
+	-- exactly as it would on a real W+W keypress. Uses executor-provided
+	-- firesignal / getconnections hooks — does NOT touch WalkSpeed.
+	local function fireWInputSignal(IsDown)
+		local UIS = game:GetService("UserInputService")
+		local Signal = IsDown and UIS.InputBegan or UIS.InputEnded
+
+		local FakeInput
+
+		local ObjOk = pcall(function()
+			FakeInput = Instance.new("InputObject")
+			FakeInput.KeyCode = Enum.KeyCode.W
+			FakeInput.UserInputType = Enum.UserInputType.Keyboard
+			FakeInput.UserInputState = IsDown and Enum.UserInputState.Begin or Enum.UserInputState.End
+		end)
+
+		if not ObjOk or not FakeInput then
+			return false
+		end
+
+		local Fired = false
+
+		if type(firesignal) == "function" then
+			local Ok = pcall(firesignal, Signal, FakeInput, false)
+			if Ok then
+				Fired = true
+			end
+		end
+
+		if not Fired and type(getconnections) == "function" then
+			local Ok, Conns = pcall(getconnections, Signal)
+
+			if Ok and type(Conns) == "table" then
+				for _, Conn in ipairs(Conns) do
+					pcall(function()
+						if type(Conn.Fire) == "function" then
+							Conn:Fire(FakeInput, false)
+						elseif type(Conn.Replicate) == "function" then
+							Conn:Replicate(FakeInput, false)
+						end
+					end)
+				end
+
+				Fired = #Conns > 0
+			end
+		end
+
+		return Fired
+	end
+
 	local function sprintOn()
 		if SprintHeld then
 			return
@@ -483,10 +529,34 @@ return function(Config)
 		SprintHeld = true
 		disableDefaultControls()
 
+		-- Also flip IsSprinting directly so animation kicks in immediately
 		setSprintingState(true)
 		fireRunToggle(true)
 
-		warn("[KELV][OpTraining] jog ON (IsSprinting=true, Toggle?=on)")
+		-- Hook-fire UIS.InputBegan for W twice (double-tap) so the game's
+		-- sprint detector runs and sets WalkSpeed just like a manual press
+		task.spawn(function()
+			local SignalOk = fireWInputSignal(true)
+			warn(string.format("[KELV][OpTraining] fake W Begin ok=%s (firesignal=%s, getconnections=%s)",
+				tostring(SignalOk),
+				tostring(type(firesignal) == "function"),
+				tostring(type(getconnections) == "function")))
+
+			task.wait(0.05)
+
+			if not SprintHeld then return end
+
+			fireWInputSignal(false)
+			task.wait(0.15)
+
+			if not SprintHeld then return end
+
+			-- Second W Begin, don't End (to mimic "W held")
+			fireWInputSignal(true)
+			warn("[KELV][OpTraining] fake W double-tap done")
+		end)
+
+		warn("[KELV][OpTraining] jog ON")
 	end
 
 	local function sprintOff()
@@ -498,6 +568,7 @@ return function(Config)
 
 		setSprintingState(false)
 		fireRunToggle(false)
+		fireWInputSignal(false)
 
 		warn("[KELV][OpTraining] jog OFF")
 	end
