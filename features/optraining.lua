@@ -4,7 +4,7 @@ return function(Config)
 	local LocalPlayer = Players.LocalPlayer
 	local Notification = Config and Config.Notification
 
-	warn("[KELV][OpTraining] module loaded version=v7-test-teleport-only")
+	warn("[KELV][OpTraining] module loaded version=v8-anchor-below-seat")
 
 	local OpTrainingFeature = {}
 	OpTrainingFeature.Enabled = false
@@ -308,23 +308,35 @@ return function(Config)
 		self.BedOriginalCFrame = Bed:GetPivot()
 		self.PlayerReturnCFrame = RootPart.CFrame
 
-		local TargetCFrame = CFrame.new(self.TestTargetPosition)
+		local SeatPart = Prompt.Parent
+		local SeatPosition = (SeatPart and SeatPart:IsA("BasePart")) and SeatPart.Position or self.BedOriginalCFrame.Position
+		local TargetPosition = SeatPosition - Vector3.new(0, 9, 0)
+		local DistanceToSeat = (TargetPosition - SeatPosition).Magnitude
 
 		warn(string.format(
-			"[KELV][OpTraining] TEST: skip bed pivot, teleport char to %s then fire prompt",
-			tostring(self.TestTargetPosition)
+			"[KELV][OpTraining] TEST v7: teleport char to below seat (%.2f studs from seat), then fire prompt",
+			DistanceToSeat
 		))
 
 		local Character = getCharacter()
 
 		if Character then
 			local CharOk, CharErr = pcall(function()
-				Character:PivotTo(TargetCFrame)
+				Character:PivotTo(CFrame.new(TargetPosition))
 			end)
-			warn(string.format("[KELV][OpTraining] Character:PivotTo ok=%s err=%s", tostring(CharOk), tostring(CharErr)))
+			warn(string.format("[KELV][OpTraining] Character:PivotTo to %s ok=%s err=%s", tostring(TargetPosition), tostring(CharOk), tostring(CharErr)))
 		end
 
 		task.wait(0.15)
+
+		-- Anchor HRP so seat weld cannot pull us back up
+		local AnchoredRoot = RootPart
+		if AnchoredRoot then
+			pcall(function()
+				AnchoredRoot.Anchored = true
+			end)
+			warn("[KELV][OpTraining] HRP anchored")
+		end
 
 		local FireOk, FireErr = pcall(fireproximityprompt, Prompt, Prompt.HoldDuration)
 		warn(string.format("[KELV][OpTraining] fireproximityprompt ok=%s err=%s", tostring(FireOk), tostring(FireErr)))
@@ -349,6 +361,12 @@ return function(Config)
 		if not Seated then
 			notify("OP Training", "Bed use failed — server rejected or no cash", "alert-circle")
 
+			if AnchoredRoot then
+				pcall(function()
+					AnchoredRoot.Anchored = false
+				end)
+			end
+
 			pcall(function()
 				Bed:PivotTo(self.BedOriginalCFrame)
 			end)
@@ -365,7 +383,7 @@ return function(Config)
 			return
 		end
 
-		notify("OP Training", "Sleeping underground")
+		notify("OP Training", "Sleeping (HRP anchored below seat)")
 
 		local SleepStart = os.clock()
 
@@ -399,6 +417,13 @@ return function(Config)
 			pcall(function()
 				Humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
 			end)
+		end
+
+		if AnchoredRoot then
+			pcall(function()
+				AnchoredRoot.Anchored = false
+			end)
+			warn("[KELV][OpTraining] HRP unanchored")
 		end
 
 		task.wait(0.3)
