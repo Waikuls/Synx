@@ -122,9 +122,14 @@ return function(Config)
 	end
 
 	local function findBedPrompt(Bed)
+		local CountBed = 0
+		local CountParent = 0
+		local CountWorkspace = 0
+
 		if Bed then
 			for _, Descendant in ipairs(Bed:GetDescendants()) do
 				if Descendant:IsA("ProximityPrompt") then
+					warn(string.format("[KELV][OpTraining] findBedPrompt layer1 (Bed descendants) hit: %s", Descendant:GetFullName()))
 					return Descendant
 				end
 			end
@@ -133,8 +138,13 @@ return function(Config)
 
 			if Parent then
 				for _, Descendant in ipairs(Parent:GetDescendants()) do
-					if Descendant:IsA("ProximityPrompt") and promptMentionsBed(Descendant) then
-						return Descendant
+					if Descendant:IsA("ProximityPrompt") then
+						CountParent = CountParent + 1
+
+						if promptMentionsBed(Descendant) then
+							warn(string.format("[KELV][OpTraining] findBedPrompt layer2 (Parent descendants) hit: %s", Descendant:GetFullName()))
+							return Descendant
+						end
 					end
 				end
 			end
@@ -143,37 +153,61 @@ return function(Config)
 		local RootPart = getRootPart()
 		local Best = nil
 		local BestDist = math.huge
+		local AllPrompts = {}
 
 		for _, Descendant in ipairs(workspace:GetDescendants()) do
-			if Descendant:IsA("ProximityPrompt") and promptMentionsBed(Descendant) then
-				local Dist = 999999
+			if Descendant:IsA("ProximityPrompt") then
+				CountWorkspace = CountWorkspace + 1
+				table.insert(AllPrompts, Descendant)
 
-				if RootPart then
-					local PromptParent = Descendant.Parent
+				if promptMentionsBed(Descendant) then
+					local Dist = 999999
 
-					while PromptParent and PromptParent ~= workspace do
-						if PromptParent:IsA("BasePart") then
-							Dist = (RootPart.Position - PromptParent.Position).Magnitude
-							break
-						elseif PromptParent:IsA("Model") then
-							local Ok, Pivot = pcall(function()
-								return PromptParent:GetPivot()
-							end)
+					if RootPart then
+						local PromptParent = Descendant.Parent
 
-							if Ok and Pivot then
-								Dist = (RootPart.Position - Pivot.Position).Magnitude
+						while PromptParent and PromptParent ~= workspace do
+							if PromptParent:IsA("BasePart") then
+								Dist = (RootPart.Position - PromptParent.Position).Magnitude
 								break
-							end
-						end
+							elseif PromptParent:IsA("Model") then
+								local Ok, Pivot = pcall(function()
+									return PromptParent:GetPivot()
+								end)
 
-						PromptParent = PromptParent.Parent
+								if Ok and Pivot then
+									Dist = (RootPart.Position - Pivot.Position).Magnitude
+									break
+								end
+							end
+
+							PromptParent = PromptParent.Parent
+						end
+					end
+
+					if Dist < BestDist then
+						BestDist = Dist
+						Best = Descendant
 					end
 				end
+			end
+		end
 
-				if Dist < BestDist then
-					BestDist = Dist
-					Best = Descendant
-				end
+		warn(string.format(
+			"[KELV][OpTraining] findBedPrompt summary: layer1=%d layer2=%d workspace-total=%d workspace-bed-matches=%s best=%s",
+			CountBed,
+			CountParent,
+			CountWorkspace,
+			Best and "yes" or "no",
+			Best and Best:GetFullName() or "none"
+		))
+
+		if not Best and #AllPrompts > 0 then
+			warn(string.format("[KELV][OpTraining] workspace has %d prompts but none mention bed/sleep. Sample texts:", #AllPrompts))
+
+			for Index = 1, math.min(#AllPrompts, 5) do
+				local P = AllPrompts[Index]
+				warn(string.format("  [%d] action=%q object=%q at %s", Index, tostring(P.ActionText), tostring(P.ObjectText), P:GetFullName()))
 			end
 		end
 
