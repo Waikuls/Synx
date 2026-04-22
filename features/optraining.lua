@@ -9,6 +9,7 @@ return function(Config)
 	OpTrainingFeature.Connection = nil
 	OpTrainingFeature.LoopInterval = 0.5
 	OpTrainingFeature.Elapsed = 0
+	OpTrainingFeature.AutoTrainRef = nil
 
 	-- Behavior knobs
 	OpTrainingFeature.BedOffsetY = -21
@@ -60,80 +61,17 @@ return function(Config)
 		return Character:FindFirstChild("Torso")
 	end
 
-	local function findStatsContainer()
-		local Character = getCharacter()
-		local MainScript = nil
-
-		if Character then
-			MainScript = Character:FindFirstChild("MainScript")
-		end
-
-		if not MainScript then
-			local Entities = workspace:FindFirstChild("Entities")
-
-			if Entities then
-				local Entity = Entities:FindFirstChild(LocalPlayer.Name)
-
-				if Entity then
-					MainScript = Entity:FindFirstChild("MainScript")
-
-					if not MainScript then
-						MainScript = Entity:FindFirstChild("MainScript", true)
-					end
-				end
-			end
-		end
-
-		if not MainScript then
-			return nil
-		end
-
-		local Stats = MainScript:FindFirstChild("Stats")
-
-		if Stats then
-			return Stats
-		end
-
-		return MainScript:FindFirstChild("Stats", true)
-	end
-
-	local function readStat(Name)
-		local Stats = findStatsContainer()
-
-		if not Stats then
-			return nil
-		end
-
-		local Child = Stats:FindFirstChild(Name)
-
-		if Child and Child:IsA("ValueBase") then
-			return Child.Value
-		end
-
-		local Attribute = Stats:GetAttribute(Name)
-
-		if Attribute ~= nil then
-			return Attribute
-		end
-
-		local Descendant = Stats:FindFirstChild(Name, true)
-
-		if Descendant and Descendant:IsA("ValueBase") then
-			return Descendant.Value
-		end
-
-		return nil
-	end
-
 	local function getBodyFatigue()
-		local Value = readStat("BodyFatigue")
+		local Ref = OpTrainingFeature.AutoTrainRef
 
-		if type(Value) ~= "number" then
-			Value = readStat("BodyFatique")
-		end
+		if Ref and type(Ref.GetBodyFatigue) == "function" then
+			local Ok, Value = pcall(function()
+				return Ref:GetBodyFatigue()
+			end)
 
-		if type(Value) == "number" then
-			return Value
+			if Ok and type(Value) == "number" then
+				return Value
+			end
 		end
 
 		return 0
@@ -405,6 +343,10 @@ return function(Config)
 
 	function OpTrainingFeature:IsEnabled()
 		return self.Enabled == true
+	end
+
+	function OpTrainingFeature:SetAutoTrainRef(Feature)
+		self.AutoTrainRef = Feature
 	end
 
 	function OpTrainingFeature:Destroy()

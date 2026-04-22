@@ -637,6 +637,10 @@ local AutoTrainFeature = safeCreateModule("features/autotrain.lua", CreateAutoTr
 local AutoJobFeature = safeCreateModule("features/autojob.lua", CreateAutoJobFeature, {
 	Notification = Notification
 }, createFallbackAutoJobFeature)
+
+if OpTrainingFeature and type(OpTrainingFeature.SetAutoTrainRef) == "function" then
+	OpTrainingFeature:SetAutoTrainRef(AutoTrainFeature)
+end
 local StaminaFeature = safeCreateModule("features/stamina.lua", CreateStaminaFeature, {
 	Notification = Notification
 }, createFallbackStaminaFeature)

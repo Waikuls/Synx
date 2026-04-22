@@ -1925,6 +1925,10 @@ return function(Config)
 		return copyArray(AvailableTypes)
 	end
 
+	function AutoTrainFeature:GetBodyFatigue()
+		return getBodyFatigue()
+	end
+
 	function AutoTrainFeature:GetSelectedType()
 		return self.SelectedType
 	end
