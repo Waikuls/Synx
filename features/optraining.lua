@@ -4,7 +4,7 @@ return function(Config)
 	local LocalPlayer = Players.LocalPlayer
 	local Notification = Config and Config.Notification
 
-	warn("[KELV][OpTraining] module loaded version=v6-prompt-first")
+	warn("[KELV][OpTraining] module loaded version=v7-test-teleport-only")
 
 	local OpTrainingFeature = {}
 	OpTrainingFeature.Enabled = false
@@ -20,6 +20,7 @@ return function(Config)
 	OpTrainingFeature.MountWaitSeconds = 3
 	OpTrainingFeature.SleepTimeoutSeconds = 180
 	OpTrainingFeature.RetryCooldownSeconds = 5
+	OpTrainingFeature.TestTargetPosition = Vector3.new(1743.629, 38.101, -526.156)
 
 	-- Runtime state
 	OpTrainingFeature.State = "idle"
@@ -307,20 +308,18 @@ return function(Config)
 		self.BedOriginalCFrame = Bed:GetPivot()
 		self.PlayerReturnCFrame = RootPart.CFrame
 
-		local UndergroundCFrame = self.BedOriginalCFrame * CFrame.new(0, self.BedOffsetY, 0)
+		local TargetCFrame = CFrame.new(self.TestTargetPosition)
 
-		local PivotOk, PivotErr = pcall(function()
-			Bed:PivotTo(UndergroundCFrame)
-		end)
-		warn(string.format("[KELV][OpTraining] Bed:PivotTo underground ok=%s err=%s", tostring(PivotOk), tostring(PivotErr)))
-
-		task.wait(0.1)
+		warn(string.format(
+			"[KELV][OpTraining] TEST: skip bed pivot, teleport char to %s then fire prompt",
+			tostring(self.TestTargetPosition)
+		))
 
 		local Character = getCharacter()
 
 		if Character then
 			local CharOk, CharErr = pcall(function()
-				Character:PivotTo(UndergroundCFrame * CFrame.new(0, 3, 0))
+				Character:PivotTo(TargetCFrame)
 			end)
 			warn(string.format("[KELV][OpTraining] Character:PivotTo ok=%s err=%s", tostring(CharOk), tostring(CharErr)))
 		end
