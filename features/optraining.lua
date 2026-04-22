@@ -7,7 +7,7 @@ return function(Config)
 	local LocalPlayer = Players.LocalPlayer
 	local Notification = Config and Config.Notification
 
-	warn("[KELV][OpTraining] module loaded version=v26-run-toggle-remote")
+	warn("[KELV][OpTraining] module loaded version=v27-sprint-keepalive")
 
 	local WaypointStorageFolder = "KELV"
 	local WaypointStoragePath = "KELV/optraining_waypoints.json"
@@ -43,6 +43,8 @@ return function(Config)
 	OpTrainingFeature.SavedCameraType = nil
 	OpTrainingFeature.SavedCameraOffset = nil
 	OpTrainingFeature.ControlsDisabled = false
+	OpTrainingFeature.SprintKeepaliveConnection = nil
+	OpTrainingFeature.SprintKeepaliveInterval = 1
 
 	local function getCharacter()
 		return LocalPlayer.Character
@@ -326,6 +328,35 @@ return function(Config)
 		warn("[KELV][OpTraining] default controls enabled")
 	end
 
+	local function startSprintKeepalive()
+		if OpTrainingFeature.SprintKeepaliveConnection then
+			return
+		end
+
+		local Elapsed = 0
+
+		OpTrainingFeature.SprintKeepaliveConnection = RunService.Heartbeat:Connect(function(dt)
+			Elapsed = Elapsed + dt
+
+			if Elapsed < OpTrainingFeature.SprintKeepaliveInterval then
+				return
+			end
+
+			Elapsed = 0
+
+			if SprintHeld then
+				fireRunToggle(true)
+			end
+		end)
+	end
+
+	local function stopSprintKeepalive()
+		if OpTrainingFeature.SprintKeepaliveConnection then
+			OpTrainingFeature.SprintKeepaliveConnection:Disconnect()
+			OpTrainingFeature.SprintKeepaliveConnection = nil
+		end
+	end
+
 	local function sprintOn()
 		if SprintHeld then
 			return
@@ -338,6 +369,8 @@ return function(Config)
 		else
 			warn("[KELV][OpTraining] Run toggle ON failed — Toggle? remote not found")
 		end
+
+		startSprintKeepalive()
 	end
 
 	local function sprintOff()
@@ -346,6 +379,7 @@ return function(Config)
 		end
 
 		SprintHeld = false
+		stopSprintKeepalive()
 
 		if fireRunToggle(false) then
 			warn("[KELV][OpTraining] Run toggle OFF")
@@ -648,11 +682,11 @@ return function(Config)
 		local Now = os.clock()
 
 		if ShouldSprint and not SprintHeld then
-			warn(string.format("[KELV][OpTraining] stamina %.1f%% >= %d%%, sprint ON (hold W)", Stamina, OpTrainingFeature.LowStaminaPercent))
+			warn(string.format("[KELV][OpTraining] stamina %.1f%% >= %d%%, sprint ON (Run toggle)", Stamina, OpTrainingFeature.LowStaminaPercent))
 			sprintOn()
 			LastSprintLogAt = Now
 		elseif (not ShouldSprint) and SprintHeld then
-			warn(string.format("[KELV][OpTraining] stamina %.1f%% < %d%%, sprint OFF (release W)", Stamina, OpTrainingFeature.LowStaminaPercent))
+			warn(string.format("[KELV][OpTraining] stamina %.1f%% < %d%%, sprint OFF (Run toggle off)", Stamina, OpTrainingFeature.LowStaminaPercent))
 			sprintOff()
 			LastSprintLogAt = Now
 		elseif (Now - LastSprintLogAt) >= 3 then
