@@ -7,7 +7,7 @@ return function(Config)
 	local LocalPlayer = Players.LocalPlayer
 	local Notification = Config and Config.Notification
 
-	warn("[KELV][OpTraining] module loaded version=v39-walk-clean")
+	warn("[KELV][OpTraining] module loaded version=v40-back-to-v18-sprint")
 
 	local WaypointStorageFolder = "KELV"
 	local WaypointStoragePath = "KELV/optraining_waypoints.json"
@@ -132,10 +132,12 @@ return function(Config)
 		end
 
 		OpTrainingFeature.SavedCameraType = Camera.CameraType
-		-- Save WORLD-space offset (position only) so camera doesn't rotate
-		-- with the character. Camera will always look at the character from
-		-- the same world direction, regardless of how the character turns.
-		OpTrainingFeature.SavedCameraOffset = Camera.CFrame.Position - Root.Position
+		-- Save character-relative CFrame offset (includes rotation).
+		-- When character rotates, camera rotates with it, so camera
+		-- forward stays aligned with character forward. That keeps
+		-- W direction (camera forward in ControlScript) aligned with
+		-- MoveTo target direction — no drift.
+		OpTrainingFeature.SavedCameraOffset = Root.CFrame:ToObjectSpace(Camera.CFrame)
 
 		Camera.CameraType = Enum.CameraType.Scriptable
 
@@ -148,12 +150,11 @@ return function(Config)
 			end
 
 			if OpTrainingFeature.SavedCameraOffset then
-				local NewPos = R.Position + OpTrainingFeature.SavedCameraOffset
-				Cam.CFrame = CFrame.new(NewPos, R.Position)
+				Cam.CFrame = R.CFrame * OpTrainingFeature.SavedCameraOffset
 			end
 		end)
 
-		warn("[KELV][OpTraining] camera locked (fixed world view, looks at character)")
+		warn("[KELV][OpTraining] camera locked (follows character rotation)")
 	end
 
 	local function unlockCamera()
@@ -474,23 +475,61 @@ return function(Config)
 	-- the game's own sprint detector (which is tied to UIS events) runs
 	-- exactly as it would on a real W+W keypress. Uses executor-provided
 	-- firesignal / getconnections hooks — does NOT touch WalkSpeed.
-	-- Couldn't find a script-triggerable path to the game's sprint speed
-	-- detector (firesignal UIS.InputBegan, getconnections, hookfunction
-	-- IsKeyDown, IsSprinting Changed all fail to flip WalkSpeed).
-	-- Keep IsSprinting + Toggle? for animation and stamina drain so the
-	-- visual reads "jogging" even if actual speed stays at walk.
+	-- Restore v18 approach: VIM W tap + release + press-and-hold.
+	-- Don't disable default controls — ControlScript is the path VIM events
+	-- travel to reach the game's sprint detector. Camera lock follows
+	-- character rotation so W direction (camera forward) stays aligned with
+	-- MoveTo target, minimising oscillation.
+	local SprintRevision = 0
+
 	local function sprintOn()
 		if SprintHeld then
 			return
 		end
 
+		local VIM = getVirtualInputManager()
+
+		if not VIM then
+			warn("[KELV][OpTraining] VIM unavailable — can't hold W")
+			return
+		end
+
 		SprintHeld = true
-		disableDefaultControls()
+		SprintRevision = SprintRevision + 1
+		local MyRev = SprintRevision
 
 		setSprintingState(true)
 		fireRunToggle(true)
 
-		warn("[KELV][OpTraining] jog ON (animation only — game uses internal sprint detection we can't spoof)")
+		task.spawn(function()
+			-- First tap
+			pcall(function()
+				VIM:SendKeyEvent(true, Enum.KeyCode.W, false, game)
+			end)
+
+			task.wait(0.03)
+
+			if SprintRevision ~= MyRev then
+				return
+			end
+
+			pcall(function()
+				VIM:SendKeyEvent(false, Enum.KeyCode.W, false, game)
+			end)
+
+			task.wait(0.08)
+
+			if SprintRevision ~= MyRev or not SprintHeld then
+				return
+			end
+
+			-- Second press, HOLD (no release) — game latches sprint
+			pcall(function()
+				VIM:SendKeyEvent(true, Enum.KeyCode.W, false, game)
+			end)
+		end)
+
+		warn("[KELV][OpTraining] sprint ON (VIM W double-tap hold, v18 style)")
 	end
 
 	local function sprintOff()
@@ -499,16 +538,24 @@ return function(Config)
 		end
 
 		SprintHeld = false
+		SprintRevision = SprintRevision + 1
 
 		setSprintingState(false)
 		fireRunToggle(false)
 
-		warn("[KELV][OpTraining] jog OFF")
+		local VIM = getVirtualInputManager()
+
+		if VIM then
+			pcall(function()
+				VIM:SendKeyEvent(false, Enum.KeyCode.W, false, game)
+			end)
+		end
+
+		warn("[KELV][OpTraining] sprint OFF (W released)")
 	end
 
 	local function restoreWalkSpeed()
 		sprintOff()
-		enableDefaultControls()
 	end
 
 	local function findBedFromPrompt(Prompt)
