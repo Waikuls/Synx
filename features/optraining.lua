@@ -4,7 +4,7 @@ return function(Config)
 	local LocalPlayer = Players.LocalPlayer
 	local Notification = Config and Config.Notification
 
-	warn("[KELV][OpTraining] module loaded version=v8-anchor-below-seat")
+	warn("[KELV][OpTraining] module loaded version=v9-maxdist-bump")
 
 	local OpTrainingFeature = {}
 	OpTrainingFeature.Enabled = false
@@ -310,11 +310,11 @@ return function(Config)
 
 		local SeatPart = Prompt.Parent
 		local SeatPosition = (SeatPart and SeatPart:IsA("BasePart")) and SeatPart.Position or self.BedOriginalCFrame.Position
-		local TargetPosition = SeatPosition - Vector3.new(0, 9, 0)
+		local TargetPosition = self.TestTargetPosition
 		local DistanceToSeat = (TargetPosition - SeatPosition).Magnitude
 
 		warn(string.format(
-			"[KELV][OpTraining] TEST v7: teleport char to below seat (%.2f studs from seat), then fire prompt",
+			"[KELV][OpTraining] TEST v8: teleport char to test position (%.2f studs from seat), bump MaxDist, then fire prompt",
 			DistanceToSeat
 		))
 
@@ -337,6 +337,13 @@ return function(Config)
 			end)
 			warn("[KELV][OpTraining] HRP anchored")
 		end
+
+		-- Try raising MaxActivationDistance before firing (server might use property)
+		local OriginalMaxDist = Prompt.MaxActivationDistance
+		pcall(function()
+			Prompt.MaxActivationDistance = 1000
+		end)
+		warn(string.format("[KELV][OpTraining] bumped MaxActivationDistance %s -> %s", tostring(OriginalMaxDist), tostring(Prompt.MaxActivationDistance)))
 
 		local FireOk, FireErr = pcall(fireproximityprompt, Prompt, Prompt.HoldDuration)
 		warn(string.format("[KELV][OpTraining] fireproximityprompt ok=%s err=%s", tostring(FireOk), tostring(FireErr)))
