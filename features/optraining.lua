@@ -4,7 +4,7 @@ return function(Config)
 	local LocalPlayer = Players.LocalPlayer
 	local Notification = Config and Config.Notification
 
-	warn("[KELV][OpTraining] module loaded version=v5-broad-prompt-scan")
+	warn("[KELV][OpTraining] module loaded version=v6-prompt-first")
 
 	local OpTrainingFeature = {}
 	OpTrainingFeature.Enabled = false
@@ -79,33 +79,23 @@ return function(Config)
 		return 0
 	end
 
-	local function findBed()
-		local RootPart = getRootPart()
-		local BestBed = nil
-		local BestDist = math.huge
-
-		for _, Descendant in ipairs(workspace:GetDescendants()) do
-			if Descendant:IsA("Model") and Descendant.Name == "Bed" then
-				local Dist = 999999
-
-				if RootPart then
-					local Ok, Pivot = pcall(function()
-						return Descendant:GetPivot()
-					end)
-
-					if Ok and Pivot then
-						Dist = (RootPart.Position - Pivot.Position).Magnitude
-					end
-				end
-
-				if Dist < BestDist then
-					BestDist = Dist
-					BestBed = Descendant
-				end
-			end
+	local function findBedFromPrompt(Prompt)
+		if not Prompt then
+			return nil
 		end
 
-		return BestBed
+		local BedModel = nil
+		local Current = Prompt.Parent
+
+		while Current and Current ~= workspace do
+			if Current:IsA("Model") then
+				BedModel = Current
+			end
+
+			Current = Current.Parent
+		end
+
+		return BedModel
 	end
 
 	local function promptMentionsBed(Prompt)
@@ -268,23 +258,12 @@ return function(Config)
 		self.LastAttemptAt = os.clock()
 
 		notify("OP Training", "Triggered — starting bed routine")
-		warn("[KELV][OpTraining] state=busy, looking for bed")
+		warn("[KELV][OpTraining] state=busy, looking for bed prompt")
 
-		local Bed = findBed()
-
-		if not Bed then
-			warn("[KELV][OpTraining] FAIL: no Bed model in workspace")
-			notify("OP Training", "Bed model not found in workspace", "alert-circle")
-			self.State = "idle"
-			return
-		end
-
-		warn(string.format("[KELV][OpTraining] Bed found: %s", Bed:GetFullName()))
-
-		local Prompt = findBedPrompt(Bed)
+		local Prompt = findBedPrompt(nil)
 
 		if not Prompt then
-			warn("[KELV][OpTraining] v5 RESULT: bed prompt not found after 3-layer search")
+			warn("[KELV][OpTraining] v6 RESULT: no bed prompt in workspace")
 			notify("OP Training", "Bed prompt not found anywhere", "alert-circle")
 			self.State = "idle"
 			return
@@ -297,6 +276,17 @@ return function(Config)
 			tostring(Prompt.ObjectText),
 			tostring(Prompt.MaxActivationDistance)
 		))
+
+		local Bed = findBedFromPrompt(Prompt)
+
+		if not Bed then
+			warn("[KELV][OpTraining] FAIL: could not derive bed model from prompt")
+			notify("OP Training", "Bed model not found via prompt", "alert-circle")
+			self.State = "idle"
+			return
+		end
+
+		warn(string.format("[KELV][OpTraining] Bed derived: %s", Bed:GetFullName()))
 
 		local RootPart = getRootPart()
 
