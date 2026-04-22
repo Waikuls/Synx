@@ -7,7 +7,7 @@ return function(Config)
 	local LocalPlayer = Players.LocalPlayer
 	local Notification = Config and Config.Notification
 
-	warn("[KELV][OpTraining] module loaded version=v18-sprint-hold-w")
+	warn("[KELV][OpTraining] module loaded version=v19-camera-lock")
 
 	local WaypointStorageFolder = "KELV"
 	local WaypointStoragePath = "KELV/optraining_waypoints.json"
@@ -40,6 +40,10 @@ return function(Config)
 	OpTrainingFeature.PlayerReturnCFrame = nil
 	OpTrainingFeature.LastAttemptAt = 0
 	OpTrainingFeature.InputConnection = nil
+	OpTrainingFeature.CameraConnection = nil
+	OpTrainingFeature.SavedCameraType = nil
+	OpTrainingFeature.SavedCameraOffset = nil
+	OpTrainingFeature.SavedMouseBehavior = nil
 
 	local function getCharacter()
 		return LocalPlayer.Character
@@ -109,6 +113,69 @@ return function(Config)
 		return 100
 	end
 
+	local function lockCamera()
+		if OpTrainingFeature.CameraConnection then
+			return
+		end
+
+		local Camera = workspace.CurrentCamera
+
+		if not Camera then
+			return
+		end
+
+		local Root = getRootPart()
+
+		if not Root then
+			return
+		end
+
+		OpTrainingFeature.SavedCameraType = Camera.CameraType
+		OpTrainingFeature.SavedCameraOffset = Root.CFrame:ToObjectSpace(Camera.CFrame)
+		OpTrainingFeature.SavedMouseBehavior = UserInputService.MouseBehavior
+
+		Camera.CameraType = Enum.CameraType.Scriptable
+		UserInputService.MouseBehavior = Enum.MouseBehavior.LockCurrentPosition
+
+		OpTrainingFeature.CameraConnection = RunService.RenderStepped:Connect(function()
+			local R = getRootPart()
+			local Cam = workspace.CurrentCamera
+
+			if not R or not Cam then
+				return
+			end
+
+			if OpTrainingFeature.SavedCameraOffset then
+				Cam.CFrame = R.CFrame * OpTrainingFeature.SavedCameraOffset
+			end
+		end)
+
+		warn("[KELV][OpTraining] camera locked")
+	end
+
+	local function unlockCamera()
+		if OpTrainingFeature.CameraConnection then
+			OpTrainingFeature.CameraConnection:Disconnect()
+			OpTrainingFeature.CameraConnection = nil
+		end
+
+		local Camera = workspace.CurrentCamera
+
+		if Camera and OpTrainingFeature.SavedCameraType then
+			Camera.CameraType = OpTrainingFeature.SavedCameraType
+		end
+
+		if OpTrainingFeature.SavedMouseBehavior then
+			UserInputService.MouseBehavior = OpTrainingFeature.SavedMouseBehavior
+		end
+
+		OpTrainingFeature.SavedCameraType = nil
+		OpTrainingFeature.SavedCameraOffset = nil
+		OpTrainingFeature.SavedMouseBehavior = nil
+
+		warn("[KELV][OpTraining] camera unlocked")
+	end
+
 	local function getVirtualInputManager()
 		local Ok, VIM = pcall(game.GetService, game, "VirtualInputManager")
 
@@ -120,6 +187,7 @@ return function(Config)
 	end
 
 	local SprintHeld = false
+	local SprintRevision = 0
 
 	local function sprintOn()
 		if SprintHeld then
@@ -133,15 +201,32 @@ return function(Config)
 		end
 
 		SprintHeld = true
+		SprintRevision = SprintRevision + 1
+		local MyRev = SprintRevision
 
 		task.spawn(function()
 			pcall(function()
-				-- First tap: press + release
 				VIM:SendKeyEvent(true, Enum.KeyCode.W, false, game)
-				task.wait(0.03)
+			end)
+
+			task.wait(0.03)
+
+			if SprintRevision ~= MyRev then
+				return
+			end
+
+			pcall(function()
 				VIM:SendKeyEvent(false, Enum.KeyCode.W, false, game)
-				task.wait(OpTrainingFeature.DoubleTapGapSec)
-				-- Second tap: press + HOLD (no release) to keep sprint active
+			end)
+
+			task.wait(OpTrainingFeature.DoubleTapGapSec)
+
+			if SprintRevision ~= MyRev or not SprintHeld then
+				return
+			end
+
+			-- Second press, HOLD (no release) to keep sprint active
+			pcall(function()
 				VIM:SendKeyEvent(true, Enum.KeyCode.W, false, game)
 			end)
 		end)
@@ -153,6 +238,7 @@ return function(Config)
 		end
 
 		SprintHeld = false
+		SprintRevision = SprintRevision + 1
 
 		local VIM = getVirtualInputManager()
 
@@ -449,13 +535,24 @@ return function(Config)
 		end
 	end
 
+	local LastSprintLogAt = 0
+
 	local function maintainSprint()
 		local Stamina = getStaminaPercent()
+		local ShouldSprint = Stamina >= OpTrainingFeature.LowStaminaPercent
+		local Now = os.clock()
 
-		if Stamina >= OpTrainingFeature.LowStaminaPercent then
+		if ShouldSprint and not SprintHeld then
+			warn(string.format("[KELV][OpTraining] stamina %.1f%% >= %d%%, sprint ON", Stamina, OpTrainingFeature.LowStaminaPercent))
 			sprintOn()
-		else
+			LastSprintLogAt = Now
+		elseif (not ShouldSprint) and SprintHeld then
+			warn(string.format("[KELV][OpTraining] stamina %.1f%% < %d%%, sprint OFF (walking)", Stamina, OpTrainingFeature.LowStaminaPercent))
 			sprintOff()
+			LastSprintLogAt = Now
+		elseif (Now - LastSprintLogAt) >= 3 then
+			LastSprintLogAt = Now
+			warn(string.format("[KELV][OpTraining] stamina %.1f%% sprinting=%s", Stamina, tostring(SprintHeld)))
 		end
 	end
 
@@ -840,9 +937,11 @@ return function(Config)
 				self:Step()
 			end)
 
-			notify("OP Training", "Enabled — auto bed active")
+			lockCamera()
+			notify("OP Training", "Enabled — camera locked, auto bed active")
 		else
 			sprintOff()
+			unlockCamera()
 			notify("OP Training", "Disabled", "x-circle")
 		end
 
@@ -953,6 +1052,9 @@ return function(Config)
 			self.InputConnection:Disconnect()
 			self.InputConnection = nil
 		end
+
+		unlockCamera()
+		sprintOff()
 	end
 
 	loadWaypointsFromFile()
