@@ -7,7 +7,7 @@ return function(Config)
 	local LocalPlayer = Players.LocalPlayer
 	local Notification = Config and Config.Notification
 
-	warn("[KELV][OpTraining] module loaded version=v46-sprint-keepalive")
+	warn("[KELV][OpTraining] module loaded version=v47-retap-keepalive")
 
 	local WaypointStorageFolder = "KELV"
 	local WaypointStoragePath = "KELV/optraining_waypoints.json"
@@ -542,10 +542,11 @@ return function(Config)
 			disableDefaultControls()
 			warn("[KELV][OpTraining] ControlScript disabled after sprint latch")
 
-			-- Keepalive loop — re-assert sprint state every 0.4s so the game
-			-- doesn't drop us back to walking when it polls key/state.
+			-- Keepalive loop — re-perform the full W double-tap every 2s so
+			-- the game's sprint detector keeps seeing fresh input and
+			-- doesn't drop us back to walking.
 			while SprintRevision == MyRev and SprintHeld and OpTrainingFeature.Enabled do
-				task.wait(0.4)
+				task.wait(2)
 
 				if SprintRevision ~= MyRev or not SprintHeld then
 					break
@@ -558,6 +559,31 @@ return function(Config)
 				pcall(function()
 					fireRunToggle(true)
 				end)
+
+				-- Full re-tap sequence: release -> tap -> release -> hold
+				pcall(function()
+					VIM:SendKeyEvent(false, Enum.KeyCode.W, false, game)
+				end)
+
+				task.wait(0.05)
+
+				if SprintRevision ~= MyRev or not SprintHeld then break end
+
+				pcall(function()
+					VIM:SendKeyEvent(true, Enum.KeyCode.W, false, game)
+				end)
+
+				task.wait(0.03)
+
+				if SprintRevision ~= MyRev or not SprintHeld then break end
+
+				pcall(function()
+					VIM:SendKeyEvent(false, Enum.KeyCode.W, false, game)
+				end)
+
+				task.wait(0.08)
+
+				if SprintRevision ~= MyRev or not SprintHeld then break end
 
 				pcall(function()
 					VIM:SendKeyEvent(true, Enum.KeyCode.W, false, game)
