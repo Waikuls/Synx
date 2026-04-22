@@ -7,7 +7,7 @@ return function(Config)
 	local LocalPlayer = Players.LocalPlayer
 	local Notification = Config and Config.Notification
 
-	warn("[KELV][OpTraining] module loaded version=v34-jog-only")
+	warn("[KELV][OpTraining] module loaded version=v35-speed-measurement")
 
 	local WaypointStorageFolder = "KELV"
 	local WaypointStoragePath = "KELV/optraining_waypoints.json"
@@ -815,6 +815,24 @@ return function(Config)
 		end
 
 		maintainSprint()
+
+		-- Speed measurement (read-only, doesn't touch WalkSpeed)
+		task.spawn(function()
+			while OpTrainingFeature.Enabled and SprintHeld do
+				local R = getRootPart()
+				if not R then break end
+				local p1 = R.Position
+				task.wait(1)
+				local R2 = getRootPart()
+				if not R2 then break end
+				local H = getHumanoid()
+				local actualSpeed = (R2.Position - p1).Magnitude
+				warn(string.format("[KELV][OpTraining] speed: %.2f studs/sec (WalkSpeed prop=%.2f)",
+					actualSpeed,
+					H and H.WalkSpeed or -1
+				))
+			end
+		end)
 
 		local Path = PathfindingService:CreatePath({
 			AgentRadius = 2,
