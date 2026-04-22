@@ -7,7 +7,7 @@ return function(Config)
 	local LocalPlayer = Players.LocalPlayer
 	local Notification = Config and Config.Notification
 
-	warn("[KELV][OpTraining] module loaded version=v41-sprint-no-spin")
+	warn("[KELV][OpTraining] module loaded version=v42-freeze-rotation")
 
 	local WaypointStorageFolder = "KELV"
 	local WaypointStoragePath = "KELV/optraining_waypoints.json"
@@ -132,19 +132,41 @@ return function(Config)
 		end
 
 		OpTrainingFeature.SavedCameraType = Camera.CameraType
-		-- Fixed world-space view: save position offset only, look at
-		-- character each frame. Camera stays at the same world direction
-		-- regardless of how the character rotates.
 		OpTrainingFeature.SavedCameraOffset = Camera.CFrame.Position - Root.Position
+
+		-- Freeze character orientation at this moment. Each Heartbeat we
+		-- re-assert both AutoRotate=false and HumanoidRootPart's yaw so the
+		-- body doesn't spin even if the game or ControlScript tries to
+		-- rotate it.
+		local SavedLookVector = Root.CFrame.LookVector
+		SavedLookVector = Vector3.new(SavedLookVector.X, 0, SavedLookVector.Z)
+
+		if SavedLookVector.Magnitude < 0.01 then
+			SavedLookVector = Vector3.new(0, 0, -1)
+		end
+
+		OpTrainingFeature.SavedLookVector = SavedLookVector.Unit
 
 		Camera.CameraType = Enum.CameraType.Scriptable
 
 		OpTrainingFeature.CameraConnection = RunService.RenderStepped:Connect(function()
 			local R = getRootPart()
 			local Cam = workspace.CurrentCamera
+			local Hum = getHumanoid()
 
 			if not R or not Cam then
 				return
+			end
+
+			if Hum and Hum.AutoRotate then
+				pcall(function() Hum.AutoRotate = false end)
+			end
+
+			if OpTrainingFeature.SavedLookVector then
+				local Look = OpTrainingFeature.SavedLookVector
+				pcall(function()
+					R.CFrame = CFrame.new(R.Position, R.Position + Look)
+				end)
 			end
 
 			if OpTrainingFeature.SavedCameraOffset then
@@ -153,8 +175,6 @@ return function(Config)
 			end
 		end)
 
-		-- Also freeze character rotation so camera-fixed W direction doesn't
-		-- cause the body to spin when ControlScript + MoveTo compete.
 		local Hum = getHumanoid()
 
 		if Hum then
@@ -163,7 +183,7 @@ return function(Config)
 			end)
 		end
 
-		warn("[KELV][OpTraining] camera locked (fixed world view, AutoRotate off)")
+		warn("[KELV][OpTraining] camera+character locked (no spin)")
 	end
 
 	local function unlockCamera()
@@ -188,6 +208,7 @@ return function(Config)
 
 		OpTrainingFeature.SavedCameraType = nil
 		OpTrainingFeature.SavedCameraOffset = nil
+		OpTrainingFeature.SavedLookVector = nil
 
 		warn("[KELV][OpTraining] camera unlocked")
 	end
