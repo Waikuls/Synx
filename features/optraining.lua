@@ -27,7 +27,7 @@ return function(Config)
 	OpTrainingFeature.RetryCooldownSeconds = 5
 	OpTrainingFeature.WalkTimeoutSeconds = 20
 	OpTrainingFeature.WaypointArriveDistance = 4
-	OpTrainingFeature.LowStaminaPercent = 3
+	OpTrainingFeature.LowStaminaPercent = 20
 
 	-- Waypoints keyed by AutoTrain machine type (Bike, Bench, Treadmill, ...).
 	-- Each value is an array of Vector3 walked in order before reaching the
