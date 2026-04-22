@@ -7,7 +7,7 @@ return function(Config)
 	local LocalPlayer = Players.LocalPlayer
 	local Notification = Config and Config.Notification
 
-	warn("[KELV][OpTraining] module loaded version=v23-sprint-controls-on")
+	warn("[KELV][OpTraining] module loaded version=v24-sprint-controls-off")
 
 	local WaypointStorageFolder = "KELV"
 	local WaypointStoragePath = "KELV/optraining_waypoints.json"
@@ -255,9 +255,11 @@ return function(Config)
 			return
 		end
 
-		-- Keep default controls ENABLED so the game's sprint detector sees W.
-		-- Camera lock keeps camera-forward aligned with MoveTo direction, so
-		-- the W input (camera-forward) and MoveTo target agree.
+		-- ControlScript writes Humanoid.MoveDirection from W input every frame
+		-- and was fighting MoveTo, causing the character to walk in circles.
+		-- Disable PlayerModule controls — UserInputService events still fire
+		-- so the game's sprint detector can still react to the W keys below.
+		disableDefaultControls()
 
 		SprintHeld = true
 		SprintRevision = SprintRevision + 1
@@ -311,6 +313,7 @@ return function(Config)
 
 	local function restoreWalkSpeed()
 		sprintOff()
+		enableDefaultControls()
 	end
 
 	local function findBedFromPrompt(Prompt)
