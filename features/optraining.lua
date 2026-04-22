@@ -7,7 +7,7 @@ return function(Config)
 	local LocalPlayer = Players.LocalPlayer
 	local Notification = Config and Config.Notification
 
-	warn("[KELV][OpTraining] module loaded version=v47-retap-keepalive")
+	warn("[KELV][OpTraining] module loaded version=v48-no-arrival-stop")
 
 	local WaypointStorageFolder = "KELV"
 	local WaypointStoragePath = "KELV/optraining_waypoints.json"
@@ -948,11 +948,11 @@ return function(Config)
 			local Delta = Target - R.Position
 			local Flat = Vector3.new(Delta.X, 0, Delta.Z)
 
-			if Flat.Magnitude < 0.5 then
-				pcall(function()
-					H:Move(Vector3.new(0, 0, 0), false)
-				end)
-			else
+			-- Always push toward target; outer walk loop advances the target
+			-- when close enough, so don't stop here — that caused start-stop
+			-- jitter every time the character got within 0.5 studs of a path
+			-- waypoint.
+			if Flat.Magnitude > 0.01 then
 				pcall(function()
 					H:Move(Flat.Unit, false)
 				end)
