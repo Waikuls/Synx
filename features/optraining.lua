@@ -7,7 +7,7 @@ return function(Config)
 	local LocalPlayer = Players.LocalPlayer
 	local Notification = Config and Config.Notification
 
-	warn("[KELV][OpTraining] module loaded version=v43-move-override")
+	warn("[KELV][OpTraining] module loaded version=v44-autorotate-on")
 
 	local WaypointStorageFolder = "KELV"
 	local WaypointStoragePath = "KELV/optraining_waypoints.json"
@@ -155,17 +155,11 @@ return function(Config)
 			end
 		end)
 
-		-- Also freeze character rotation so camera-fixed W direction doesn't
-		-- cause the body to spin when ControlScript + MoveTo compete.
-		local Hum = getHumanoid()
+		-- Keep AutoRotate enabled — character needs to rotate toward MoveDirection
+		-- so Humanoid:Move walks it correctly. Camera stays at fixed world view
+		-- regardless of how character rotates.
 
-		if Hum then
-			pcall(function()
-				Hum.AutoRotate = false
-			end)
-		end
-
-		warn("[KELV][OpTraining] camera locked (fixed world view, AutoRotate off)")
+		warn("[KELV][OpTraining] camera locked (fixed world view)")
 	end
 
 	local function unlockCamera()
@@ -178,14 +172,6 @@ return function(Config)
 
 		if Camera and OpTrainingFeature.SavedCameraType then
 			Camera.CameraType = OpTrainingFeature.SavedCameraType
-		end
-
-		local Hum = getHumanoid()
-
-		if Hum then
-			pcall(function()
-				Hum.AutoRotate = true
-			end)
 		end
 
 		OpTrainingFeature.SavedCameraType = nil
@@ -973,7 +959,7 @@ return function(Config)
 			local PathWaypoints = Path:GetWaypoints()
 			warn(string.format("[KELV][OpTraining] path computed %d waypoints", #PathWaypoints))
 
-			for _, Waypoint in ipairs(PathWaypoints) do
+			for PathIdx, Waypoint in ipairs(PathWaypoints) do
 				if not OpTrainingFeature.Enabled then
 					return false, "disabled"
 				end
@@ -993,6 +979,8 @@ return function(Config)
 				end
 
 				OpTrainingFeature.CurrentMoveTarget = Waypoint.Position
+				warn(string.format("[KELV][OpTraining] target %d/%d: %.0f,%.0f,%.0f",
+					PathIdx, #PathWaypoints, Waypoint.Position.X, Waypoint.Position.Y, Waypoint.Position.Z))
 
 				local StepStart = os.clock()
 
