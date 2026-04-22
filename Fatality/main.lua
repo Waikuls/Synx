@@ -651,6 +651,7 @@ local StatsUI = safeCreateModule("ui/stats.lua", CreateStatsUI, {
 local DefaultAntiAfkEnabled = AntiAfkFeature:SetEnabled(true)
 
 safeRunModule("ui/main.lua", CreateMainUI, {
+	Window = Window,
 	Main = Main,
 	FoodFeature = FoodFeature,
 	WheyFeature = WheyFeature,

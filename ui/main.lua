@@ -1,10 +1,26 @@
 return function(Config)
+	local Window = Config.Window
 	local Main = Config.Main
 	local FoodFeature = Config.FoodFeature
 	local WheyFeature = Config.WheyFeature
 	local StaminaFeature = Config.StaminaFeature
 	local AutoTrainFeature = Config.AutoTrainFeature
 	local AutoJobFeature = Config.AutoJobFeature
+
+	local function setFlagValue(FlagName, Value)
+		if not Window then
+			return
+		end
+
+		task.defer(function()
+			local Flags = Window:GetFlags()
+			local Flag = Flags and Flags[FlagName]
+
+			if Flag and type(Flag.SetValue) == "function" then
+				Flag:SetValue(Value)
+			end
+		end)
+	end
 
 	local Food = Main:AddSection({
 		Name = "FOOD",
@@ -74,6 +90,11 @@ return function(Config)
 	AutoTrain:AddToggle({
 		Name = "Enabled",
 		Callback = function(Value)
+			if Value and AutoTrainFeature and AutoTrainFeature:IsOpTrainingEnabled() then
+				AutoTrainFeature:SetOpTrainingEnabled(false)
+				setFlagValue("AutoTrainOpTraining", false)
+			end
+
 			if AutoTrainFeature then
 				AutoTrainFeature:SetEnabled(Value)
 			end
@@ -85,6 +106,11 @@ return function(Config)
 		Name = "OP Training",
 		Default = AutoTrainFeature and AutoTrainFeature:IsOpTrainingEnabled() or false,
 		Callback = function(Value)
+			if Value and AutoTrainFeature and AutoTrainFeature.Enabled then
+				AutoTrainFeature:SetEnabled(false)
+				setFlagValue("AutoTrain", false)
+			end
+
 			if AutoTrainFeature then
 				AutoTrainFeature:SetOpTrainingEnabled(Value)
 			end
