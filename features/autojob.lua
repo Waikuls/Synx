@@ -429,7 +429,7 @@ return function(Config)
 			if not cancellableWait(3) then break end
 			deliverAll()
 			if not AutoJobFeature.Enabled then break end
-			if not cancellableWait(10) then break end
+			if not cancellableWait(50) then break end
 		end
 		restoreCharacter()
 		AutoJobFeature.Thread = nil
