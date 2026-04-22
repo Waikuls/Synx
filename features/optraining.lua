@@ -106,18 +106,78 @@ return function(Config)
 		return BestBed
 	end
 
-	local function findBedPrompt(Bed)
-		if not Bed then
-			return nil
+	local function promptMentionsBed(Prompt)
+		local Action = string.lower(tostring(Prompt.ActionText or ""))
+		local Object = string.lower(tostring(Prompt.ObjectText or ""))
+
+		if string.find(Action, "bed", 1, true) or string.find(Object, "bed", 1, true) then
+			return true
 		end
 
-		for _, Descendant in ipairs(Bed:GetDescendants()) do
-			if Descendant:IsA("ProximityPrompt") then
-				return Descendant
+		if string.find(Action, "sleep", 1, true) or string.find(Object, "sleep", 1, true) then
+			return true
+		end
+
+		return false
+	end
+
+	local function findBedPrompt(Bed)
+		if Bed then
+			for _, Descendant in ipairs(Bed:GetDescendants()) do
+				if Descendant:IsA("ProximityPrompt") then
+					return Descendant
+				end
+			end
+
+			local Parent = Bed.Parent
+
+			if Parent then
+				for _, Descendant in ipairs(Parent:GetDescendants()) do
+					if Descendant:IsA("ProximityPrompt") and promptMentionsBed(Descendant) then
+						return Descendant
+					end
+				end
 			end
 		end
 
-		return nil
+		local RootPart = getRootPart()
+		local Best = nil
+		local BestDist = math.huge
+
+		for _, Descendant in ipairs(workspace:GetDescendants()) do
+			if Descendant:IsA("ProximityPrompt") and promptMentionsBed(Descendant) then
+				local Dist = 999999
+
+				if RootPart then
+					local PromptParent = Descendant.Parent
+
+					while PromptParent and PromptParent ~= workspace do
+						if PromptParent:IsA("BasePart") then
+							Dist = (RootPart.Position - PromptParent.Position).Magnitude
+							break
+						elseif PromptParent:IsA("Model") then
+							local Ok, Pivot = pcall(function()
+								return PromptParent:GetPivot()
+							end)
+
+							if Ok and Pivot then
+								Dist = (RootPart.Position - Pivot.Position).Magnitude
+								break
+							end
+						end
+
+						PromptParent = PromptParent.Parent
+					end
+				end
+
+				if Dist < BestDist then
+					BestDist = Dist
+					Best = Descendant
+				end
+			end
+		end
+
+		return Best
 	end
 
 	local function isSeatedOnBed(Bed)
@@ -195,7 +255,8 @@ return function(Config)
 		end
 
 		warn(string.format(
-			"[KELV][OpTraining] Prompt found: action=%s object=%s maxDist=%s",
+			"[KELV][OpTraining] Prompt found at %s: action=%s object=%s maxDist=%s",
+			Prompt:GetFullName(),
 			tostring(Prompt.ActionText),
 			tostring(Prompt.ObjectText),
 			tostring(Prompt.MaxActivationDistance)
