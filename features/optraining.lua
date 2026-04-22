@@ -177,28 +177,41 @@ return function(Config)
 		local Bed = findBed()
 
 		if not Bed then
+			warn("[KELV][OpTraining] FAIL: no Bed model in workspace")
 			notify("OP Training", "Bed model not found in workspace", "alert-circle")
 			self.State = "idle"
 			return
 		end
 
+		warn(string.format("[KELV][OpTraining] Bed found: %s", Bed:GetFullName()))
+
 		local Prompt = findBedPrompt(Bed)
 
 		if not Prompt then
+			warn("[KELV][OpTraining] FAIL: no ProximityPrompt in Bed")
 			notify("OP Training", "Bed has no ProximityPrompt", "alert-circle")
 			self.State = "idle"
 			return
 		end
 
+		warn(string.format(
+			"[KELV][OpTraining] Prompt found: action=%s object=%s maxDist=%s",
+			tostring(Prompt.ActionText),
+			tostring(Prompt.ObjectText),
+			tostring(Prompt.MaxActivationDistance)
+		))
+
 		local RootPart = getRootPart()
 
 		if not RootPart then
+			warn("[KELV][OpTraining] FAIL: no root part")
 			notify("OP Training", "Character root part not found", "alert-circle")
 			self.State = "idle"
 			return
 		end
 
 		if type(fireproximityprompt) ~= "function" then
+			warn("[KELV][OpTraining] FAIL: fireproximityprompt not a function, type=" .. type(fireproximityprompt))
 			notify("OP Training", "fireproximityprompt unavailable in executor", "alert-circle")
 			self.State = "idle"
 			return
@@ -209,25 +222,26 @@ return function(Config)
 
 		local UndergroundCFrame = self.BedOriginalCFrame * CFrame.new(0, self.BedOffsetY, 0)
 
-		pcall(function()
+		local PivotOk, PivotErr = pcall(function()
 			Bed:PivotTo(UndergroundCFrame)
 		end)
+		warn(string.format("[KELV][OpTraining] Bed:PivotTo underground ok=%s err=%s", tostring(PivotOk), tostring(PivotErr)))
 
 		task.wait(0.1)
 
 		local Character = getCharacter()
 
 		if Character then
-			pcall(function()
+			local CharOk, CharErr = pcall(function()
 				Character:PivotTo(UndergroundCFrame * CFrame.new(0, 3, 0))
 			end)
+			warn(string.format("[KELV][OpTraining] Character:PivotTo ok=%s err=%s", tostring(CharOk), tostring(CharErr)))
 		end
 
 		task.wait(0.15)
 
-		if type(fireproximityprompt) == "function" then
-			pcall(fireproximityprompt, Prompt, Prompt.HoldDuration)
-		end
+		local FireOk, FireErr = pcall(fireproximityprompt, Prompt, Prompt.HoldDuration)
+		warn(string.format("[KELV][OpTraining] fireproximityprompt ok=%s err=%s", tostring(FireOk), tostring(FireErr)))
 
 		local WaitStart = os.clock()
 
@@ -243,7 +257,10 @@ return function(Config)
 			task.wait(0.1)
 		end
 
-		if not isSeatedOnBed(Bed) then
+		local Seated = isSeatedOnBed(Bed)
+		warn(string.format("[KELV][OpTraining] after mount wait, seated=%s SeatPart=%s", tostring(Seated), tostring(getHumanoid() and getHumanoid().SeatPart or "nil")))
+
+		if not Seated then
 			notify("OP Training", "Bed use failed — server rejected or no cash", "alert-circle")
 
 			pcall(function()
