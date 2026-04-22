@@ -7,7 +7,7 @@ return function(Config)
 	local LocalPlayer = Players.LocalPlayer
 	local Notification = Config and Config.Notification
 
-	warn("[KELV][OpTraining] module loaded version=v22-game-sprint-controls-off")
+	warn("[KELV][OpTraining] module loaded version=v23-sprint-controls-on")
 
 	local WaypointStorageFolder = "KELV"
 	local WaypointStoragePath = "KELV/optraining_waypoints.json"
@@ -255,16 +255,16 @@ return function(Config)
 			return
 		end
 
-		-- Disable Roblox default W input BEFORE holding W via VIM, so
-		-- ControlScript doesn't steer the character in W's direction.
-		-- MoveTo then has sole control of MoveDirection.
-		disableDefaultControls()
+		-- Keep default controls ENABLED so the game's sprint detector sees W.
+		-- Camera lock keeps camera-forward aligned with MoveTo direction, so
+		-- the W input (camera-forward) and MoveTo target agree.
 
 		SprintHeld = true
 		SprintRevision = SprintRevision + 1
 		local MyRev = SprintRevision
 
 		task.spawn(function()
+			-- First tap: press + release (quick)
 			pcall(function()
 				VIM:SendKeyEvent(true, Enum.KeyCode.W, false, game)
 			end)
@@ -311,7 +311,6 @@ return function(Config)
 
 	local function restoreWalkSpeed()
 		sprintOff()
-		enableDefaultControls()
 	end
 
 	local function findBedFromPrompt(Prompt)
