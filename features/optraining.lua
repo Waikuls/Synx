@@ -7,7 +7,7 @@ return function(Config)
 	local LocalPlayer = Players.LocalPlayer
 	local Notification = Config and Config.Notification
 
-	warn("[KELV][OpTraining] module loaded version=v58-continuous-sprint")
+	warn("[KELV][OpTraining] module loaded version=v59-slow-retap-keepalive")
 
 	local WaypointStorageFolder = "KELV"
 	local WaypointStoragePath = "KELV/optraining_waypoints.json"
@@ -543,12 +543,12 @@ return function(Config)
 			disableDefaultControls()
 			warn("[KELV][OpTraining] ControlScript disabled after sprint latch")
 
-			-- Keepalive loop — do NOT release W, just re-assert the sprint
-			-- state and re-fire the server toggle. Releasing W was causing
-			-- the game to momentarily drop sprint, which showed up as a
-			-- walk-run-walk-run stutter.
+			-- Keepalive loop — full re-tap every 10s. The brief W release
+			-- inside the sequence causes ~100ms of walking, but 10s is long
+			-- enough that it reads as one smooth run. Re-press only (no
+			-- re-tap) doesn't keep sprint latched in this game.
 			while SprintRevision == MyRev and SprintHeld and OpTrainingFeature.Enabled do
-				task.wait(1.5)
+				task.wait(10)
 
 				if SprintRevision ~= MyRev or not SprintHeld then
 					break
@@ -562,9 +562,31 @@ return function(Config)
 					fireRunToggle(true)
 				end)
 
-				-- Re-press W without a prior release, in case the game drops
-				-- the hold state over time but still accepts a fresh press
-				-- event without a double-tap.
+				-- release → tap → release → hold
+				pcall(function()
+					VIM:SendKeyEvent(false, Enum.KeyCode.W, false, game)
+				end)
+
+				task.wait(0.03)
+
+				if SprintRevision ~= MyRev or not SprintHeld then break end
+
+				pcall(function()
+					VIM:SendKeyEvent(true, Enum.KeyCode.W, false, game)
+				end)
+
+				task.wait(0.03)
+
+				if SprintRevision ~= MyRev or not SprintHeld then break end
+
+				pcall(function()
+					VIM:SendKeyEvent(false, Enum.KeyCode.W, false, game)
+				end)
+
+				task.wait(0.06)
+
+				if SprintRevision ~= MyRev or not SprintHeld then break end
+
 				pcall(function()
 					VIM:SendKeyEvent(true, Enum.KeyCode.W, false, game)
 				end)
