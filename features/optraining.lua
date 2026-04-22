@@ -7,7 +7,7 @@ return function(Config)
 	local LocalPlayer = Players.LocalPlayer
 	local Notification = Config and Config.Notification
 
-	warn("[KELV][OpTraining] module loaded version=v31-camera-fixed-view")
+	warn("[KELV][OpTraining] module loaded version=v32-is-sprinting-direct")
 
 	local WaypointStorageFolder = "KELV"
 	local WaypointStoragePath = "KELV/optraining_waypoints.json"
@@ -391,12 +391,85 @@ return function(Config)
 		end)
 	end
 
-	-- Sprint was removed: couldn't reliably trigger the game's run state
-	-- from script (Toggle? remote alone doesn't run, keypress events don't
-	-- reach the game's sprint listener, and holding W via VIM fights MoveTo).
-	-- Character walks to the bed at default speed. Controls are still
-	-- disabled during the routine so ControlScript doesn't pull
-	-- MoveDirection away from MoveTo target.
+	local function getIsSprintingObject()
+		local Char = getCharacter()
+
+		if not Char then
+			return nil
+		end
+
+		local MainScript = Char:FindFirstChild("MainScript")
+
+		if not MainScript then
+			return nil
+		end
+
+		return MainScript:FindFirstChild("IsSprinting")
+	end
+
+	local function setSprintingState(State)
+		local Obj = getIsSprintingObject()
+
+		if not Obj then
+			warn("[KELV][OpTraining] IsSprinting not found")
+			return false
+		end
+
+		local ClassName = Obj.ClassName
+
+		-- Approach 1: BoolValue — set .Value
+		if Obj:IsA("ValueBase") then
+			local Ok, Err = pcall(function()
+				Obj.Value = State and true or false
+			end)
+
+			if Ok then
+				warn(string.format("[KELV][OpTraining] IsSprinting (%s).Value = %s", ClassName, tostring(State)))
+				return true
+			else
+				warn(string.format("[KELV][OpTraining] IsSprinting.Value set failed: %s", tostring(Err)))
+			end
+		end
+
+		-- Approach 2: ModuleScript — require + call
+		if Obj:IsA("ModuleScript") then
+			local Ok, Module = pcall(require, Obj)
+
+			if Ok and type(Module) == "table" then
+				warn(string.format("[KELV][OpTraining] IsSprinting ModuleScript required, methods: %s", tostring(Module)))
+
+				-- try common method names
+				for _, MethodName in ipairs({"Set", "SetSprinting", "SetState", "Toggle"}) do
+					if type(Module[MethodName]) == "function" then
+						pcall(Module[MethodName], State and true or false)
+						warn(string.format("[KELV][OpTraining] called IsSprinting.%s(%s)", MethodName, tostring(State)))
+						return true
+					end
+				end
+
+				-- try exposing .Value
+				if Module.Value ~= nil then
+					pcall(function()
+						Module.Value = State and true or false
+					end)
+					return true
+				end
+			end
+		end
+
+		-- Approach 3: attribute on MainScript
+		pcall(function()
+			local Char = getCharacter()
+			local MS = Char and Char:FindFirstChild("MainScript")
+			if MS then
+				MS:SetAttribute("IsSprinting", State and true or false)
+			end
+		end)
+
+		warn(string.format("[KELV][OpTraining] IsSprinting is %s — no approach matched, tried SetAttribute", ClassName))
+		return false
+	end
+
 	local function sprintOn()
 		if SprintHeld then
 			return
@@ -404,6 +477,12 @@ return function(Config)
 
 		SprintHeld = true
 		disableDefaultControls()
+
+		-- Try the game's IsSprinting state directly
+		setSprintingState(true)
+
+		-- Also fire the Toggle? remote as a complement
+		fireRunToggle(true)
 	end
 
 	local function sprintOff()
@@ -412,6 +491,9 @@ return function(Config)
 		end
 
 		SprintHeld = false
+
+		setSprintingState(false)
+		fireRunToggle(false)
 	end
 
 	local function restoreWalkSpeed()
@@ -706,9 +788,13 @@ return function(Config)
 	local LastSprintLogAt = 0
 
 	local function maintainSprint()
-		-- Call once to ensure Controls are disabled during walks
-		if not SprintHeld then
+		local Stamina = getStaminaPercent()
+		local ShouldSprint = Stamina >= OpTrainingFeature.LowStaminaPercent
+
+		if ShouldSprint and not SprintHeld then
 			sprintOn()
+		elseif (not ShouldSprint) and SprintHeld then
+			sprintOff()
 		end
 	end
 
