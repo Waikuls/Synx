@@ -631,6 +631,66 @@ return function(Config)
 		return Value
 	end
 
+	local function formatStatNumber(Value)
+		if type(Value) ~= "number" then
+			return "N/A"
+		end
+
+		local Abs = math.abs(Value)
+
+		if Abs >= 1000000000 then
+			return string.format("%.2fB", Value / 1000000000)
+		end
+
+		if Abs >= 1000000 then
+			return string.format("%.2fM", Value / 1000000)
+		end
+
+		if Abs >= 1000 then
+			return string.format("%.2fK", Value / 1000)
+		end
+
+		if math.floor(Value) == Value then
+			return tostring(math.floor(Value))
+		end
+
+		return string.format("%.2f", Value)
+	end
+
+	local function readPlayerStats()
+		local Stats = findStatsContainer()
+		local Result = {
+			Strength = nil,
+			Durability = nil,
+			MaxStamina = nil,
+			AttackSpeed = nil,
+			UpperMuscle = nil,
+			LowerMuscle = nil,
+			TotalPower = nil,
+		}
+
+		if not Stats then
+			return Result
+		end
+
+		Result.Strength    = readStatsValue(Stats, "Strength")
+		Result.Durability  = readStatsValue(Stats, "Durability")
+		Result.MaxStamina  = readStatsValue(Stats, "MaxStamina")
+		Result.AttackSpeed = readStatsValue(Stats, "AttackSpeed")
+			or readStatsValue(Stats, "Attack Speed")
+			or readStatsValue(Stats, "Attackspeed")
+		Result.UpperMuscle = readStatsValue(Stats, "UpperMuscle")
+			or readStatsValue(Stats, "UpperBodyMuscle")
+			or readStatsValue(Stats, "UpperBody")
+		Result.LowerMuscle = readStatsValue(Stats, "LowerMuscle")
+			or readStatsValue(Stats, "LowerBodyMuscle")
+			or readStatsValue(Stats, "LowerBody")
+		Result.TotalPower  = readStatsValue(Stats, "TotalPower")
+			or readStatsValue(Stats, "Power")
+
+		return Result
+	end
+
 	local function valueToBool(Value)
 		local ValueType = typeof(Value)
 
@@ -1672,10 +1732,31 @@ return function(Config)
 		if CurrentBodyFatigue >= 100 then
 			if not self.FatigueNotified and Webhook and Webhook:IsConfigured() then
 				self.FatigueNotified = true
-				Webhook:Send(string.format(
-					"[KELV] %s — Body Fatigue is full (100%%). Auto train stopped.",
-					LocalPlayer.Name
-				))
+
+				local StatSnapshot = readPlayerStats()
+				local ActionLabel = self.MaxFatigueAction or "Do nothing"
+				local Embed = {
+					title = "Body Fatigue Full (100%)",
+					description = string.format(
+						"**%s** has reached max fatigue.\nAuto train has been **stopped**.",
+						LocalPlayer.Name
+					),
+					color = 15158332,
+					fields = {
+						{name = "Strength",     value = formatStatNumber(StatSnapshot.Strength),    inline = true},
+						{name = "Durability",   value = formatStatNumber(StatSnapshot.Durability),  inline = true},
+						{name = "Stamina (Max)",value = formatStatNumber(StatSnapshot.MaxStamina),  inline = true},
+						{name = "Attack Speed", value = formatStatNumber(StatSnapshot.AttackSpeed), inline = true},
+						{name = "Upper Muscle", value = formatStatNumber(StatSnapshot.UpperMuscle), inline = true},
+						{name = "Lower Muscle", value = formatStatNumber(StatSnapshot.LowerMuscle), inline = true},
+						{name = "Total Power",  value = "**" .. formatStatNumber(StatSnapshot.TotalPower) .. "**", inline = false},
+						{name = "Next Action",  value = ActionLabel, inline = false},
+					},
+					footer = {text = "KELV Auto Train"},
+					timestamp = DateTime.now():ToIsoDate(),
+				}
+
+				Webhook:SendEmbed(Embed, true)
 			end
 
 			if self.MaxFatigueAction == "Kick" then

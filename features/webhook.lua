@@ -91,6 +91,30 @@ return function(Config)
 		return true
 	end
 
+	function WebhookFeature:SendEmbed(Embed, Force, Content)
+		local Now = os.clock()
+
+		if self.Url == "" then
+			return false
+		end
+
+		if not Force and (Now - self.LastSentAt) < self.SendCooldown then
+			return false
+		end
+
+		self.LastSentAt = Now
+
+		task.spawn(function()
+			pcall(doRequest, self.Url, {
+				content = "@everyone " .. (Content or ""),
+				embeds = {Embed},
+				allowed_mentions = {parse = {"everyone"}}
+			})
+		end)
+
+		return true
+	end
+
 	function WebhookFeature:SetUrl(Url)
 		local Trimmed = type(Url) == "string" and string.match(Url, "^%s*(.-)%s*$") or ""
 		self.Url = Trimmed
