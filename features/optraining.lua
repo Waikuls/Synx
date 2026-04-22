@@ -4,6 +4,8 @@ return function(Config)
 	local LocalPlayer = Players.LocalPlayer
 	local Notification = Config and Config.Notification
 
+	warn("[KELV][OpTraining] module loaded version=v5-broad-prompt-scan")
+
 	local OpTrainingFeature = {}
 	OpTrainingFeature.Enabled = false
 	OpTrainingFeature.Connection = nil
@@ -282,8 +284,8 @@ return function(Config)
 		local Prompt = findBedPrompt(Bed)
 
 		if not Prompt then
-			warn("[KELV][OpTraining] FAIL: no ProximityPrompt in Bed")
-			notify("OP Training", "Bed has no ProximityPrompt", "alert-circle")
+			warn("[KELV][OpTraining] v5 RESULT: bed prompt not found after 3-layer search")
+			notify("OP Training", "Bed prompt not found anywhere", "alert-circle")
 			self.State = "idle"
 			return
 		end
