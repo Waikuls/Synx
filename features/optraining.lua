@@ -7,7 +7,7 @@ return function(Config)
 	local LocalPlayer = Players.LocalPlayer
 	local Notification = Config and Config.Notification
 
-	warn("[KELV][OpTraining] module loaded version=v19-camera-lock")
+	warn("[KELV][OpTraining] module loaded version=v20-walkspeed-sprint")
 
 	local WaypointStorageFolder = "KELV"
 	local WaypointStoragePath = "KELV/optraining_waypoints.json"
@@ -28,7 +28,8 @@ return function(Config)
 	OpTrainingFeature.WalkTimeoutSeconds = 20
 	OpTrainingFeature.WaypointArriveDistance = 4
 	OpTrainingFeature.LowStaminaPercent = 3
-	OpTrainingFeature.DoubleTapGapSec = 0.08
+	OpTrainingFeature.RunWalkSpeed = 24
+	OpTrainingFeature.FallbackWalkSpeed = 16
 
 	-- Waypoints keyed by AutoTrain machine type (Bike, Bench, Treadmill, ...).
 	-- Each value is an array of Vector3 walked in order before reaching the
@@ -186,69 +187,59 @@ return function(Config)
 		return nil
 	end
 
-	local SprintHeld = false
-	local SprintRevision = 0
+	local SprintOn = false
+	local OriginalWalkSpeed = nil
 
 	local function sprintOn()
-		if SprintHeld then
+		if SprintOn then
 			return
 		end
 
-		local VIM = getVirtualInputManager()
+		local Humanoid = getHumanoid()
 
-		if not VIM then
+		if not Humanoid then
 			return
 		end
 
-		SprintHeld = true
-		SprintRevision = SprintRevision + 1
-		local MyRev = SprintRevision
-
-		task.spawn(function()
-			pcall(function()
-				VIM:SendKeyEvent(true, Enum.KeyCode.W, false, game)
-			end)
-
-			task.wait(0.03)
-
-			if SprintRevision ~= MyRev then
-				return
-			end
-
-			pcall(function()
-				VIM:SendKeyEvent(false, Enum.KeyCode.W, false, game)
-			end)
-
-			task.wait(OpTrainingFeature.DoubleTapGapSec)
-
-			if SprintRevision ~= MyRev or not SprintHeld then
-				return
-			end
-
-			-- Second press, HOLD (no release) to keep sprint active
-			pcall(function()
-				VIM:SendKeyEvent(true, Enum.KeyCode.W, false, game)
-			end)
-		end)
-	end
-
-	local function sprintOff()
-		if not SprintHeld then
-			return
-		end
-
-		SprintHeld = false
-		SprintRevision = SprintRevision + 1
-
-		local VIM = getVirtualInputManager()
-
-		if not VIM then
-			return
+		if OriginalWalkSpeed == nil then
+			OriginalWalkSpeed = Humanoid.WalkSpeed
 		end
 
 		pcall(function()
-			VIM:SendKeyEvent(false, Enum.KeyCode.W, false, game)
+			Humanoid.WalkSpeed = OpTrainingFeature.RunWalkSpeed
 		end)
+
+		SprintOn = true
+	end
+
+	local function sprintOff()
+		if not SprintOn then
+			return
+		end
+
+		local Humanoid = getHumanoid()
+
+		if Humanoid then
+			pcall(function()
+				Humanoid.WalkSpeed = OpTrainingFeature.FallbackWalkSpeed
+			end)
+		end
+
+		SprintOn = false
+	end
+
+	local function restoreWalkSpeed()
+		SprintOn = false
+
+		local Humanoid = getHumanoid()
+
+		if Humanoid and OriginalWalkSpeed ~= nil then
+			pcall(function()
+				Humanoid.WalkSpeed = OriginalWalkSpeed
+			end)
+		end
+
+		OriginalWalkSpeed = nil
 	end
 
 	local function findBedFromPrompt(Prompt)
@@ -542,17 +533,17 @@ return function(Config)
 		local ShouldSprint = Stamina >= OpTrainingFeature.LowStaminaPercent
 		local Now = os.clock()
 
-		if ShouldSprint and not SprintHeld then
-			warn(string.format("[KELV][OpTraining] stamina %.1f%% >= %d%%, sprint ON", Stamina, OpTrainingFeature.LowStaminaPercent))
+		if ShouldSprint and not SprintOn then
+			warn(string.format("[KELV][OpTraining] stamina %.1f%% >= %d%%, WalkSpeed=%d (run)", Stamina, OpTrainingFeature.LowStaminaPercent, OpTrainingFeature.RunWalkSpeed))
 			sprintOn()
 			LastSprintLogAt = Now
-		elseif (not ShouldSprint) and SprintHeld then
-			warn(string.format("[KELV][OpTraining] stamina %.1f%% < %d%%, sprint OFF (walking)", Stamina, OpTrainingFeature.LowStaminaPercent))
+		elseif (not ShouldSprint) and SprintOn then
+			warn(string.format("[KELV][OpTraining] stamina %.1f%% < %d%%, WalkSpeed=%d (walk)", Stamina, OpTrainingFeature.LowStaminaPercent, OpTrainingFeature.FallbackWalkSpeed))
 			sprintOff()
 			LastSprintLogAt = Now
 		elseif (Now - LastSprintLogAt) >= 3 then
 			LastSprintLogAt = Now
-			warn(string.format("[KELV][OpTraining] stamina %.1f%% sprinting=%s", Stamina, tostring(SprintHeld)))
+			warn(string.format("[KELV][OpTraining] stamina %.1f%% sprinting=%s", Stamina, tostring(SprintOn)))
 		end
 	end
 
@@ -770,12 +761,12 @@ return function(Config)
 		if not WalkOk then
 			warn(string.format("[KELV][OpTraining] walk to seat failed: %s", tostring(WalkReason)))
 			notify("OP Training", "Could not reach bed", "alert-circle")
-			sprintOff()
+			restoreWalkSpeed()
 			self.State = "idle"
 			return
 		end
 
-		sprintOff()
+		restoreWalkSpeed()
 
 		-- Fire prompt while close to the seat
 		local FireOk, FireErr = pcall(fireproximityprompt, Prompt, Prompt.HoldDuration)
@@ -848,7 +839,7 @@ return function(Config)
 			walkToPosition(self.PlayerReturnCFrame.Position, self.WalkTimeoutSeconds)
 		end
 
-		sprintOff()
+		restoreWalkSpeed()
 
 		notify("OP Training", "Done — fatigue recovered", "check-circle")
 		self.State = "idle"
@@ -940,7 +931,7 @@ return function(Config)
 			lockCamera()
 			notify("OP Training", "Enabled — camera locked, auto bed active")
 		else
-			sprintOff()
+			restoreWalkSpeed()
 			unlockCamera()
 			notify("OP Training", "Disabled", "x-circle")
 		end
@@ -1054,7 +1045,7 @@ return function(Config)
 		end
 
 		unlockCamera()
-		sprintOff()
+		restoreWalkSpeed()
 	end
 
 	loadWaypointsFromFile()
