@@ -15,7 +15,7 @@ return function(Config)
 
 	-- Behavior knobs
 	OpTrainingFeature.BedOffsetY = -21
-	OpTrainingFeature.FatigueTriggerPercent = 100
+	OpTrainingFeature.FatigueTriggerPercent = 40
 	OpTrainingFeature.FatigueExitPercent = 0
 	OpTrainingFeature.MountWaitSeconds = 3
 	OpTrainingFeature.SleepTimeoutSeconds = 180
