@@ -7,7 +7,7 @@ return function(Config)
 	local LocalPlayer = Players.LocalPlayer
 	local Notification = Config and Config.Notification
 
-	warn("[KELV][OpTraining] module loaded version=v24-sprint-controls-off")
+	warn("[KELV][OpTraining] module loaded version=v25-game-input-remote")
 
 	local WaypointStorageFolder = "KELV"
 	local WaypointStoragePath = "KELV/optraining_waypoints.json"
@@ -182,6 +182,43 @@ return function(Config)
 	local SprintHeld = false
 	local SprintRevision = 0
 
+	local function getGameInputRemote()
+		local Char = getCharacter()
+
+		if not Char then
+			return nil
+		end
+
+		local MainScript = Char:FindFirstChild("MainScript")
+
+		if not MainScript then
+			return nil
+		end
+
+		local Remote = MainScript:FindFirstChild("Input")
+
+		if Remote and Remote:IsA("RemoteEvent") then
+			return Remote
+		end
+
+		return nil
+	end
+
+	local function fireGameKey(KeyName, IsDown)
+		local Remote = getGameInputRemote()
+
+		if not Remote then
+			return false
+		end
+
+		return pcall(function()
+			Remote:FireServer({
+				KeyInfo = {Direction = "None", Name = KeyName, Airborne = false},
+				IsDown = IsDown
+			})
+		end)
+	end
+
 	local function disableDefaultControls()
 		if OpTrainingFeature.ControlsDisabled then
 			return
@@ -249,16 +286,9 @@ return function(Config)
 			return
 		end
 
-		local VIM = getVirtualInputManager()
-
-		if not VIM then
-			return
-		end
-
-		-- ControlScript writes Humanoid.MoveDirection from W input every frame
-		-- and was fighting MoveTo, causing the character to walk in circles.
-		-- Disable PlayerModule controls — UserInputService events still fire
-		-- so the game's sprint detector can still react to the W keys below.
+		-- Disable default Roblox controls so ControlScript doesn't fight MoveTo.
+		-- We route the sprint trigger through the game's own Input remote
+		-- below, so ControlScript isn't needed for the game to see W.
 		disableDefaultControls()
 
 		SprintHeld = true
@@ -266,31 +296,24 @@ return function(Config)
 		local MyRev = SprintRevision
 
 		task.spawn(function()
-			-- First tap: press + release (quick)
-			pcall(function()
-				VIM:SendKeyEvent(true, Enum.KeyCode.W, false, game)
-			end)
-
+			-- First W tap: press + release via the game's Input remote
+			fireGameKey("W", true)
 			task.wait(0.03)
 
 			if SprintRevision ~= MyRev then
 				return
 			end
 
-			pcall(function()
-				VIM:SendKeyEvent(false, Enum.KeyCode.W, false, game)
-			end)
-
+			fireGameKey("W", false)
 			task.wait(OpTrainingFeature.DoubleTapGapSec)
 
 			if SprintRevision ~= MyRev or not SprintHeld then
 				return
 			end
 
-			-- Second press, HOLD — game's sprint state latches on while held.
-			pcall(function()
-				VIM:SendKeyEvent(true, Enum.KeyCode.W, false, game)
-			end)
+			-- Second W press, HOLD — game's sprint state latches on.
+			fireGameKey("W", true)
+			warn("[KELV][OpTraining] sprint W hold fired via MainScript.Input")
 		end)
 	end
 
@@ -302,13 +325,7 @@ return function(Config)
 		SprintHeld = false
 		SprintRevision = SprintRevision + 1
 
-		local VIM = getVirtualInputManager()
-
-		if VIM then
-			pcall(function()
-				VIM:SendKeyEvent(false, Enum.KeyCode.W, false, game)
-			end)
-		end
+		fireGameKey("W", false)
 	end
 
 	local function restoreWalkSpeed()
