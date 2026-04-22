@@ -3,13 +3,14 @@ return function(Config)
 	local RunService = game:GetService("RunService")
 	local PathfindingService = game:GetService("PathfindingService")
 	local UserInputService = game:GetService("UserInputService")
+	local HttpService = game:GetService("HttpService")
 	local LocalPlayer = Players.LocalPlayer
 	local Notification = Config and Config.Notification
 
-	warn("[KELV][OpTraining] module loaded version=v15-waypoint-keybinds")
+	warn("[KELV][OpTraining] module loaded version=v16-waypoints-per-type")
 
 	local WaypointStorageFolder = "KELV"
-	local WaypointStoragePath = "KELV/optraining_waypoints.txt"
+	local WaypointStoragePath = "KELV/optraining_waypoints.json"
 
 	local OpTrainingFeature = {}
 	OpTrainingFeature.Enabled = false
@@ -27,9 +28,10 @@ return function(Config)
 	OpTrainingFeature.WalkTimeoutSeconds = 20
 	OpTrainingFeature.WaypointArriveDistance = 4
 
-	-- Optional waypoints (Vector3) walked in order before reaching the bed,
-	-- and walked in reverse on the way back. Empty = go straight.
-	OpTrainingFeature.Waypoints = {}
+	-- Waypoints keyed by AutoTrain machine type (Bike, Bench, Treadmill, ...).
+	-- Each value is an array of Vector3 walked in order before reaching the
+	-- bed, and walked in reverse on the way back. Empty = go straight.
+	OpTrainingFeature.WaypointsByType = {}
 
 	-- Runtime state
 	OpTrainingFeature.State = "idle"
@@ -256,28 +258,85 @@ return function(Config)
 		end)
 	end
 
-	local function serializeWaypoints(WaypointList)
-		local Lines = {}
+	local function getCurrentMachineType()
+		local Ref = OpTrainingFeature.AutoTrainRef
 
-		for _, Waypoint in ipairs(WaypointList) do
-			table.insert(Lines, string.format("%f,%f,%f", Waypoint.X, Waypoint.Y, Waypoint.Z))
+		if Ref and type(Ref.GetSelectedType) == "function" then
+			local Ok, Value = pcall(function()
+				return Ref:GetSelectedType()
+			end)
+
+			if Ok and type(Value) == "string" and Value ~= "" then
+				return Value
+			end
 		end
 
-		return table.concat(Lines, "\n")
+		return "Default"
 	end
 
-	local function deserializeWaypoints(Text)
+	local function getCurrentWaypointList()
+		local Type = getCurrentMachineType()
+
+		if not OpTrainingFeature.WaypointsByType[Type] then
+			OpTrainingFeature.WaypointsByType[Type] = {}
+		end
+
+		return OpTrainingFeature.WaypointsByType[Type], Type
+	end
+
+	local function serializeAllWaypoints()
+		local Export = {}
+
+		for Type, List in pairs(OpTrainingFeature.WaypointsByType) do
+			local Serialized = {}
+
+			for _, Waypoint in ipairs(List) do
+				table.insert(Serialized, {X = Waypoint.X, Y = Waypoint.Y, Z = Waypoint.Z})
+			end
+
+			Export[Type] = Serialized
+		end
+
+		local Ok, Json = pcall(function()
+			return HttpService:JSONEncode(Export)
+		end)
+
+		if Ok and type(Json) == "string" then
+			return Json
+		end
+
+		return "{}"
+	end
+
+	local function deserializeAllWaypoints(Text)
 		local Result = {}
 
 		if type(Text) ~= "string" or Text == "" then
 			return Result
 		end
 
-		for Line in string.gmatch(Text, "[^\n]+") do
-			local X, Y, Z = string.match(Line, "([%-%.%d]+),([%-%.%d]+),([%-%.%d]+)")
+		local Ok, Data = pcall(function()
+			return HttpService:JSONDecode(Text)
+		end)
 
-			if X and Y and Z then
-				table.insert(Result, Vector3.new(tonumber(X), tonumber(Y), tonumber(Z)))
+		if not Ok or type(Data) ~= "table" then
+			return Result
+		end
+
+		for Type, List in pairs(Data) do
+			if type(Type) == "string" and type(List) == "table" then
+				local Parsed = {}
+
+				for _, Entry in ipairs(List) do
+					if type(Entry) == "table"
+						and type(Entry.X) == "number"
+						and type(Entry.Y) == "number"
+						and type(Entry.Z) == "number" then
+						table.insert(Parsed, Vector3.new(Entry.X, Entry.Y, Entry.Z))
+					end
+				end
+
+				Result[Type] = Parsed
 			end
 		end
 
@@ -293,7 +352,7 @@ return function(Config)
 			pcall(makefolder, WaypointStorageFolder)
 		end
 
-		pcall(writefile, WaypointStoragePath, serializeWaypoints(OpTrainingFeature.Waypoints))
+		pcall(writefile, WaypointStoragePath, serializeAllWaypoints())
 	end
 
 	local function loadWaypointsFromFile()
@@ -304,8 +363,15 @@ return function(Config)
 		local Ok, Result = pcall(readfile, WaypointStoragePath)
 
 		if Ok and type(Result) == "string" and Result ~= "" then
-			OpTrainingFeature.Waypoints = deserializeWaypoints(Result)
-			warn(string.format("[KELV][OpTraining] loaded %d waypoints from disk", #OpTrainingFeature.Waypoints))
+			OpTrainingFeature.WaypointsByType = deserializeAllWaypoints(Result)
+
+			local Summary = {}
+
+			for Type, List in pairs(OpTrainingFeature.WaypointsByType) do
+				table.insert(Summary, string.format("%s=%d", Type, #List))
+			end
+
+			warn(string.format("[KELV][OpTraining] loaded waypoints: %s", #Summary > 0 and table.concat(Summary, ", ") or "(empty)"))
 		end
 	end
 
@@ -498,15 +564,19 @@ return function(Config)
 		local SeatPart = Prompt.Parent
 		local SeatPosition = (SeatPart and SeatPart:IsA("BasePart")) and SeatPart.Position or Bed:GetPivot().Position
 
-		-- Walk forward through waypoints, then to the seat
-		if #self.Waypoints > 0 then
-			warn(string.format("[KELV][OpTraining] walking %d forward waypoints", #self.Waypoints))
+		local CurrentWaypoints, CurrentType = getCurrentWaypointList()
 
-			if not walkThroughWaypoints(self.Waypoints) then
+		-- Walk forward through waypoints, then to the seat
+		if #CurrentWaypoints > 0 then
+			warn(string.format("[KELV][OpTraining] [%s] walking %d forward waypoints", CurrentType, #CurrentWaypoints))
+
+			if not walkThroughWaypoints(CurrentWaypoints) then
 				notify("OP Training", "Failed to follow waypoints", "alert-circle")
 				self.State = "idle"
 				return
 			end
+		else
+			warn(string.format("[KELV][OpTraining] [%s] no waypoints, walking direct", CurrentType))
 		end
 
 		warn(string.format("[KELV][OpTraining] walking to seat at %s", tostring(SeatPosition)))
@@ -580,9 +650,9 @@ return function(Config)
 		task.wait(0.5)
 
 		-- Walk back through reversed waypoints, then to the original position
-		if #self.Waypoints > 0 then
-			warn("[KELV][OpTraining] walking back through reversed waypoints")
-			walkThroughWaypoints(reverseArray(self.Waypoints))
+		if #CurrentWaypoints > 0 then
+			warn(string.format("[KELV][OpTraining] [%s] walking back through reversed waypoints", CurrentType))
+			walkThroughWaypoints(reverseArray(CurrentWaypoints))
 		end
 
 		if self.PlayerReturnCFrame then
@@ -705,49 +775,55 @@ return function(Config)
 			Position = Root.Position
 		end
 
-		table.insert(self.Waypoints, Position)
+		local List, Type = getCurrentWaypointList()
+		table.insert(List, Position)
 		saveWaypointsToFile()
 
 		notify("OP Training", string.format(
-			"Waypoint %d added (%.0f, %.0f, %.0f)",
-			#self.Waypoints,
+			"[%s] Waypoint %d added (%.0f, %.0f, %.0f)",
+			Type,
+			#List,
 			Position.X,
 			Position.Y,
 			Position.Z
 		), "map-pin")
 
-		warn(string.format("[KELV][OpTraining] waypoint %d added at %s", #self.Waypoints, tostring(Position)))
+		warn(string.format("[KELV][OpTraining] [%s] waypoint %d added at %s", Type, #List, tostring(Position)))
 		return true
 	end
 
 	function OpTrainingFeature:RemoveLastWaypoint()
-		if #self.Waypoints == 0 then
-			notify("OP Training", "No waypoints to remove", "alert-circle")
+		local List, Type = getCurrentWaypointList()
+
+		if #List == 0 then
+			notify("OP Training", string.format("[%s] No waypoints", Type), "alert-circle")
 			return false
 		end
 
-		local Removed = table.remove(self.Waypoints)
+		local Removed = table.remove(List)
 		saveWaypointsToFile()
 
-		notify("OP Training", string.format("Removed last waypoint (%d remain)", #self.Waypoints), "minus-circle")
-		warn(string.format("[KELV][OpTraining] removed waypoint at %s, %d remain", tostring(Removed), #self.Waypoints))
+		notify("OP Training", string.format("[%s] Removed last (%d remain)", Type, #List), "minus-circle")
+		warn(string.format("[KELV][OpTraining] [%s] removed waypoint at %s, %d remain", Type, tostring(Removed), #List))
 		return true
 	end
 
 	function OpTrainingFeature:ClearWaypoints()
-		local Count = #self.Waypoints
-		self.Waypoints = {}
+		local List, Type = getCurrentWaypointList()
+		local Count = #List
+		self.WaypointsByType[Type] = {}
 		saveWaypointsToFile()
 
-		notify("OP Training", string.format("Cleared %d waypoints", Count), "trash-2")
-		warn(string.format("[KELV][OpTraining] cleared %d waypoints", Count))
+		notify("OP Training", string.format("[%s] Cleared %d waypoints", Type, Count), "trash-2")
+		warn(string.format("[KELV][OpTraining] [%s] cleared %d waypoints", Type, Count))
 		return true
 	end
 
 	function OpTrainingFeature:GetWaypoints()
+		local List = getCurrentWaypointList()
 		local Copy = {}
 
-		for Index, Waypoint in ipairs(self.Waypoints) do
+		for Index, Waypoint in ipairs(List) do
 			Copy[Index] = Waypoint
 		end
 
