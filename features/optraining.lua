@@ -7,7 +7,7 @@ return function(Config)
 	local LocalPlayer = Players.LocalPlayer
 	local Notification = Config and Config.Notification
 
-	warn("[KELV][OpTraining] module loaded version=v25-game-input-remote")
+	warn("[KELV][OpTraining] module loaded version=v26-run-toggle-remote")
 
 	local WaypointStorageFolder = "KELV"
 	local WaypointStoragePath = "KELV/optraining_waypoints.json"
@@ -28,7 +28,6 @@ return function(Config)
 	OpTrainingFeature.WalkTimeoutSeconds = 20
 	OpTrainingFeature.WaypointArriveDistance = 4
 	OpTrainingFeature.LowStaminaPercent = 3
-	OpTrainingFeature.DoubleTapGapSec = 0.08
 
 	-- Waypoints keyed by AutoTrain machine type (Bike, Bench, Treadmill, ...).
 	-- Each value is an array of Vector3 walked in order before reaching the
@@ -180,9 +179,8 @@ return function(Config)
 	end
 
 	local SprintHeld = false
-	local SprintRevision = 0
 
-	local function getGameInputRemote()
+	local function getToggleRemote()
 		local Char = getCharacter()
 
 		if not Char then
@@ -195,7 +193,7 @@ return function(Config)
 			return nil
 		end
 
-		local Remote = MainScript:FindFirstChild("Input")
+		local Remote = MainScript:FindFirstChild("Toggle?")
 
 		if Remote and Remote:IsA("RemoteEvent") then
 			return Remote
@@ -204,8 +202,54 @@ return function(Config)
 		return nil
 	end
 
-	local function fireGameKey(KeyName, IsDown)
-		local Remote = getGameInputRemote()
+	local function getAgility()
+		local Char = getCharacter()
+
+		if not Char then
+			return 0
+		end
+
+		local MainScript = Char:FindFirstChild("MainScript")
+
+		if not MainScript then
+			local Entities = workspace:FindFirstChild("Entities")
+
+			if Entities then
+				local Entity = Entities:FindFirstChild(LocalPlayer.Name)
+
+				if Entity then
+					MainScript = Entity:FindFirstChild("MainScript") or Entity:FindFirstChild("MainScript", true)
+				end
+			end
+		end
+
+		if not MainScript then
+			return 0
+		end
+
+		local Stats = MainScript:FindFirstChild("Stats") or MainScript:FindFirstChild("Stats", true)
+
+		if not Stats then
+			return 0
+		end
+
+		local Agility = Stats:FindFirstChild("Agility")
+
+		if Agility and Agility:IsA("ValueBase") then
+			return Agility.Value
+		end
+
+		local Attr = Stats:GetAttribute("Agility")
+
+		if type(Attr) == "number" then
+			return Attr
+		end
+
+		return 0
+	end
+
+	local function fireRunToggle(State)
+		local Remote = getToggleRemote()
 
 		if not Remote then
 			return false
@@ -213,8 +257,9 @@ return function(Config)
 
 		return pcall(function()
 			Remote:FireServer({
-				KeyInfo = {Direction = "None", Name = KeyName, Airborne = false},
-				IsDown = IsDown
+				State = State and true or false,
+				Agility = getAgility(),
+				Action = "Run"
 			})
 		end)
 	end
@@ -286,35 +331,13 @@ return function(Config)
 			return
 		end
 
-		-- Disable default Roblox controls so ControlScript doesn't fight MoveTo.
-		-- We route the sprint trigger through the game's own Input remote
-		-- below, so ControlScript isn't needed for the game to see W.
-		disableDefaultControls()
-
 		SprintHeld = true
-		SprintRevision = SprintRevision + 1
-		local MyRev = SprintRevision
 
-		task.spawn(function()
-			-- First W tap: press + release via the game's Input remote
-			fireGameKey("W", true)
-			task.wait(0.03)
-
-			if SprintRevision ~= MyRev then
-				return
-			end
-
-			fireGameKey("W", false)
-			task.wait(OpTrainingFeature.DoubleTapGapSec)
-
-			if SprintRevision ~= MyRev or not SprintHeld then
-				return
-			end
-
-			-- Second W press, HOLD — game's sprint state latches on.
-			fireGameKey("W", true)
-			warn("[KELV][OpTraining] sprint W hold fired via MainScript.Input")
-		end)
+		if fireRunToggle(true) then
+			warn(string.format("[KELV][OpTraining] Run toggle ON (Agility=%.2f)", getAgility()))
+		else
+			warn("[KELV][OpTraining] Run toggle ON failed — Toggle? remote not found")
+		end
 	end
 
 	local function sprintOff()
@@ -323,14 +346,14 @@ return function(Config)
 		end
 
 		SprintHeld = false
-		SprintRevision = SprintRevision + 1
 
-		fireGameKey("W", false)
+		if fireRunToggle(false) then
+			warn("[KELV][OpTraining] Run toggle OFF")
+		end
 	end
 
 	local function restoreWalkSpeed()
 		sprintOff()
-		enableDefaultControls()
 	end
 
 	local function findBedFromPrompt(Prompt)
