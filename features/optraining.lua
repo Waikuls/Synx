@@ -7,7 +7,7 @@ return function(Config)
 	local LocalPlayer = Players.LocalPlayer
 	local Notification = Config and Config.Notification
 
-	warn("[KELV][OpTraining] module loaded version=v56-sparse-path")
+	warn("[KELV][OpTraining] module loaded version=v57-skip-occupied-beds")
 
 	local WaypointStorageFolder = "KELV"
 	local WaypointStoragePath = "KELV/optraining_waypoints.json"
@@ -655,6 +655,77 @@ return function(Config)
 		end
 
 		return false
+	end
+
+	local function isBedOccupied(BedModel)
+		if not BedModel then
+			return false
+		end
+
+		-- Check every player (other than us) to see if their SeatPart is
+		-- inside this bed model. If so, the bed is in use.
+		for _, OtherPlayer in ipairs(Players:GetPlayers()) do
+			if OtherPlayer ~= LocalPlayer then
+				local OtherChar = OtherPlayer.Character
+				local OtherHum = OtherChar and OtherChar:FindFirstChildOfClass("Humanoid")
+				local Seat = OtherHum and OtherHum.SeatPart
+
+				if Seat then
+					local Current = Seat
+
+					while Current and Current ~= game do
+						if Current == BedModel then
+							return true, OtherPlayer.Name
+						end
+
+						Current = Current.Parent
+					end
+				end
+			end
+		end
+
+		return false
+	end
+
+	local function findAllBedPrompts()
+		local Prompts = {}
+		local RootPart = getRootPart()
+
+		for _, Descendant in ipairs(workspace:GetDescendants()) do
+			if Descendant:IsA("ProximityPrompt") and promptMentionsBed(Descendant) then
+				local Dist = 999999
+
+				if RootPart then
+					local PromptParent = Descendant.Parent
+
+					while PromptParent and PromptParent ~= workspace do
+						if PromptParent:IsA("BasePart") then
+							Dist = (RootPart.Position - PromptParent.Position).Magnitude
+							break
+						elseif PromptParent:IsA("Model") then
+							local Ok, Pivot = pcall(function()
+								return PromptParent:GetPivot()
+							end)
+
+							if Ok and Pivot then
+								Dist = (RootPart.Position - Pivot.Position).Magnitude
+								break
+							end
+						end
+
+						PromptParent = PromptParent.Parent
+					end
+				end
+
+				table.insert(Prompts, {Prompt = Descendant, Dist = Dist})
+			end
+		end
+
+		table.sort(Prompts, function(A, B)
+			return A.Dist < B.Dist
+		end)
+
+		return Prompts
 	end
 
 	local function findBedPrompt(Bed)
@@ -1320,10 +1391,42 @@ return function(Config)
 		notify("OP Training", "Triggered — walking to bed")
 		warn("[KELV][OpTraining] state=busy, looking for bed prompt")
 
-		local Prompt = findBedPrompt(nil)
+		-- Find all bed prompts in workspace sorted by distance, and pick
+		-- the first one that isn't occupied by another player.
+		local BedCandidates = findAllBedPrompts()
 
-		if not Prompt then
+		if #BedCandidates == 0 then
 			notify("OP Training", "Bed prompt not found", "alert-circle")
+			self.State = "idle"
+			return
+		end
+
+		warn(string.format("[KELV][OpTraining] found %d bed candidates", #BedCandidates))
+
+		local Prompt, Bed
+
+		for Index, Entry in ipairs(BedCandidates) do
+			local Candidate = Entry.Prompt
+			local CandidateBed = findBedFromPrompt(Candidate)
+
+			if CandidateBed then
+				local Occupied, OccupantName = isBedOccupied(CandidateBed)
+
+				if Occupied then
+					warn(string.format("[KELV][OpTraining] bed #%d (%s) occupied by %s — skipping",
+						Index, CandidateBed:GetFullName(), tostring(OccupantName)))
+				else
+					warn(string.format("[KELV][OpTraining] bed #%d (%s) is free, dist=%.1f",
+						Index, CandidateBed:GetFullName(), Entry.Dist))
+					Prompt = Candidate
+					Bed = CandidateBed
+					break
+				end
+			end
+		end
+
+		if not Prompt or not Bed then
+			notify("OP Training", "All beds occupied", "alert-circle")
 			self.State = "idle"
 			return
 		end
@@ -1333,14 +1436,6 @@ return function(Config)
 			Prompt:GetFullName(),
 			tostring(Prompt.ActionText)
 		))
-
-		local Bed = findBedFromPrompt(Prompt)
-
-		if not Bed then
-			notify("OP Training", "Bed model not found", "alert-circle")
-			self.State = "idle"
-			return
-		end
 
 		local RootPart = getRootPart()
 
