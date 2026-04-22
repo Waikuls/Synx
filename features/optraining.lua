@@ -7,7 +7,7 @@ return function(Config)
 	local LocalPlayer = Players.LocalPlayer
 	local Notification = Config and Config.Notification
 
-	warn("[KELV][OpTraining] module loaded version=v50-diagnostic-stuck")
+	warn("[KELV][OpTraining] module loaded version=v51-strict-last-waypoint")
 
 	local WaypointStorageFolder = "KELV"
 	local WaypointStoragePath = "KELV/optraining_waypoints.json"
@@ -1168,17 +1168,58 @@ return function(Config)
 	end
 
 	local function walkThroughWaypoints(WaypointList)
+		local StrictArrivalDistance = 4
+		local MaxRetries = 3
+
 		for Index, Waypoint in ipairs(WaypointList) do
 			if not OpTrainingFeature.Enabled then
 				return false
 			end
 
-			warn(string.format("[KELV][OpTraining] walking to waypoint %d: %s", Index, tostring(Waypoint)))
-			local Ok, Reason = walkToPosition(Waypoint, OpTrainingFeature.WalkTimeoutSeconds)
+			warn(string.format("[KELV][OpTraining] walking to waypoint %d/%d: %s",
+				Index, #WaypointList, tostring(Waypoint)))
 
-			if not Ok then
-				warn(string.format("[KELV][OpTraining] waypoint %d failed: %s", Index, tostring(Reason)))
-				return false
+			-- Try up to MaxRetries times to actually reach the waypoint.
+			-- Walking once and trusting walkToPosition could leave the
+			-- character stuck a few studs away, which then breaks the next
+			-- pathfinding leg.
+			local Arrived = false
+
+			for Attempt = 1, MaxRetries do
+				if not OpTrainingFeature.Enabled then
+					return false
+				end
+
+				walkToPosition(Waypoint, OpTrainingFeature.WalkTimeoutSeconds)
+
+				local R = getRootPart()
+
+				if R then
+					local Flat = Waypoint - R.Position
+					Flat = Vector3.new(Flat.X, 0, Flat.Z)
+
+					if Flat.Magnitude <= StrictArrivalDistance then
+						Arrived = true
+						break
+					end
+
+					warn(string.format(
+						"[KELV][OpTraining] waypoint %d attempt %d: still %.1f studs away, retry",
+						Index, Attempt, Flat.Magnitude
+					))
+				end
+			end
+
+			if not Arrived then
+				warn(string.format("[KELV][OpTraining] waypoint %d unreachable after %d attempts — skipping",
+					Index, MaxRetries))
+
+				-- On the FINAL waypoint, abort the whole route — we don't
+				-- want to teleport to the bed if we couldn't reach the
+				-- last marked checkpoint.
+				if Index == #WaypointList then
+					return false
+				end
 			end
 		end
 
@@ -1257,7 +1298,9 @@ return function(Config)
 			warn(string.format("[KELV][OpTraining] [%s] walking %d forward waypoints", CurrentType, #CurrentWaypoints))
 
 			if not walkThroughWaypoints(CurrentWaypoints) then
-				notify("OP Training", "Failed to follow waypoints", "alert-circle")
+				notify("OP Training", "Couldn't reach last waypoint — aborting", "alert-circle")
+				restoreWalkSpeed()
+				stopMoveOverride()
 				self.State = "idle"
 				return
 			end
