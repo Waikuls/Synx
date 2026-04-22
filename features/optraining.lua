@@ -7,7 +7,7 @@ return function(Config)
 	local LocalPlayer = Players.LocalPlayer
 	local Notification = Config and Config.Notification
 
-	warn("[KELV][OpTraining] module loaded version=v45-disable-controls-post-latch")
+	warn("[KELV][OpTraining] module loaded version=v46-sprint-keepalive")
 
 	local WaypointStorageFolder = "KELV"
 	local WaypointStoragePath = "KELV/optraining_waypoints.json"
@@ -528,14 +528,11 @@ return function(Config)
 				return
 			end
 
-			-- Second press, HOLD (no release) — game latches sprint
+			-- Second press, HOLD
 			pcall(function()
 				VIM:SendKeyEvent(true, Enum.KeyCode.W, false, game)
 			end)
 
-			-- After sprint state is latched by the game, cut ControlScript so
-			-- its W-based MoveDirection writes don't override our Stepped
-			-- targetdirection override.
 			task.wait(0.3)
 
 			if SprintRevision ~= MyRev or not SprintHeld then
@@ -544,9 +541,31 @@ return function(Config)
 
 			disableDefaultControls()
 			warn("[KELV][OpTraining] ControlScript disabled after sprint latch")
+
+			-- Keepalive loop — re-assert sprint state every 0.4s so the game
+			-- doesn't drop us back to walking when it polls key/state.
+			while SprintRevision == MyRev and SprintHeld and OpTrainingFeature.Enabled do
+				task.wait(0.4)
+
+				if SprintRevision ~= MyRev or not SprintHeld then
+					break
+				end
+
+				pcall(function()
+					setSprintingState(true)
+				end)
+
+				pcall(function()
+					fireRunToggle(true)
+				end)
+
+				pcall(function()
+					VIM:SendKeyEvent(true, Enum.KeyCode.W, false, game)
+				end)
+			end
 		end)
 
-		warn("[KELV][OpTraining] sprint ON (VIM W double-tap hold)")
+		warn("[KELV][OpTraining] sprint ON (VIM W double-tap hold + keepalive)")
 	end
 
 	local function sprintOff()
