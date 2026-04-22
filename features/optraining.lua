@@ -7,7 +7,7 @@ return function(Config)
 	local LocalPlayer = Players.LocalPlayer
 	local Notification = Config and Config.Notification
 
-	warn("[KELV][OpTraining] module loaded version=v57-skip-occupied-beds")
+	warn("[KELV][OpTraining] module loaded version=v58-continuous-sprint")
 
 	local WaypointStorageFolder = "KELV"
 	local WaypointStoragePath = "KELV/optraining_waypoints.json"
@@ -543,11 +543,12 @@ return function(Config)
 			disableDefaultControls()
 			warn("[KELV][OpTraining] ControlScript disabled after sprint latch")
 
-			-- Keepalive loop — re-perform the full W double-tap every 2s so
-			-- the game's sprint detector keeps seeing fresh input and
-			-- doesn't drop us back to walking.
+			-- Keepalive loop — do NOT release W, just re-assert the sprint
+			-- state and re-fire the server toggle. Releasing W was causing
+			-- the game to momentarily drop sprint, which showed up as a
+			-- walk-run-walk-run stutter.
 			while SprintRevision == MyRev and SprintHeld and OpTrainingFeature.Enabled do
-				task.wait(2)
+				task.wait(1.5)
 
 				if SprintRevision ~= MyRev or not SprintHeld then
 					break
@@ -561,31 +562,9 @@ return function(Config)
 					fireRunToggle(true)
 				end)
 
-				-- Full re-tap sequence: release -> tap -> release -> hold
-				pcall(function()
-					VIM:SendKeyEvent(false, Enum.KeyCode.W, false, game)
-				end)
-
-				task.wait(0.05)
-
-				if SprintRevision ~= MyRev or not SprintHeld then break end
-
-				pcall(function()
-					VIM:SendKeyEvent(true, Enum.KeyCode.W, false, game)
-				end)
-
-				task.wait(0.03)
-
-				if SprintRevision ~= MyRev or not SprintHeld then break end
-
-				pcall(function()
-					VIM:SendKeyEvent(false, Enum.KeyCode.W, false, game)
-				end)
-
-				task.wait(0.08)
-
-				if SprintRevision ~= MyRev or not SprintHeld then break end
-
+				-- Re-press W without a prior release, in case the game drops
+				-- the hold state over time but still accepts a fresh press
+				-- event without a double-tap.
 				pcall(function()
 					VIM:SendKeyEvent(true, Enum.KeyCode.W, false, game)
 				end)
