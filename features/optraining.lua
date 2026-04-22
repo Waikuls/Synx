@@ -4,7 +4,7 @@ return function(Config)
 	local LocalPlayer = Players.LocalPlayer
 	local Notification = Config and Config.Notification
 
-	warn("[KELV][OpTraining] module loaded version=v11-deep-dive-after-seat")
+	warn("[KELV][OpTraining] module loaded version=v12-user-deep-position")
 
 	local OpTrainingFeature = {}
 	OpTrainingFeature.Enabled = false
@@ -20,8 +20,7 @@ return function(Config)
 	OpTrainingFeature.MountWaitSeconds = 3
 	OpTrainingFeature.SleepTimeoutSeconds = 180
 	OpTrainingFeature.RetryCooldownSeconds = 5
-	OpTrainingFeature.TestTargetPosition = Vector3.new(1743.629, 38.101, -526.156)
-	OpTrainingFeature.DeepDiveOffsetY = -500
+	OpTrainingFeature.DeepDivePosition = Vector3.new(1745, 27, -516)
 
 	-- Runtime state
 	OpTrainingFeature.State = "idle"
@@ -393,22 +392,21 @@ return function(Config)
 			return
 		end
 
-		-- Now that the server has seated us, anchor keeps HRP fixed.
-		-- Weld points to HRP but cannot move it. Setting CFrame directly on
-		-- an anchored part still works — drop deep underground.
+		-- Server has seated us; anchor keeps HRP fixed so physics can't move it
+		-- and the seat weld can't drag it. Setting CFrame on an anchored part
+		-- still works — teleport to the user-specified deep position.
 		if AnchoredRoot then
-			local DeepCFrame = CFrame.new(SeatPosition + Vector3.new(0, self.DeepDiveOffsetY, 0))
+			local DeepCFrame = CFrame.new(self.DeepDivePosition)
 			pcall(function()
 				AnchoredRoot.CFrame = DeepCFrame
 			end)
 			warn(string.format(
-				"[KELV][OpTraining] after seat: HRP.CFrame set to %s (%.0f studs under seat)",
-				tostring(DeepCFrame.Position),
-				math.abs(self.DeepDiveOffsetY)
+				"[KELV][OpTraining] after seat: HRP.CFrame set to %s",
+				tostring(self.DeepDivePosition)
 			))
 		end
 
-		notify("OP Training", string.format("Sleeping %d studs underground", math.abs(self.DeepDiveOffsetY)))
+		notify("OP Training", "Sleeping at deep position")
 
 		local SleepStart = os.clock()
 
