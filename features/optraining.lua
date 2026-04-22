@@ -161,7 +161,10 @@ return function(Config)
 	end
 
 	function OpTrainingFeature:RunBedRoutine()
+		warn(string.format("[KELV][OpTraining] RunBedRoutine entry state=%s", tostring(self.State)))
+
 		if self.State ~= "idle" then
+			warn("[KELV][OpTraining] RunBedRoutine: state not idle, abort")
 			return
 		end
 
@@ -169,6 +172,7 @@ return function(Config)
 		self.LastAttemptAt = os.clock()
 
 		notify("OP Training", "Triggered — starting bed routine")
+		warn("[KELV][OpTraining] state=busy, looking for bed")
 
 		local Bed = findBed()
 
@@ -338,8 +342,19 @@ return function(Config)
 		end
 
 		if Fatigue >= self.FatigueTriggerPercent then
+			warn(string.format(
+				"[KELV][OpTraining] triggering RunBedRoutine (state=%s)",
+				tostring(self.State)
+			))
 			task.spawn(function()
-				self:RunBedRoutine()
+				local Ok, Err = pcall(function()
+					self:RunBedRoutine()
+				end)
+				if not Ok then
+					warn("[KELV][OpTraining] RunBedRoutine error: " .. tostring(Err))
+					notify("OP Training", "Error: " .. tostring(Err), "alert-circle")
+					self.State = "idle"
+				end
 			end)
 		end
 	end
