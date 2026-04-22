@@ -7,7 +7,7 @@ return function(Config)
 	local LocalPlayer = Players.LocalPlayer
 	local Notification = Config and Config.Notification
 
-	warn("[KELV][OpTraining] module loaded version=v32-is-sprinting-direct")
+	warn("[KELV][OpTraining] module loaded version=v33-sprint-combo")
 
 	local WaypointStorageFolder = "KELV"
 	local WaypointStoragePath = "KELV/optraining_waypoints.json"
@@ -470,6 +470,32 @@ return function(Config)
 		return false
 	end
 
+	local OriginalWalkSpeed = nil
+	local SpeedEnforcerConnection = nil
+
+	local function startWalkSpeedEnforcer(Target)
+		if SpeedEnforcerConnection then
+			SpeedEnforcerConnection:Disconnect()
+		end
+
+		SpeedEnforcerConnection = RunService.Heartbeat:Connect(function()
+			local Hum = getHumanoid()
+
+			if Hum and Hum.WalkSpeed ~= Target then
+				pcall(function()
+					Hum.WalkSpeed = Target
+				end)
+			end
+		end)
+	end
+
+	local function stopWalkSpeedEnforcer()
+		if SpeedEnforcerConnection then
+			SpeedEnforcerConnection:Disconnect()
+			SpeedEnforcerConnection = nil
+		end
+	end
+
 	local function sprintOn()
 		if SprintHeld then
 			return
@@ -478,11 +504,28 @@ return function(Config)
 		SprintHeld = true
 		disableDefaultControls()
 
-		-- Try the game's IsSprinting state directly
+		local Hum = getHumanoid()
+
+		if Hum and OriginalWalkSpeed == nil then
+			OriginalWalkSpeed = Hum.WalkSpeed
+		end
+
+		-- Set IsSprinting BoolValue (triggers animation + any client listeners)
 		setSprintingState(true)
 
-		-- Also fire the Toggle? remote as a complement
+		-- Fire Toggle? remote (server sprint state + stamina drain)
 		fireRunToggle(true)
+
+		-- Enforce sprint WalkSpeed (guess: walk 16 + agility scaling)
+		local Agility = getAgility()
+		local SprintSpeed = 16 + (Agility * 0.3)
+
+		if SprintSpeed < 20 then
+			SprintSpeed = 20
+		end
+
+		warn(string.format("[KELV][OpTraining] sprint ON: IsSprinting=true, Toggle?=on, WalkSpeed=%.1f (Agility=%.2f)", SprintSpeed, Agility))
+		startWalkSpeedEnforcer(SprintSpeed)
 	end
 
 	local function sprintOff()
@@ -494,10 +537,32 @@ return function(Config)
 
 		setSprintingState(false)
 		fireRunToggle(false)
+
+		stopWalkSpeedEnforcer()
+
+		local Hum = getHumanoid()
+
+		if Hum and OriginalWalkSpeed ~= nil then
+			pcall(function()
+				Hum.WalkSpeed = OriginalWalkSpeed
+			end)
+		end
+
+		warn("[KELV][OpTraining] sprint OFF: IsSprinting=false, Toggle?=off")
 	end
 
 	local function restoreWalkSpeed()
 		sprintOff()
+
+		local Hum = getHumanoid()
+
+		if Hum and OriginalWalkSpeed ~= nil then
+			pcall(function()
+				Hum.WalkSpeed = OriginalWalkSpeed
+			end)
+		end
+
+		OriginalWalkSpeed = nil
 		enableDefaultControls()
 	end
 
