@@ -1981,7 +1981,7 @@ return function(Config)
 		local MaxStamina = getMaxStamina()
 
 		if MaxStamina > 0 and MaxStamina < 220 then
-			return 6
+			return 8
 		end
 
 		return self.StaminaThreshold
