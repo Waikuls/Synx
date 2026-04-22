@@ -7,7 +7,7 @@ return function(Config)
 	local LocalPlayer = Players.LocalPlayer
 	local Notification = Config and Config.Notification
 
-	warn("[KELV][OpTraining] module loaded version=v17-sprint-double-tap-w")
+	warn("[KELV][OpTraining] module loaded version=v18-sprint-hold-w")
 
 	local WaypointStorageFolder = "KELV"
 	local WaypointStoragePath = "KELV/optraining_waypoints.json"
@@ -28,8 +28,7 @@ return function(Config)
 	OpTrainingFeature.WalkTimeoutSeconds = 20
 	OpTrainingFeature.WaypointArriveDistance = 4
 	OpTrainingFeature.LowStaminaPercent = 3
-	OpTrainingFeature.SprintReinforceInterval = 2.5
-	OpTrainingFeature.DoubleTapGapSec = 0.1
+	OpTrainingFeature.DoubleTapGapSec = 0.08
 
 	-- Waypoints keyed by AutoTrain machine type (Bike, Bench, Treadmill, ...).
 	-- Each value is an array of Vector3 walked in order before reaching the
@@ -120,25 +119,49 @@ return function(Config)
 		return nil
 	end
 
-	local function tapWKey()
+	local SprintHeld = false
+
+	local function sprintOn()
+		if SprintHeld then
+			return
+		end
+
 		local VIM = getVirtualInputManager()
 
 		if not VIM then
-			return false
+			return
 		end
 
-		return pcall(function()
-			VIM:SendKeyEvent(true, Enum.KeyCode.W, false, game)
-			task.wait(0.03)
-			VIM:SendKeyEvent(false, Enum.KeyCode.W, false, game)
+		SprintHeld = true
+
+		task.spawn(function()
+			pcall(function()
+				-- First tap: press + release
+				VIM:SendKeyEvent(true, Enum.KeyCode.W, false, game)
+				task.wait(0.03)
+				VIM:SendKeyEvent(false, Enum.KeyCode.W, false, game)
+				task.wait(OpTrainingFeature.DoubleTapGapSec)
+				-- Second tap: press + HOLD (no release) to keep sprint active
+				VIM:SendKeyEvent(true, Enum.KeyCode.W, false, game)
+			end)
 		end)
 	end
 
-	local function startSprint()
-		task.spawn(function()
-			tapWKey()
-			task.wait(OpTrainingFeature.DoubleTapGapSec)
-			tapWKey()
+	local function sprintOff()
+		if not SprintHeld then
+			return
+		end
+
+		SprintHeld = false
+
+		local VIM = getVirtualInputManager()
+
+		if not VIM then
+			return
+		end
+
+		pcall(function()
+			VIM:SendKeyEvent(false, Enum.KeyCode.W, false, game)
 		end)
 	end
 
@@ -426,22 +449,14 @@ return function(Config)
 		end
 	end
 
-	local function maintainSprint(LastSprintAt)
-		local Now = os.clock()
-
-		if (Now - LastSprintAt) < OpTrainingFeature.SprintReinforceInterval then
-			return LastSprintAt
-		end
-
+	local function maintainSprint()
 		local Stamina = getStaminaPercent()
 
 		if Stamina >= OpTrainingFeature.LowStaminaPercent then
-			startSprint()
-			return Now
+			sprintOn()
+		else
+			sprintOff()
 		end
-
-		-- Stamina too low — don't sprint, let the game slow us back to walk
-		return LastSprintAt
 	end
 
 	local function walkToPosition(TargetPos, TimeoutSec)
@@ -454,13 +469,7 @@ return function(Config)
 			return false, "no humanoid/root"
 		end
 
-		-- Kick off sprint at the start; maintenance loop re-issues as needed
-		local LastSprintAt = 0
-
-		if getStaminaPercent() >= OpTrainingFeature.LowStaminaPercent then
-			startSprint()
-			LastSprintAt = os.clock()
-		end
+		maintainSprint()
 
 		local Path = PathfindingService:CreatePath({
 			AgentRadius = 2,
@@ -517,7 +526,7 @@ return function(Config)
 						break
 					end
 
-					LastSprintAt = maintainSprint(LastSprintAt)
+					maintainSprint()
 					task.wait(0.1)
 				end
 			end
@@ -550,7 +559,7 @@ return function(Config)
 				return true
 			end
 
-			LastSprintAt = maintainSprint(LastSprintAt)
+			maintainSprint()
 			task.wait(0.2)
 
 			local H = getHumanoid()
@@ -664,9 +673,12 @@ return function(Config)
 		if not WalkOk then
 			warn(string.format("[KELV][OpTraining] walk to seat failed: %s", tostring(WalkReason)))
 			notify("OP Training", "Could not reach bed", "alert-circle")
+			sprintOff()
 			self.State = "idle"
 			return
 		end
+
+		sprintOff()
 
 		-- Fire prompt while close to the seat
 		local FireOk, FireErr = pcall(fireproximityprompt, Prompt, Prompt.HoldDuration)
@@ -738,6 +750,8 @@ return function(Config)
 			warn(string.format("[KELV][OpTraining] walking back to return position"))
 			walkToPosition(self.PlayerReturnCFrame.Position, self.WalkTimeoutSeconds)
 		end
+
+		sprintOff()
 
 		notify("OP Training", "Done — fatigue recovered", "check-circle")
 		self.State = "idle"
@@ -828,6 +842,7 @@ return function(Config)
 
 			notify("OP Training", "Enabled — auto bed active")
 		else
+			sprintOff()
 			notify("OP Training", "Disabled", "x-circle")
 		end
 
