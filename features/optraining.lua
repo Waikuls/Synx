@@ -1070,6 +1070,31 @@ return function(Config)
 				end
 			end
 
+			-- Final approach: pathfinding can end on a navmesh point a few
+			-- studs short of the true target. Walk directly to the target
+			-- until within 1 stud (or short timeout).
+			OpTrainingFeature.CurrentMoveTarget = TargetPos
+			local FinalStart = os.clock()
+
+			while os.clock() - FinalStart < 4 do
+				if not OpTrainingFeature.Enabled then
+					return false, "disabled"
+				end
+
+				local R = getRootPart()
+
+				if not R then
+					return false, "root gone"
+				end
+
+				if (R.Position - TargetPos).Magnitude <= 1.5 then
+					break
+				end
+
+				maintainSprint()
+				task.wait(0.05)
+			end
+
 			return true
 		end
 
