@@ -7,7 +7,7 @@ return function(Config)
 	local LocalPlayer = Players.LocalPlayer
 	local Notification = Config and Config.Notification
 
-	warn("[KELV][OpTraining] module loaded version=v21-speed-enforcer")
+	warn("[KELV][OpTraining] module loaded version=v22-game-sprint-controls-off")
 
 	local WaypointStorageFolder = "KELV"
 	local WaypointStoragePath = "KELV/optraining_waypoints.json"
@@ -28,8 +28,7 @@ return function(Config)
 	OpTrainingFeature.WalkTimeoutSeconds = 20
 	OpTrainingFeature.WaypointArriveDistance = 4
 	OpTrainingFeature.LowStaminaPercent = 3
-	OpTrainingFeature.RunWalkSpeed = 32
-	OpTrainingFeature.FallbackWalkSpeed = 16
+	OpTrainingFeature.DoubleTapGapSec = 0.08
 
 	-- Waypoints keyed by AutoTrain machine type (Bike, Bench, Treadmill, ...).
 	-- Each value is an array of Vector3 walked in order before reaching the
@@ -42,9 +41,9 @@ return function(Config)
 	OpTrainingFeature.LastAttemptAt = 0
 	OpTrainingFeature.InputConnection = nil
 	OpTrainingFeature.CameraConnection = nil
-	OpTrainingFeature.SpeedConnection = nil
 	OpTrainingFeature.SavedCameraType = nil
 	OpTrainingFeature.SavedCameraOffset = nil
+	OpTrainingFeature.ControlsDisabled = false
 
 	local function getCharacter()
 		return LocalPlayer.Character
@@ -180,106 +179,139 @@ return function(Config)
 		return nil
 	end
 
-	local SprintOn = false
-	local OriginalWalkSpeed = nil
+	local SprintHeld = false
+	local SprintRevision = 0
 
-	local function tapWKeyOnce()
+	local function disableDefaultControls()
+		if OpTrainingFeature.ControlsDisabled then
+			return
+		end
+
+		local Ok = pcall(function()
+			local PlayerScripts = LocalPlayer:FindFirstChild("PlayerScripts")
+
+			if not PlayerScripts then
+				return
+			end
+
+			local Module = PlayerScripts:FindFirstChild("PlayerModule")
+
+			if not Module then
+				return
+			end
+
+			local PM = require(Module)
+			local Controls = PM:GetControls()
+
+			if Controls and type(Controls.Disable) == "function" then
+				Controls:Disable()
+			end
+		end)
+
+		if Ok then
+			OpTrainingFeature.ControlsDisabled = true
+			warn("[KELV][OpTraining] default controls disabled")
+		end
+	end
+
+	local function enableDefaultControls()
+		if not OpTrainingFeature.ControlsDisabled then
+			return
+		end
+
+		pcall(function()
+			local PlayerScripts = LocalPlayer:FindFirstChild("PlayerScripts")
+
+			if not PlayerScripts then
+				return
+			end
+
+			local Module = PlayerScripts:FindFirstChild("PlayerModule")
+
+			if not Module then
+				return
+			end
+
+			local PM = require(Module)
+			local Controls = PM:GetControls()
+
+			if Controls and type(Controls.Enable) == "function" then
+				Controls:Enable()
+			end
+		end)
+
+		OpTrainingFeature.ControlsDisabled = false
+		warn("[KELV][OpTraining] default controls enabled")
+	end
+
+	local function sprintOn()
+		if SprintHeld then
+			return
+		end
+
 		local VIM = getVirtualInputManager()
 
 		if not VIM then
 			return
 		end
 
+		-- Disable Roblox default W input BEFORE holding W via VIM, so
+		-- ControlScript doesn't steer the character in W's direction.
+		-- MoveTo then has sole control of MoveDirection.
+		disableDefaultControls()
+
+		SprintHeld = true
+		SprintRevision = SprintRevision + 1
+		local MyRev = SprintRevision
+
 		task.spawn(function()
 			pcall(function()
 				VIM:SendKeyEvent(true, Enum.KeyCode.W, false, game)
-				task.wait(0.03)
-				VIM:SendKeyEvent(false, Enum.KeyCode.W, false, game)
 			end)
-		end)
-	end
 
-	local function triggerGameSprint()
-		-- Fire a double-tap of W to trigger the game's internal sprint state.
-		-- No hold afterwards so MoveTo keeps clean control of direction.
-		task.spawn(function()
-			tapWKeyOnce()
-			task.wait(0.08)
-			tapWKeyOnce()
-		end)
-	end
+			task.wait(0.03)
 
-	local function startSpeedEnforcer()
-		if OpTrainingFeature.SpeedConnection then
-			return
-		end
-
-		OpTrainingFeature.SpeedConnection = RunService.Heartbeat:Connect(function()
-			local Hum = getHumanoid()
-
-			if not Hum then
+			if SprintRevision ~= MyRev then
 				return
 			end
 
-			local Target = SprintOn and OpTrainingFeature.RunWalkSpeed or OpTrainingFeature.FallbackWalkSpeed
+			pcall(function()
+				VIM:SendKeyEvent(false, Enum.KeyCode.W, false, game)
+			end)
 
-			if Hum.WalkSpeed ~= Target then
-				pcall(function()
-					Hum.WalkSpeed = Target
-				end)
+			task.wait(OpTrainingFeature.DoubleTapGapSec)
+
+			if SprintRevision ~= MyRev or not SprintHeld then
+				return
 			end
+
+			-- Second press, HOLD — game's sprint state latches on while held.
+			pcall(function()
+				VIM:SendKeyEvent(true, Enum.KeyCode.W, false, game)
+			end)
 		end)
 	end
 
-	local function stopSpeedEnforcer()
-		if OpTrainingFeature.SpeedConnection then
-			OpTrainingFeature.SpeedConnection:Disconnect()
-			OpTrainingFeature.SpeedConnection = nil
-		end
-	end
-
-	local function sprintOn()
-		if SprintOn then
-			return
-		end
-
-		local Humanoid = getHumanoid()
-
-		if not Humanoid then
-			return
-		end
-
-		if OriginalWalkSpeed == nil then
-			OriginalWalkSpeed = Humanoid.WalkSpeed
-		end
-
-		SprintOn = true
-		startSpeedEnforcer()
-		triggerGameSprint()
-	end
-
 	local function sprintOff()
-		if not SprintOn then
+		if not SprintHeld then
 			return
 		end
 
-		SprintOn = false
-		-- Speed enforcer will push WalkSpeed down to FallbackWalkSpeed next frame
+		SprintHeld = false
+		SprintRevision = SprintRevision + 1
+
+		local VIM = getVirtualInputManager()
+
+		if VIM then
+			pcall(function()
+				VIM:SendKeyEvent(false, Enum.KeyCode.W, false, game)
+			end)
+		end
 	end
 
 	local function restoreWalkSpeed()
-		SprintOn = false
-		stopSpeedEnforcer()
-
-		local Humanoid = getHumanoid()
-
-		if Humanoid and OriginalWalkSpeed ~= nil then
-			pcall(function()
-				Humanoid.WalkSpeed = OriginalWalkSpeed
-			end)
-		end
-
-		OriginalWalkSpeed = nil
+		sprintOff()
+		enableDefaultControls()
 	end
 
 	local function findBedFromPrompt(Prompt)
@@ -573,17 +605,17 @@ return function(Config)
 		local ShouldSprint = Stamina >= OpTrainingFeature.LowStaminaPercent
 		local Now = os.clock()
 
-		if ShouldSprint and not SprintOn then
-			warn(string.format("[KELV][OpTraining] stamina %.1f%% >= %d%%, WalkSpeed=%d (run)", Stamina, OpTrainingFeature.LowStaminaPercent, OpTrainingFeature.RunWalkSpeed))
+		if ShouldSprint and not SprintHeld then
+			warn(string.format("[KELV][OpTraining] stamina %.1f%% >= %d%%, sprint ON (hold W)", Stamina, OpTrainingFeature.LowStaminaPercent))
 			sprintOn()
 			LastSprintLogAt = Now
-		elseif (not ShouldSprint) and SprintOn then
-			warn(string.format("[KELV][OpTraining] stamina %.1f%% < %d%%, WalkSpeed=%d (walk)", Stamina, OpTrainingFeature.LowStaminaPercent, OpTrainingFeature.FallbackWalkSpeed))
+		elseif (not ShouldSprint) and SprintHeld then
+			warn(string.format("[KELV][OpTraining] stamina %.1f%% < %d%%, sprint OFF (release W)", Stamina, OpTrainingFeature.LowStaminaPercent))
 			sprintOff()
 			LastSprintLogAt = Now
 		elseif (Now - LastSprintLogAt) >= 3 then
 			LastSprintLogAt = Now
-			warn(string.format("[KELV][OpTraining] stamina %.1f%% sprinting=%s", Stamina, tostring(SprintOn)))
+			warn(string.format("[KELV][OpTraining] stamina %.1f%% sprinting=%s", Stamina, tostring(SprintHeld)))
 		end
 	end
 
