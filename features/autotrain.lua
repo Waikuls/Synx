@@ -581,6 +581,31 @@ return function(Config)
 		return Percent
 	end
 
+	local MaxStaminaCache = {Value = 0, At = 0}
+
+	local function getMaxStamina()
+		local Now = os.clock()
+
+		if (Now - MaxStaminaCache.At) < 2 then
+			return MaxStaminaCache.Value
+		end
+
+		local Stats = findStatsContainer()
+		local Value = 0
+
+		if Stats then
+			local Raw = readStatsValue(Stats, "MaxStamina")
+
+			if type(Raw) == "number" then
+				Value = Raw
+			end
+		end
+
+		MaxStaminaCache.Value = Value
+		MaxStaminaCache.At = Now
+		return Value
+	end
+
 	local BodyFatigueCache = {Value = 0, At = 0}
 
 	local function getBodyFatigue()
@@ -1234,8 +1259,9 @@ return function(Config)
 
 		if self.StaminaThreshold > 0 then
 			local StaminaPct = getStaminaPercent()
+			local EffectiveThreshold = self:GetEffectiveStaminaThreshold()
 
-			if StaminaPct <= self.StaminaThreshold then
+			if StaminaPct <= EffectiveThreshold then
 				self.StaminaPaused = true
 			end
 
@@ -1529,7 +1555,8 @@ return function(Config)
 		if self.StaminaThreshold > 0 then
 			StaminaCache.At = 0
 			local StaminaPct = getStaminaPercent()
-			if StaminaPct <= self.StaminaThreshold then self.StaminaPaused = true end
+			local EffectiveThreshold = self:GetEffectiveStaminaThreshold()
+			if StaminaPct <= EffectiveThreshold then self.StaminaPaused = true end
 			if self.StaminaPaused then
 				if StaminaPct >= self:GetContinueThreshold() then
 					self.StaminaPaused = false
@@ -1858,6 +1885,16 @@ return function(Config)
 			return true
 		end
 		return false
+	end
+
+	function AutoTrainFeature:GetEffectiveStaminaThreshold()
+		local MaxStamina = getMaxStamina()
+
+		if MaxStamina > 0 and MaxStamina < 220 then
+			return 6
+		end
+
+		return self.StaminaThreshold
 	end
 
 	function AutoTrainFeature:GetContinueThreshold()
