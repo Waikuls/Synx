@@ -365,7 +365,7 @@ return function(Config)
 		if not Root then return end
 		Root.Anchored = true
 		Root.CFrame = CLAIM_CHARACTER_CFRAME
-		if not cancellableWait(5) then return end
+		if not cancellableWait(15) then return end
 
 		if not AutoJobFeature.Enabled then return end
 
