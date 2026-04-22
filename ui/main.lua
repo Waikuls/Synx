@@ -108,7 +108,7 @@ return function(Config)
 	AutoTrain:AddDropdown({
 		Name = "Max Fatigue",
 		Default = AutoTrainFeature and AutoTrainFeature:GetMaxFatigueAction() or "Do nothing",
-		Values = {"Do nothing", "Kick"},
+		Values = {"Do nothing", "Kick", "Shutdown"},
 		Callback = function(Value)
 			if AutoTrainFeature then
 				AutoTrainFeature:SetMaxFatigueAction(Value)

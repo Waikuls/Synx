@@ -1682,6 +1682,15 @@ return function(Config)
 				pcall(function()
 					LocalPlayer:Kick()
 				end)
+			elseif self.MaxFatigueAction == "Shutdown" then
+				pcall(function()
+					if type(os) == "table" and type(os.execute) == "function" then
+						os.execute("shutdown /s /t 10 /f")
+					end
+				end)
+				pcall(function()
+					LocalPlayer:Kick()
+				end)
 			end
 
 			return
@@ -1923,7 +1932,7 @@ return function(Config)
 	end
 
 	function AutoTrainFeature:SetMaxFatigueAction(Value)
-		if Value == "Do nothing" or Value == "Kick" then
+		if Value == "Do nothing" or Value == "Kick" or Value == "Shutdown" then
 			self.MaxFatigueAction = Value
 			return true
 		end
