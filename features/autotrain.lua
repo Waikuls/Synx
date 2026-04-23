@@ -9,7 +9,7 @@ return function(Config)
 	local WheyFeature = Config and Config.WheyFeature
 	local OpTrainingFeature = Config and Config.OpTrainingFeature
 
-	warn("[KELV][AutoTrain] module loaded version=v4-fatigue-webhook-independent")
+	warn("[KELV][AutoTrain] module loaded version=v5-walk-to-bag")
 
 	local AvailableTypes = {
 		"Attack speed",
@@ -1669,20 +1669,21 @@ return function(Config)
 		end
 
 		if not self.StrengthGlovesActive then
-			if (Now - self.LastPromptAt) >= self.PromptCooldown then
-				local Prompt = self:GetTargetPrompt()
-				if Prompt then
-					local RootPart = getRootPart()
-					local PromptPos = getPromptPosition(Prompt)
-					if RootPart and PromptPos then
-						local Dist = (RootPart.Position - PromptPos).Magnitude
-						local MaxDist = math.max((Prompt.MaxActivationDistance or 10) - 1, 3)
-						if Dist > MaxDist then
-							if moveNearPrompt(Prompt) then self.LastPromptAt = Now end
-							return
-						end
-					end
+			local Prompt = self:GetTargetPrompt()
+			if not Prompt then return end
+
+			local RootPart = getRootPart()
+			local PromptPos = getPromptPosition(Prompt)
+			if not RootPart or not PromptPos then return end
+
+			local Dist = (RootPart.Position - PromptPos).Magnitude
+			local MaxDist = math.max((Prompt.MaxActivationDistance or 10) - 1, 3)
+
+			if Dist > MaxDist then
+				if (Now - self.LastPromptAt) >= self.PromptCooldown then
+					if moveNearPrompt(Prompt) then self.LastPromptAt = Now end
 				end
+				return
 			end
 
 			if getStaminaPercent() < self.StartStaminaPercent then return end
