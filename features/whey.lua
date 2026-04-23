@@ -4,7 +4,7 @@ return function(Config)
 	local LocalPlayer = Players.LocalPlayer
 	local Notification = Config and Config.Notification
 
-	warn("[KELV][Whey] module loaded version=v7-unequip-after-drink")
+	warn("[KELV][Whey] module loaded version=v8-single-activate")
 
 	-- Each entry is a substring pattern matched against the lowercased,
 	-- punctuation-stripped tool name. "whey" alone is intentional so
@@ -287,10 +287,6 @@ return function(Config)
 			fireInputKey("LMB", true)
 			task.wait(0.1)
 			fireInputKey("LMB", false)
-
-			-- Some consumables require a second tap (e.g. confirm drink).
-			task.wait(0.4)
-			pcall(function() Tool:Activate() end)
 
 			-- Wait for the drink animation to finish before unequipping.
 			-- The game doesn't auto-remove the tool, so we put it away
