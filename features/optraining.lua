@@ -1491,6 +1491,10 @@ return function(Config)
 
 		local CurrentWaypoints, CurrentType = getCurrentWaypointList()
 
+		-- Lock camera only while walking — unlocked while sleeping on bed
+		-- and unlocked again after returning.
+		lockCamera()
+
 		-- Walk forward through waypoints, then to the seat
 		if #CurrentWaypoints > 0 then
 			warn(string.format("[KELV][OpTraining] [%s] walking %d forward waypoints", CurrentType, #CurrentWaypoints))
@@ -1499,6 +1503,7 @@ return function(Config)
 				notify("OP Training", "Couldn't reach last waypoint — aborting", "alert-circle")
 				restoreWalkSpeed()
 				stopMoveOverride()
+				unlockCamera()
 				self.State = "idle"
 				return
 			end
@@ -1523,6 +1528,7 @@ return function(Config)
 				notify("OP Training", "Could not reach bed", "alert-circle")
 				restoreWalkSpeed()
 				stopMoveOverride()
+				unlockCamera()
 				self.State = "idle"
 				return
 			end
@@ -1556,10 +1562,13 @@ return function(Config)
 
 		if not Seated then
 			notify("OP Training", "Bed use failed — not enough cash?", "alert-circle")
+			unlockCamera()
 			self.State = "idle"
 			return
 		end
 
+		-- Player is on the bed — free the camera while sleeping.
+		unlockCamera()
 		notify("OP Training", "Sleeping — fatigue recovering")
 
 		local SleepStart = os.clock()
@@ -1593,6 +1602,9 @@ return function(Config)
 
 		task.wait(0.5)
 
+		-- Re-lock camera for the return walk
+		lockCamera()
+
 		-- Walk back through reversed waypoints, then to the original position
 		if #CurrentWaypoints > 0 then
 			warn(string.format("[KELV][OpTraining] [%s] walking back through reversed waypoints", CurrentType))
@@ -1606,6 +1618,7 @@ return function(Config)
 
 		stopMoveOverride()
 		restoreWalkSpeed()
+		unlockCamera()
 
 		notify("OP Training", "Done — fatigue recovered", "check-circle")
 		self.State = "idle"
@@ -1694,8 +1707,7 @@ return function(Config)
 				self:Step()
 			end)
 
-			lockCamera()
-			notify("OP Training", "Enabled — camera locked, auto bed active")
+			notify("OP Training", "Enabled — auto bed active")
 		else
 			restoreWalkSpeed()
 			stopMoveOverride()
