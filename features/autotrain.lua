@@ -9,7 +9,7 @@ return function(Config)
 	local WheyFeature = Config and Config.WheyFeature
 	local OpTrainingFeature = Config and Config.OpTrainingFeature
 
-	warn("[KELV][AutoTrain] module loaded version=v9-bag-diagnostic")
+	warn("[KELV][AutoTrain] module loaded version=v10-bag-cache-60s")
 
 	local AvailableTypes = {
 		"Attack speed",
@@ -1633,10 +1633,13 @@ return function(Config)
 		local Now = os.clock()
 		local SelectedType = AutoTrainFeature.SelectedType
 
+		-- Long TTL: bags don't move or respawn, and the fallback path does
+		-- a full workspace:GetDescendants scan which is expensive. Invalidate
+		-- only when the cached Remote has actually been removed.
 		if StrengthBagRemoteCache.Remote
 			and StrengthBagRemoteCache.Remote.Parent
 			and StrengthBagRemoteCache.Type == SelectedType
-			and (Now - StrengthBagRemoteCache.At) < 3 then
+			and (Now - StrengthBagRemoteCache.At) < 60 then
 			return StrengthBagRemoteCache.Remote, StrengthBagRemoteCache.Position
 		end
 
