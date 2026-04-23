@@ -1819,6 +1819,13 @@ return function(Config)
 			return
 		end
 
+		-- While OP Training is walking to bed / sleeping / walking back,
+		-- stay out of the way so we don't re-trigger the machine prompt
+		-- mid-routine.
+		if OpTrainingFeature and type(OpTrainingFeature.IsBusy) == "function" and OpTrainingFeature:IsBusy() then
+			return
+		end
+
 		local CurrentBodyFatigue = getBodyFatigue()
 
 		if CurrentBodyFatigue >= 100 then
@@ -1851,7 +1858,11 @@ return function(Config)
 				Webhook:SendEmbed(Embed, true)
 			end
 
-			if self.MaxFatigueAction == "Kick" then
+			local OpEnabled = OpTrainingFeature
+				and type(OpTrainingFeature.IsEnabled) == "function"
+				and OpTrainingFeature:IsEnabled()
+
+			if self.MaxFatigueAction == "Kick" and not OpEnabled then
 				pcall(function()
 					LocalPlayer:Kick()
 				end)

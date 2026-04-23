@@ -20,7 +20,7 @@ return function(Config)
 	OpTrainingFeature.AutoTrainRef = nil
 
 	-- Behavior knobs
-	OpTrainingFeature.FatigueTriggerPercent = 40
+	OpTrainingFeature.FatigueTriggerPercent = 100
 	OpTrainingFeature.FatigueExitPercent = 0
 	OpTrainingFeature.MountWaitSeconds = 3
 	OpTrainingFeature.SleepTimeoutSeconds = 180
@@ -1391,6 +1391,39 @@ return function(Config)
 		notify("OP Training", "Triggered — walking to bed")
 		warn("[KELV][OpTraining] state=busy, looking for bed prompt")
 
+		-- Dismount from any training machine first so we can walk freely.
+		-- Happens when Auto Train is running and fatigue just hit 100%.
+		local SeatedHumanoid = getHumanoid()
+
+		if SeatedHumanoid and SeatedHumanoid.SeatPart then
+			warn("[KELV][OpTraining] currently seated, dismounting before walk")
+			notify("OP Training", "Dismounting from machine")
+
+			local Ref = self.AutoTrainRef
+
+			if Ref and type(Ref.TryBikeLeave) == "function" then
+				pcall(function() Ref:TryBikeLeave() end)
+			end
+
+			pcall(function()
+				SeatedHumanoid.Sit = false
+			end)
+
+			local DismountDeadline = os.clock() + 5
+
+			while os.clock() < DismountDeadline do
+				local Hum = getHumanoid()
+
+				if not Hum or not Hum.SeatPart then
+					break
+				end
+
+				task.wait(0.2)
+			end
+
+			task.wait(0.5)
+		end
+
 		-- Find all bed prompts in workspace sorted by distance, and pick
 		-- the first one that isn't occupied by another player.
 		local BedCandidates = findAllBedPrompts()
@@ -1675,6 +1708,10 @@ return function(Config)
 
 	function OpTrainingFeature:IsEnabled()
 		return self.Enabled == true
+	end
+
+	function OpTrainingFeature:IsBusy()
+		return self.State ~= "idle"
 	end
 
 	function OpTrainingFeature:SetAutoTrainRef(Feature)
