@@ -9,7 +9,7 @@ return function(Config)
 	local WheyFeature = Config and Config.WheyFeature
 	local OpTrainingFeature = Config and Config.OpTrainingFeature
 
-	warn("[KELV][AutoTrain] module loaded version=v3-pause-for-optraining")
+	warn("[KELV][AutoTrain] module loaded version=v4-fatigue-webhook-independent")
 
 	local AvailableTypes = {
 		"Attack speed",
@@ -2262,6 +2262,39 @@ return function(Config)
 			FatigueMonitorLast = Now
 
 			local Fatigue = getBodyFatigue()
+
+			if Fatigue >= 100 then
+				if not AutoTrainFeature.FatigueNotified then
+					AutoTrainFeature.FatigueNotified = true
+
+					local StatSnapshot = readPlayerStats()
+					local ActionLabel = AutoTrainFeature.MaxFatigueAction or "Do nothing"
+					local Embed = {
+						title = "Body Fatigue Full (100%)",
+						description = string.format(
+							"**%s** has reached max fatigue.\nAuto train has been **stopped**.",
+							LocalPlayer.Name
+						),
+						color = 15158332,
+						fields = {
+							{name = "Strength",     value = formatStatNumber(StatSnapshot.Strength),    inline = true},
+							{name = "Durability",   value = formatStatNumber(StatSnapshot.Durability),  inline = true},
+							{name = "Stamina (Max)",value = formatStatNumber(StatSnapshot.MaxStamina),  inline = true},
+							{name = "Attack Speed", value = formatStatNumber(StatSnapshot.AttackSpeed), inline = true},
+							{name = "Upper Muscle", value = formatStatNumber(StatSnapshot.UpperMuscle), inline = true},
+							{name = "Lower Muscle", value = formatStatNumber(StatSnapshot.LowerMuscle), inline = true},
+							{name = "Total Power",  value = "**" .. formatStatNumber(StatSnapshot.TotalPower) .. "**", inline = false},
+							{name = "Next Action",  value = ActionLabel, inline = false},
+						},
+						footer = {text = "KELV Auto Train"},
+						timestamp = DateTime.now():ToIsoDate(),
+					}
+
+					Webhook:SendEmbed(Embed, true)
+				end
+			elseif Fatigue < 90 then
+				AutoTrainFeature.FatigueNotified = false
+			end
 
 			if Fatigue <= 0 then
 				if not AutoTrainFeature.BedRecoveryNotified then
