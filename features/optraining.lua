@@ -7,7 +7,7 @@ return function(Config)
 	local LocalPlayer = Players.LocalPlayer
 	local Notification = Config and Config.Notification
 
-	warn("[KELV][OpTraining] module loaded version=v60-stamina-log")
+	warn("[KELV][OpTraining] module loaded version=v57-skip-occupied-beds")
 
 	local WaypointStorageFolder = "KELV"
 	local WaypointStoragePath = "KELV/optraining_waypoints.json"
@@ -543,12 +543,11 @@ return function(Config)
 			disableDefaultControls()
 			warn("[KELV][OpTraining] ControlScript disabled after sprint latch")
 
-			-- Keepalive loop — full re-tap every 10s. The brief W release
-			-- inside the sequence causes ~100ms of walking, but 10s is long
-			-- enough that it reads as one smooth run. Re-press only (no
-			-- re-tap) doesn't keep sprint latched in this game.
+			-- Keepalive loop — re-perform the full W double-tap every 2s so
+			-- the game's sprint detector keeps seeing fresh input and
+			-- doesn't drop us back to walking.
 			while SprintRevision == MyRev and SprintHeld and OpTrainingFeature.Enabled do
-				task.wait(10)
+				task.wait(2)
 
 				if SprintRevision ~= MyRev or not SprintHeld then
 					break
@@ -562,12 +561,12 @@ return function(Config)
 					fireRunToggle(true)
 				end)
 
-				-- release → tap → release → hold
+				-- Full re-tap sequence: release -> tap -> release -> hold
 				pcall(function()
 					VIM:SendKeyEvent(false, Enum.KeyCode.W, false, game)
 				end)
 
-				task.wait(0.03)
+				task.wait(0.05)
 
 				if SprintRevision ~= MyRev or not SprintHeld then break end
 
@@ -583,7 +582,7 @@ return function(Config)
 					VIM:SendKeyEvent(false, Enum.KeyCode.W, false, game)
 				end)
 
-				task.wait(0.06)
+				task.wait(0.08)
 
 				if SprintRevision ~= MyRev or not SprintHeld then break end
 
@@ -984,16 +983,15 @@ return function(Config)
 	local function maintainSprint()
 		local Stamina = getStaminaPercent()
 
+		-- Hysteresis: sprint until stamina drops to SprintStopPercent,
+		-- then walk until stamina recovers above SprintResumePercent.
+		-- Between those two thresholds, keep the current mode.
 		if SprintHeld then
 			if Stamina <= OpTrainingFeature.SprintStopPercent then
-				warn(string.format("[KELV][OpTraining] stamina %.1f%% <= %d%%, sprint OFF",
-					Stamina, OpTrainingFeature.SprintStopPercent))
 				sprintOff()
 			end
 		else
 			if Stamina >= OpTrainingFeature.SprintResumePercent then
-				warn(string.format("[KELV][OpTraining] stamina %.1f%% >= %d%%, sprint ON",
-					Stamina, OpTrainingFeature.SprintResumePercent))
 				sprintOn()
 			end
 		end
