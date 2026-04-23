@@ -104,7 +104,9 @@ return function(Config)
 		local Root = getRoot()
 		if Root then
 			pcall(function()
-				Root.CFrame = Root.CFrame + Vector3.new(0, -UNDERGROUND_Y, 0)
+				if Root.Position.Y < -3 then
+					Root.CFrame = Root.CFrame + Vector3.new(0, -UNDERGROUND_Y, 0)
+				end
 				Root.Anchored = false
 			end)
 		end
