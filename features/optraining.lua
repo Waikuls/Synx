@@ -7,7 +7,7 @@ return function(Config)
 	local LocalPlayer = Players.LocalPlayer
 	local Notification = Config and Config.Notification
 
-	warn("[KELV][OpTraining] module loaded version=v58-coexist-with-autotrain")
+	warn("[KELV][OpTraining] module loaded version=v59-unequip-gloves-before-walk")
 
 	local WaypointStorageFolder = "KELV"
 	local WaypointStoragePath = "KELV/optraining_waypoints.json"
@@ -1393,12 +1393,11 @@ return function(Config)
 		-- Dismount from any training machine first so we can walk freely.
 		-- Happens when Auto Train is running and fatigue just hit 100%.
 		local SeatedHumanoid = getHumanoid()
+		local Ref = self.AutoTrainRef
 
 		if SeatedHumanoid and SeatedHumanoid.SeatPart then
 			warn("[KELV][OpTraining] currently seated, dismounting before walk")
 			notify("OP Training", "Dismounting from machine")
-
-			local Ref = self.AutoTrainRef
 
 			if Ref and type(Ref.TryBikeLeave) == "function" then
 				pcall(function() Ref:TryBikeLeave() end)
@@ -1421,6 +1420,15 @@ return function(Config)
 			end
 
 			task.wait(0.5)
+		end
+
+		-- Take off boxing gloves if Auto Train was punching a bag —
+		-- they are equipped via E, so pressing E again unequips.
+		if Ref and Ref.StrengthGlovesActive and type(Ref.UnequipGloves) == "function" then
+			warn("[KELV][OpTraining] removing boxing gloves before walk")
+			notify("OP Training", "Removing gloves")
+			pcall(function() Ref:UnequipGloves() end)
+			task.wait(0.8)
 		end
 
 		-- Find all bed prompts in workspace sorted by distance, and pick

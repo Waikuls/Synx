@@ -9,7 +9,7 @@ return function(Config)
 	local WheyFeature = Config and Config.WheyFeature
 	local OpTrainingFeature = Config and Config.OpTrainingFeature
 
-	warn("[KELV][AutoTrain] module loaded version=v12-attack-speed-uses-punching-bag")
+	warn("[KELV][AutoTrain] module loaded version=v13-unequip-gloves-api")
 
 	local AvailableTypes = {
 		"Attack speed",
@@ -2226,6 +2226,22 @@ return function(Config)
 		end
 
 		return self.OpTrainingEnabled == true
+	end
+
+	function AutoTrainFeature:UnequipGloves()
+		if not self.StrengthGlovesActive then
+			return false
+		end
+
+		task.spawn(function()
+			fireInputKey("E", true)
+			task.wait(0.05)
+			fireInputKey("E", false)
+		end)
+
+		self.StrengthGlovesActive = false
+		self.LastStrengthEquipAt = os.clock()
+		return true
 	end
 
 	function AutoTrainFeature:SetOpTrainingEnabled(Value)
