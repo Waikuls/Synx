@@ -9,7 +9,7 @@ return function(Config)
 	local WheyFeature = Config and Config.WheyFeature
 	local OpTrainingFeature = Config and Config.OpTrainingFeature
 
-	warn("[KELV][AutoTrain] module loaded version=v5-walk-to-bag")
+	warn("[KELV][AutoTrain] module loaded version=v6-bag-alias-squash")
 
 	local AvailableTypes = {
 		"Attack speed",
@@ -211,8 +211,18 @@ return function(Config)
 			return false
 		end
 
+		local Squashed = squashText(Text)
+
 		for Index = 1, #Aliases do
-			if string.find(Normalized, Aliases[Index], 1, true) then
+			local Alias = Aliases[Index]
+
+			if string.find(Normalized, Alias, 1, true) then
+				return true
+			end
+
+			local AliasSquashed = squashText(Alias)
+
+			if AliasSquashed ~= "" and Squashed ~= "" and string.find(Squashed, AliasSquashed, 1, true) then
 				return true
 			end
 		end
@@ -934,13 +944,16 @@ return function(Config)
 	function AutoTrainFeature:GetTargetPrompt()
 		local Now = os.clock()
 
-		if self.CachedPromptType == self.SelectedType then
-			if isPromptValid(self.CachedPrompt) then
-				if promptMatchesSelectedType(self.CachedPrompt, self.SelectedType) then
-					if (Now - self.LastPromptRefreshAt) < self.PromptRefreshInterval then
-						return self.CachedPrompt
-					end
-				end
+		if self.CachedPromptType == self.SelectedType
+			and (Now - self.LastPromptRefreshAt) < self.PromptRefreshInterval then
+			-- Nil results are cached too — otherwise a missing-prompt state
+			-- re-scans the entire workspace every Step tick and drops frames.
+			if self.CachedPrompt == nil then
+				return nil
+			end
+
+			if isPromptValid(self.CachedPrompt) and promptMatchesSelectedType(self.CachedPrompt, self.SelectedType) then
+				return self.CachedPrompt
 			end
 		end
 
