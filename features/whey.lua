@@ -4,7 +4,7 @@ return function(Config)
 	local LocalPlayer = Players.LocalPlayer
 	local Notification = Config and Config.Notification
 
-	warn("[KELV][Whey] module loaded version=v8-single-activate")
+	warn("[KELV][Whey] module loaded version=v9-coregui-scan-10m-cooldown")
 
 	-- Each entry is a substring pattern matched against the lowercased,
 	-- punctuation-stripped tool name. "whey" alone is intentional so
@@ -24,7 +24,10 @@ return function(Config)
 		BuffCheckInterval = 2,
 		CachedBuffActive = false,
 		LastConsumeAt = 0,
-		ConsumeCooldown = 60,
+		-- Buff lasts ~35+ minutes in game. Cooldown is the safety cap in
+		-- case the GUI-based buff detection misses the active buff; better
+		-- to wait longer and drink one shake too few than to chain-drink.
+		ConsumeCooldown = 600,
 		LastDebugAt = 0,
 		DebugInterval = 10,
 	}
@@ -65,8 +68,6 @@ return function(Config)
 		return check(Character) or check(Backpack)
 	end
 
-	local BuffDiagnosticPrinted = false
-
 	local function textHasAlias(Text)
 		if type(Text) ~= "string" or Text == "" then return false end
 		local Lower = string.lower(Text)
@@ -101,24 +102,47 @@ return function(Config)
 		return nil
 	end
 
-	-- Collect every text-bearing GUI under PlayerGui so we can match alias
-	-- and timer even when they live in separate labels (title vs. countdown).
+	-- Collect every text-bearing GUI under PlayerGui (and CoreGui as a
+	-- fallback for games that surface buff info on the TopBar) so we can
+	-- match alias and timer even when they live in separate labels.
+	-- Visibility check is deferred to the matching stage — some games
+	-- toggle a parent frame's Visible property while still rendering
+	-- the label through ScreenGui.Enabled.
 	local function collectTextNodes()
-		local PlayerGui = LocalPlayer:FindFirstChild("PlayerGui")
-		if not PlayerGui then return {} end
+		local Roots = {
+			LocalPlayer:FindFirstChild("PlayerGui"),
+			game:GetService("CoreGui"),
+		}
 
 		local Nodes = {}
 
-		for _, Desc in ipairs(PlayerGui:GetDescendants()) do
-			if Desc:IsA("TextLabel") or Desc:IsA("TextButton") or Desc:IsA("TextBox") then
-				local Text = getInstanceText(Desc)
-				if Text and Text ~= "" and isVisible(Desc) then
-					table.insert(Nodes, {Instance = Desc, Text = Text})
+		for _, Root in ipairs(Roots) do
+			if Root then
+				local Ok, Descendants = pcall(function() return Root:GetDescendants() end)
+
+				if Ok and Descendants then
+					for _, Desc in ipairs(Descendants) do
+						if Desc:IsA("TextLabel") or Desc:IsA("TextButton") or Desc:IsA("TextBox") then
+							local TextOk, Text = pcall(function() return Desc.Text end)
+							if TextOk and type(Text) == "string" and Text ~= "" then
+								table.insert(Nodes, {Instance = Desc, Text = trimString(Text) or Text})
+							end
+						end
+					end
 				end
 			end
 		end
 
 		return Nodes
+	end
+
+	local function textOfAnyInstance(Instance)
+		if not Instance then return nil end
+		if Instance:IsA("TextLabel") or Instance:IsA("TextButton") or Instance:IsA("TextBox") then
+			local Ok, Text = pcall(function() return Instance.Text end)
+			if Ok and type(Text) == "string" then return trimString(Text) or Text end
+		end
+		return nil
 	end
 
 	local function siblingHasTimer(Instance)
@@ -127,16 +151,16 @@ return function(Config)
 
 		for _, Sibling in ipairs(Parent:GetChildren()) do
 			if Sibling ~= Instance then
-				local Text = getInstanceText(Sibling)
-				if Text and textHasTimer(Text) and isVisible(Sibling) then
+				local Text = textOfAnyInstance(Sibling)
+				if Text and textHasTimer(Text) then
 					return true
 				end
 
 				-- Cousins: check one level inside the sibling. Covers split
 				-- buff cards like {TitleFrame > Title, TimerFrame > Timer}.
 				for _, Child in ipairs(Sibling:GetChildren()) do
-					local CText = getInstanceText(Child)
-					if CText and textHasTimer(CText) and isVisible(Child) then
+					local CText = textOfAnyInstance(Child)
+					if CText and textHasTimer(CText) then
 						return true
 					end
 				end
@@ -179,32 +203,35 @@ return function(Config)
 		return false
 	end
 
+	local LastBuffDiagnosticAt = 0
+
 	local function dumpBuffDiagnostic()
-		if BuffDiagnosticPrinted then return end
-		BuffDiagnosticPrinted = true
+		local Now = os.clock()
+		if (Now - LastBuffDiagnosticAt) < 15 then return end
+		LastBuffDiagnosticAt = Now
 
-		local PlayerGui = LocalPlayer:FindFirstChild("PlayerGui")
-		if not PlayerGui then
-			warn("[KELV][Whey] diagnostic: no PlayerGui")
-			return
-		end
+		local Nodes = collectTextNodes()
 
-		warn("[KELV][Whey] diagnostic: labels mentioning whey/burner in PlayerGui:")
+		warn(string.format("[KELV][Whey] diagnostic: scanned %d labels in PlayerGui+CoreGui", #Nodes))
 
-		local Count = 0
+		local AliasCount = 0
+		local TimerCount = 0
 
-		for _, Desc in ipairs(PlayerGui:GetDescendants()) do
-			if Desc:IsA("TextLabel") or Desc:IsA("TextButton") or Desc:IsA("TextBox") then
-				local Text = getInstanceText(Desc)
-				if Text and textHasAlias(Text) then
-					local Vis = isVisible(Desc)
-					warn(string.format("  visible=%s text=%q path=%s", tostring(Vis), Text, Desc:GetFullName()))
-					Count = Count + 1
-				end
+		for _, Node in ipairs(Nodes) do
+			local HasAlias = textHasAlias(Node.Text)
+			local HasTimer = textHasTimer(Node.Text)
+
+			if HasAlias then
+				warn(string.format("  [alias] text=%q path=%s", Node.Text, Node.Instance:GetFullName()))
+				AliasCount = AliasCount + 1
+			elseif HasTimer and AliasCount < 20 then
+				-- Only show timers if alias count is low, so console isn't flooded
+				warn(string.format("  [timer] text=%q path=%s", Node.Text, Node.Instance:GetFullName()))
+				TimerCount = TimerCount + 1
 			end
 		end
 
-		warn(string.format("[KELV][Whey] diagnostic done (%d labels)", Count))
+		warn(string.format("[KELV][Whey] diagnostic done (alias=%d timer=%d)", AliasCount, TimerCount))
 	end
 
 	local function getCustomHotbarRemote()
