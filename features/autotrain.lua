@@ -9,7 +9,7 @@ return function(Config)
 	local WheyFeature = Config and Config.WheyFeature
 	local OpTrainingFeature = Config and Config.OpTrainingFeature
 
-	warn("[KELV][AutoTrain] module loaded version=v1-walk-to-machine")
+	warn("[KELV][AutoTrain] module loaded version=v2-skip-occupied-machines")
 
 	local AvailableTypes = {
 		"Attack speed",
@@ -832,11 +832,52 @@ return function(Config)
 		return Prompt:IsA("ProximityPrompt")
 	end
 
+	local function getPromptMachineModel(Prompt)
+		local Current = Prompt and Prompt.Parent
+
+		while Current and Current ~= workspace do
+			if Current:IsA("Model") then
+				return Current
+			end
+
+			Current = Current.Parent
+		end
+
+		return nil
+	end
+
+	local function isMachineOccupied(MachineModel)
+		if not MachineModel then
+			return false
+		end
+
+		for _, OtherPlayer in ipairs(Players:GetPlayers()) do
+			if OtherPlayer ~= LocalPlayer then
+				local OtherChar = OtherPlayer.Character
+				local OtherHum = OtherChar and OtherChar:FindFirstChildOfClass("Humanoid")
+				local Seat = OtherHum and OtherHum.SeatPart
+
+				if Seat then
+					local Current = Seat
+
+					while Current and Current ~= game do
+						if Current == MachineModel then
+							return true, OtherPlayer.Name
+						end
+
+						Current = Current.Parent
+					end
+				end
+			end
+		end
+
+		return false
+	end
+
 	local function scanForBestPrompt(SelectedType)
 		local RootPart = getRootPart()
 		local Descendants = workspace:GetDescendants()
-		local BestPrompt = nil
-		local BestScore = math.huge
+		local Candidates = {}
 
 		for Index = 1, #Descendants do
 			local Descendant = Descendants[Index]
@@ -853,14 +894,41 @@ return function(Config)
 					Score = Score + 5000
 				end
 
-				if Score < BestScore then
-					BestScore = Score
-					BestPrompt = Descendant
-				end
+				table.insert(Candidates, {Prompt = Descendant, Score = Score})
 			end
 		end
 
-		return BestPrompt
+		table.sort(Candidates, function(A, B)
+			return A.Score < B.Score
+		end)
+
+		local CheckOccupancy = isRemoteMachine(SelectedType)
+		local Fallback = Candidates[1] and Candidates[1].Prompt or nil
+
+		for Index = 1, #Candidates do
+			local Candidate = Candidates[Index]
+
+			if not CheckOccupancy then
+				return Candidate.Prompt
+			end
+
+			local Occupied, OccupantName = isMachineOccupied(getPromptMachineModel(Candidate.Prompt))
+
+			if not Occupied then
+				return Candidate.Prompt
+			end
+
+			warn(string.format("[KELV][AutoTrain] %s #%d occupied by %s — skipping",
+				tostring(SelectedType), Index, tostring(OccupantName)))
+		end
+
+		if CheckOccupancy and Fallback then
+			warn(string.format("[KELV][AutoTrain] All %s machines occupied — waiting",
+				tostring(SelectedType)))
+			return nil
+		end
+
+		return Fallback
 	end
 
 	function AutoTrainFeature:GetTargetPrompt()
@@ -973,6 +1041,8 @@ return function(Config)
 		local BestDist = math.huge
 
 		local TrainingSpots = workspace:FindFirstChild("TrainingSpots")
+		local FallbackRemote = nil
+		local FallbackDist = math.huge
 		if TrainingSpots then
 			for _, Child in ipairs(TrainingSpots:GetChildren()) do
 				if containsAlias(Child.Name, Aliases) then
@@ -982,13 +1052,25 @@ return function(Config)
 						local Part = Child:IsA("BasePart") and Child
 							or (Child:IsA("Model") and (Child.PrimaryPart or Child:FindFirstChildWhichIsA("BasePart")))
 						local Dist = (RootPart and Part) and (RootPart.Position - Part.Position).Magnitude or 999
-						if Dist < BestDist then
-							BestDist = Dist
-							Best = Remote
+
+						if Dist < FallbackDist then
+							FallbackDist = Dist
+							FallbackRemote = Remote
+						end
+
+						if not (Child:IsA("Model") and isMachineOccupied(Child)) then
+							if Dist < BestDist then
+								BestDist = Dist
+								Best = Remote
+							end
 						end
 					end
 				end
 			end
+		end
+
+		if not Best then
+			Best = FallbackRemote
 		end
 
 		-- Fallback to hardcoded path
