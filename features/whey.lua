@@ -4,7 +4,7 @@ return function(Config)
 	local LocalPlayer = Players.LocalPlayer
 	local Notification = Config and Config.Notification
 
-	warn("[KELV][Whey] module loaded version=v3-robust-consume")
+	warn("[KELV][Whey] module loaded version=v4-split-buff-detection")
 
 	-- Each entry is a substring pattern matched against the lowercased,
 	-- punctuation-stripped tool name. "whey" alone is intentional so
@@ -68,6 +68,71 @@ return function(Config)
 		return check(Character) or check(Backpack)
 	end
 
+	local BuffDiagnosticPrinted = false
+
+	local function textHasAlias(Text)
+		if type(Text) ~= "string" or Text == "" then return false end
+		local Lower = string.lower(Text)
+		for _, Alias in ipairs(WheyAliases) do
+			if string.find(Lower, Alias, 1, true) then return true end
+		end
+		return false
+	end
+
+	local function textHasTimer(Text)
+		return type(Text) == "string" and string.find(Text, "%d+:%d%d") ~= nil
+	end
+
+	local function isVisible(Instance)
+		local Current = Instance
+		while Current and Current ~= game do
+			if Current:IsA("GuiObject") then
+				local Ok, Visible = pcall(function() return Current.Visible end)
+				if Ok and not Visible then return false end
+			end
+			Current = Current.Parent
+		end
+		return true
+	end
+
+	local function getInstanceText(Instance)
+		if not Instance then return nil end
+		if Instance:IsA("TextLabel") or Instance:IsA("TextButton") or Instance:IsA("TextBox") then
+			local Ok, Text = pcall(function() return Instance.Text end)
+			if Ok then return Text end
+		end
+		return nil
+	end
+
+	-- Collect every text-bearing GUI under PlayerGui so we can match alias
+	-- and timer even when they live in separate labels (title vs. countdown).
+	local function collectTextNodes()
+		local PlayerGui = LocalPlayer:FindFirstChild("PlayerGui")
+		if not PlayerGui then return {} end
+
+		local Nodes = {}
+
+		for _, Desc in ipairs(PlayerGui:GetDescendants()) do
+			if Desc:IsA("TextLabel") or Desc:IsA("TextButton") or Desc:IsA("TextBox") then
+				local Text = getInstanceText(Desc)
+				if Text and Text ~= "" and isVisible(Desc) then
+					table.insert(Nodes, {Instance = Desc, Text = Text})
+				end
+			end
+		end
+
+		return Nodes
+	end
+
+	local function hasTimerUnderAncestor(Ancestor)
+		if not Ancestor then return false end
+		for _, Desc in ipairs(Ancestor:GetDescendants()) do
+			local Text = getInstanceText(Desc)
+			if Text and textHasTimer(Text) then return true end
+		end
+		return false
+	end
+
 	local function isBuffActive()
 		local Now = os.clock()
 
@@ -77,29 +142,63 @@ return function(Config)
 
 		WheyFeature.LastBuffCheckAt = Now
 
-		local PlayerGui = LocalPlayer:FindFirstChild("PlayerGui")
-		if not PlayerGui then
-			WheyFeature.CachedBuffActive = false
-			return false
-		end
+		local Nodes = collectTextNodes()
 
-		for _, Desc in ipairs(PlayerGui:GetDescendants()) do
-			if Desc:IsA("TextLabel") or Desc:IsA("TextButton") then
-				local Ok, Text = pcall(function() return Desc.Text end)
-				if Ok and type(Text) == "string" then
-					local Lower = string.lower(Text)
-					for _, Alias in ipairs(WheyAliases) do
-						if string.find(Lower, Alias, 1, true) and string.find(Text, "%d+:%d%d") then
-							WheyFeature.CachedBuffActive = true
-							return true
-						end
+		for _, Node in ipairs(Nodes) do
+			if textHasAlias(Node.Text) then
+				-- Alias + timer in same label (classic buff display)
+				if textHasTimer(Node.Text) then
+					WheyFeature.CachedBuffActive = true
+					return true
+				end
+
+				-- Alias in title label, timer in a sibling/descendant of a
+				-- shared ancestor — walk up a few levels looking for it.
+				local Current = Node.Instance.Parent
+
+				for _ = 1, 4 do
+					if not Current or Current == game then break end
+
+					if hasTimerUnderAncestor(Current) then
+						WheyFeature.CachedBuffActive = true
+						return true
 					end
+
+					Current = Current.Parent
 				end
 			end
 		end
 
 		WheyFeature.CachedBuffActive = false
 		return false
+	end
+
+	local function dumpBuffDiagnostic()
+		if BuffDiagnosticPrinted then return end
+		BuffDiagnosticPrinted = true
+
+		local PlayerGui = LocalPlayer:FindFirstChild("PlayerGui")
+		if not PlayerGui then
+			warn("[KELV][Whey] diagnostic: no PlayerGui")
+			return
+		end
+
+		warn("[KELV][Whey] diagnostic: labels mentioning whey/burner in PlayerGui:")
+
+		local Count = 0
+
+		for _, Desc in ipairs(PlayerGui:GetDescendants()) do
+			if Desc:IsA("TextLabel") or Desc:IsA("TextButton") or Desc:IsA("TextBox") then
+				local Text = getInstanceText(Desc)
+				if Text and textHasAlias(Text) then
+					local Vis = isVisible(Desc)
+					warn(string.format("  visible=%s text=%q path=%s", tostring(Vis), Text, Desc:GetFullName()))
+					Count = Count + 1
+				end
+			end
+		end
+
+		warn(string.format("[KELV][Whey] diagnostic done (%d labels)", Count))
 	end
 
 	local function getCustomHotbarRemote()
@@ -226,6 +325,11 @@ return function(Config)
 
 			return false
 		end
+
+		-- One-time GUI dump so the user can tell us why buff detection
+		-- missed the active buff (labels may live in split title/timer
+		-- nodes or under an unexpected parent).
+		dumpBuffDiagnostic()
 
 		warn(string.format("[KELV][Whey] consuming %s", Tool.Name))
 		consumeWhey(Tool)
