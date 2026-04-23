@@ -4,7 +4,7 @@ return function(Config)
 	local LocalPlayer = Players.LocalPlayer
 	local Notification = Config and Config.Notification
 
-	warn("[KELV][Whey] module loaded version=v9-coregui-scan-10m-cooldown")
+	warn("[KELV][Whey] module loaded version=v10-25m-cooldown")
 
 	-- Each entry is a substring pattern matched against the lowercased,
 	-- punctuation-stripped tool name. "whey" alone is intentional so
@@ -24,10 +24,11 @@ return function(Config)
 		BuffCheckInterval = 2,
 		CachedBuffActive = false,
 		LastConsumeAt = 0,
-		-- Buff lasts ~35+ minutes in game. Cooldown is the safety cap in
-		-- case the GUI-based buff detection misses the active buff; better
-		-- to wait longer and drink one shake too few than to chain-drink.
-		ConsumeCooldown = 600,
+		-- Buff lasts ~35 minutes in game. Cooldown sits a bit below that so
+		-- we drink roughly once per buff cycle even if GUI detection misses
+		-- the active buff entirely. Better to overlap slightly than to
+		-- chain-drink because detection is glitching.
+		ConsumeCooldown = 1500,
 		LastDebugAt = 0,
 		DebugInterval = 10,
 	}
