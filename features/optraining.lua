@@ -7,7 +7,7 @@ return function(Config)
 	local LocalPlayer = Players.LocalPlayer
 	local Notification = Config and Config.Notification
 
-	warn("[KELV][OpTraining] module loaded version=v59-unequip-gloves-before-walk")
+	warn("[KELV][OpTraining] module loaded version=v60-log-glove-state")
 
 	local WaypointStorageFolder = "KELV"
 	local WaypointStoragePath = "KELV/optraining_waypoints.json"
@@ -1424,11 +1424,19 @@ return function(Config)
 
 		-- Take off boxing gloves if Auto Train was punching a bag —
 		-- they are equipped via E, so pressing E again unequips.
-		if Ref and Ref.StrengthGlovesActive and type(Ref.UnequipGloves) == "function" then
-			warn("[KELV][OpTraining] removing boxing gloves before walk")
-			notify("OP Training", "Removing gloves")
-			pcall(function() Ref:UnequipGloves() end)
-			task.wait(0.8)
+		if Ref then
+			warn(string.format(
+				"[KELV][OpTraining] glove check: StrengthGlovesActive=%s UnequipGloves=%s",
+				tostring(Ref.StrengthGlovesActive),
+				type(Ref.UnequipGloves)
+			))
+
+			if Ref.StrengthGlovesActive and type(Ref.UnequipGloves) == "function" then
+				warn("[KELV][OpTraining] removing boxing gloves before walk")
+				notify("OP Training", "Removing gloves")
+				pcall(function() Ref:UnequipGloves() end)
+				task.wait(0.8)
+			end
 		end
 
 		-- Find all bed prompts in workspace sorted by distance, and pick

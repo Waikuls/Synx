@@ -9,7 +9,7 @@ return function(Config)
 	local WheyFeature = Config and Config.WheyFeature
 	local OpTrainingFeature = Config and Config.OpTrainingFeature
 
-	warn("[KELV][AutoTrain] module loaded version=v13-unequip-gloves-api")
+	warn("[KELV][AutoTrain] module loaded version=v14-unequip-e-physical")
 
 	local AvailableTypes = {
 		"Attack speed",
@@ -2230,13 +2230,28 @@ return function(Config)
 
 	function AutoTrainFeature:UnequipGloves()
 		if not self.StrengthGlovesActive then
+			warn("[KELV][AutoTrain] UnequipGloves: gloves weren't active, skipping")
 			return false
 		end
+
+		warn("[KELV][AutoTrain] UnequipGloves: sending E (remote + physical)")
 
 		task.spawn(function()
 			fireInputKey("E", true)
 			task.wait(0.05)
 			fireInputKey("E", false)
+
+			local VIM = getVirtualInputManager()
+
+			if VIM then
+				pcall(function()
+					VIM:SendKeyEvent(true, Enum.KeyCode.E, false, game)
+				end)
+				task.wait(0.05)
+				pcall(function()
+					VIM:SendKeyEvent(false, Enum.KeyCode.E, false, game)
+				end)
+			end
 		end)
 
 		self.StrengthGlovesActive = false
