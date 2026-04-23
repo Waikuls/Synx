@@ -9,6 +9,8 @@ return function(Config)
 	local WheyFeature = Config and Config.WheyFeature
 	local OpTrainingFeature = Config and Config.OpTrainingFeature
 
+	warn("[KELV][AutoTrain] module loaded version=v1-walk-to-machine")
+
 	local AvailableTypes = {
 		"Attack speed",
 		"Bar",
@@ -882,12 +884,12 @@ return function(Config)
 	end
 
 	local function moveNearPrompt(Prompt)
-		local Character = getCharacter()
+		local Humanoid = getHumanoid()
 		local Position, Part = getPromptPosition(Prompt)
 		local LookVector
 		local TargetPosition
 
-		if not Character then
+		if not Humanoid then
 			return false
 		end
 
@@ -902,10 +904,9 @@ return function(Config)
 		end
 
 		TargetPosition = Position + (LookVector * -AutoTrainFeature.DesiredStandDistance)
-		TargetPosition = TargetPosition + Vector3.new(0, AutoTrainFeature.VerticalOffset, 0)
 
 		return pcall(function()
-			Character:PivotTo(CFrame.new(TargetPosition, Position))
+			Humanoid:MoveTo(TargetPosition)
 		end)
 	end
 
