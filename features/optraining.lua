@@ -7,7 +7,7 @@ return function(Config)
 	local LocalPlayer = Players.LocalPlayer
 	local Notification = Config and Config.Notification
 
-	warn("[KELV][OpTraining] module loaded version=v60-log-glove-state")
+	warn("[KELV][OpTraining] module loaded version=v61-shared-bag-waypoints")
 
 	local WaypointStorageFolder = "KELV"
 	local WaypointStoragePath = "KELV/optraining_waypoints.json"
@@ -860,6 +860,18 @@ return function(Config)
 		end)
 	end
 
+	-- Auto Train types that share a walking path. Both "Strength" and
+	-- "Attack speed" hit the same punching bag, so their routes to the
+	-- bed are identical and should share one waypoint list.
+	local WaypointTypeAliases = {
+		["Strength"] = "Bag",
+		["Attack speed"] = "Bag",
+	}
+
+	local function canonicalWaypointType(Type)
+		return WaypointTypeAliases[Type] or Type
+	end
+
 	local function getCurrentMachineType()
 		local Ref = OpTrainingFeature.AutoTrainRef
 
@@ -869,7 +881,7 @@ return function(Config)
 			end)
 
 			if Ok and type(Value) == "string" and Value ~= "" then
-				return Value
+				return canonicalWaypointType(Value)
 			end
 		end
 
@@ -966,6 +978,30 @@ return function(Config)
 
 		if Ok and type(Result) == "string" and Result ~= "" then
 			OpTrainingFeature.WaypointsByType = deserializeAllWaypoints(Result)
+
+			-- Migrate legacy per-type lists into their shared canonical key
+			-- (e.g. old Strength / Attack speed entries become a single Bag).
+			local Migrated = false
+
+			for OldType, CanonType in pairs(WaypointTypeAliases) do
+				local OldList = OpTrainingFeature.WaypointsByType[OldType]
+
+				if OldList and #OldList > 0 then
+					local CanonList = OpTrainingFeature.WaypointsByType[CanonType]
+
+					if not CanonList or #CanonList == 0 then
+						OpTrainingFeature.WaypointsByType[CanonType] = OldList
+					end
+
+					OpTrainingFeature.WaypointsByType[OldType] = nil
+					Migrated = true
+				end
+			end
+
+			if Migrated then
+				pcall(writefile, WaypointStoragePath, serializeAllWaypoints())
+				warn("[KELV][OpTraining] migrated legacy Strength/Attack speed waypoints to shared Bag key")
+			end
 
 			local Summary = {}
 
