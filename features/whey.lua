@@ -4,7 +4,7 @@ return function(Config)
 	local LocalPlayer = Players.LocalPlayer
 	local Notification = Config and Config.Notification
 
-	warn("[KELV][Whey] module loaded version=v6-pre-machine-only")
+	warn("[KELV][Whey] module loaded version=v7-unequip-after-drink")
 
 	-- Each entry is a substring pattern matched against the lowercased,
 	-- punctuation-stripped tool name. "whey" alone is intentional so
@@ -292,13 +292,19 @@ return function(Config)
 			task.wait(0.4)
 			pcall(function() Tool:Activate() end)
 
-			-- Leave the tool equipped — the game usually auto-consumes and
-			-- removes the tool itself. Forcing Unequip right away was
-			-- cancelling the drink animation before the buff applied.
+			-- Wait for the drink animation to finish before unequipping.
+			-- The game doesn't auto-remove the tool, so we put it away
+			-- ourselves — otherwise the character holds it forever and
+			-- can't use the machine afterwards.
 			task.wait(1.5)
 
+			local Humanoid = Character and Character:FindFirstChildOfClass("Humanoid")
+			if Humanoid then
+				pcall(function() Humanoid:UnequipTools() end)
+			end
+
 			WheyFeature.IsConsuming = false
-			warn("[KELV][Whey] consume sequence complete")
+			warn("[KELV][Whey] consume sequence complete, tool unequipped")
 		end)
 	end
 
