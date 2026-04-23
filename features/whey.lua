@@ -4,7 +4,7 @@ return function(Config)
 	local LocalPlayer = Players.LocalPlayer
 	local Notification = Config and Config.Notification
 
-	warn("[KELV][Whey] module loaded version=v4-split-buff-detection")
+	warn("[KELV][Whey] module loaded version=v5-sibling-only")
 
 	-- Each entry is a substring pattern matched against the lowercased,
 	-- punctuation-stripped tool name. "whey" alone is intentional so
@@ -124,12 +124,19 @@ return function(Config)
 		return Nodes
 	end
 
-	local function hasTimerUnderAncestor(Ancestor)
-		if not Ancestor then return false end
-		for _, Desc in ipairs(Ancestor:GetDescendants()) do
-			local Text = getInstanceText(Desc)
-			if Text and textHasTimer(Text) then return true end
+	local function siblingHasTimer(Instance)
+		local Parent = Instance and Instance.Parent
+		if not Parent then return false end
+
+		for _, Sibling in ipairs(Parent:GetChildren()) do
+			if Sibling ~= Instance then
+				local Text = getInstanceText(Sibling)
+				if Text and textHasTimer(Text) and isVisible(Sibling) then
+					return true
+				end
+			end
 		end
+
 		return false
 	end
 
@@ -146,25 +153,18 @@ return function(Config)
 
 		for _, Node in ipairs(Nodes) do
 			if textHasAlias(Node.Text) then
-				-- Alias + timer in same label (classic buff display)
+				-- Case 1: alias + timer in same label (classic buff display)
 				if textHasTimer(Node.Text) then
 					WheyFeature.CachedBuffActive = true
 					return true
 				end
 
-				-- Alias in title label, timer in a sibling/descendant of a
-				-- shared ancestor — walk up a few levels looking for it.
-				local Current = Node.Instance.Parent
-
-				for _ = 1, 4 do
-					if not Current or Current == game then break end
-
-					if hasTimerUnderAncestor(Current) then
-						WheyFeature.CachedBuffActive = true
-						return true
-					end
-
-					Current = Current.Parent
+				-- Case 2: alias label and timer label are direct siblings
+				-- (split buff card: title/timer). Anything looser was too
+				-- permissive and matched unrelated UI timers.
+				if siblingHasTimer(Node.Instance) then
+					WheyFeature.CachedBuffActive = true
+					return true
 				end
 			end
 		end
