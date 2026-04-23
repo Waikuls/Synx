@@ -4,7 +4,7 @@ return function(Config)
 	local LocalPlayer = Players.LocalPlayer
 	local Notification = Config and Config.Notification
 
-	warn("[KELV][Whey] module loaded version=v5-sibling-only")
+	warn("[KELV][Whey] module loaded version=v6-pre-machine-only")
 
 	-- Each entry is a substring pattern matched against the lowercased,
 	-- punctuation-stripped tool name. "whey" alone is intentional so
@@ -24,10 +24,7 @@ return function(Config)
 		BuffCheckInterval = 2,
 		CachedBuffActive = false,
 		LastConsumeAt = 0,
-		ConsumeCooldown = 20,
-		Connection = nil,
-		LoopInterval = 3,
-		LoopElapsed = 0,
+		ConsumeCooldown = 60,
 		LastDebugAt = 0,
 		DebugInterval = 10,
 	}
@@ -133,6 +130,15 @@ return function(Config)
 				local Text = getInstanceText(Sibling)
 				if Text and textHasTimer(Text) and isVisible(Sibling) then
 					return true
+				end
+
+				-- Cousins: check one level inside the sibling. Covers split
+				-- buff cards like {TitleFrame > Title, TimerFrame > Timer}.
+				for _, Child in ipairs(Sibling:GetChildren()) do
+					local CText = getInstanceText(Child)
+					if CText and textHasTimer(CText) and isVisible(Child) then
+						return true
+					end
 				end
 			end
 		end
@@ -336,21 +342,6 @@ return function(Config)
 		return true
 	end
 
-	local function standaloneTick(self)
-		if not self.Enabled then return end
-		if self.IsConsuming then return end
-
-		if (os.clock() - self.LastConsumeAt) < self.ConsumeCooldown then
-			return
-		end
-
-		if isBuffActive() then
-			return
-		end
-
-		self:TryConsume(false)
-	end
-
 	function WheyFeature:SetEnabled(Value)
 		local State = Value and true or false
 
@@ -362,28 +353,7 @@ return function(Config)
 		self.LastBuffCheckAt = 0
 		self.CachedBuffActive = false
 
-		if self.Connection then
-			self.Connection:Disconnect()
-			self.Connection = nil
-		end
-
-		if State then
-			self.LoopElapsed = 0
-			self.Connection = RunService.Heartbeat:Connect(function(DeltaTime)
-				self.LoopElapsed = self.LoopElapsed + DeltaTime
-
-				if self.LoopElapsed < self.LoopInterval then
-					return
-				end
-
-				self.LoopElapsed = 0
-				standaloneTick(self)
-			end)
-
-			warn("[KELV][Whey] enabled — standalone loop every " .. tostring(self.LoopInterval) .. "s")
-		else
-			warn("[KELV][Whey] disabled")
-		end
+		warn("[KELV][Whey] " .. (State and "enabled — consumes only before machine use" or "disabled"))
 
 		return State
 	end
@@ -391,11 +361,6 @@ return function(Config)
 	function WheyFeature:Destroy()
 		self.Enabled = false
 		self.IsConsuming = false
-
-		if self.Connection then
-			self.Connection:Disconnect()
-			self.Connection = nil
-		end
 	end
 
 	return WheyFeature

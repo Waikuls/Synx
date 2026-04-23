@@ -9,7 +9,7 @@ return function(Config)
 	local WheyFeature = Config and Config.WheyFeature
 	local OpTrainingFeature = Config and Config.OpTrainingFeature
 
-	warn("[KELV][AutoTrain] module loaded version=v14-unequip-e-physical")
+	warn("[KELV][AutoTrain] module loaded version=v15-whey-pre-equip")
 
 	local AvailableTypes = {
 		"Attack speed",
@@ -1797,6 +1797,19 @@ return function(Config)
 
 			if getStaminaPercent() < self.StartStaminaPercent then return end
 
+			-- Drink whey before gloves go on, only if the buff isn't
+			-- already active. Skip the whole equip step this tick if we
+			-- ended up consuming so the drink animation completes first.
+			if WheyFeature and WheyFeature.Enabled and not WheyFeature.IsConsuming then
+				if WheyFeature:ShouldConsume() then
+					local FoodBusy = FoodFeature and FoodFeature.IsEating
+					WheyFeature:TryConsume(FoodBusy)
+					return
+				end
+			elseif WheyFeature and WheyFeature.IsConsuming then
+				return
+			end
+
 			if (Now - self.LastStrengthEquipAt) < self.StrengthEquipCooldown then return end
 			self.LastStrengthEquipAt = Now
 
@@ -1843,11 +1856,6 @@ return function(Config)
 
 		fireBagRemote(PunchingBagRemoteArgs[self.SelectedType] or "str")
 		self.LastStrengthHitAt = Now
-
-		if WheyFeature and WheyFeature.Enabled and WheyFeature:ShouldConsume() then
-			local FoodBusy = FoodFeature and FoodFeature.IsEating
-			WheyFeature:TryConsume(FoodBusy)
-		end
 	end
 
 	function AutoTrainFeature:StepStrength(Now)
