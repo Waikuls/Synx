@@ -7,7 +7,7 @@ return function(Config)
 	local LocalPlayer = Players.LocalPlayer
 	local Notification = Config and Config.Notification
 
-	warn("[KELV][OpTraining] module loaded version=v61-shared-bag-waypoints")
+	warn("[KELV][OpTraining] module loaded version=v62-shared-weights-waypoints")
 
 	local WaypointStorageFolder = "KELV"
 	local WaypointStoragePath = "KELV/optraining_waypoints.json"
@@ -860,12 +860,15 @@ return function(Config)
 		end)
 	end
 
-	-- Auto Train types that share a walking path. Both "Strength" and
-	-- "Attack speed" hit the same punching bag, so their routes to the
-	-- bed are identical and should share one waypoint list.
+	-- Auto Train types that share a walking path. Machines that sit near
+	-- each other (e.g. Bench and Squat in the same weights room, both
+	-- punching bag modes hitting the same bag) get one canonical waypoint
+	-- key so the user only has to mark the route once.
 	local WaypointTypeAliases = {
 		["Strength"] = "Bag",
 		["Attack speed"] = "Bag",
+		["Bench"] = "Weights",
+		["Squat machine"] = "Weights",
 	}
 
 	local function canonicalWaypointType(Type)
