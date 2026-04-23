@@ -9,7 +9,7 @@ return function(Config)
 	local WheyFeature = Config and Config.WheyFeature
 	local OpTrainingFeature = Config and Config.OpTrainingFeature
 
-	warn("[KELV][AutoTrain] module loaded version=v10-bag-cache-60s")
+	warn("[KELV][AutoTrain] module loaded version=v11-bag-list-cache")
 
 	local AvailableTypes = {
 		"Attack speed",
@@ -1582,7 +1582,11 @@ return function(Config)
 		end)
 	end
 
-	local StrengthBagRemoteCache = {Remote = nil, Position = nil, At = 0, Type = nil}
+	-- Caches the whole bag list so we only walk workspace:GetDescendants
+	-- once per TTL. Per-call we pick the currently-nearest entry from the
+	-- list, which lets the character move between bags without waiting
+	-- for a cache expiry.
+	local StrengthBagListCache = {Bags = {}, At = 0, Type = nil}
 	local BagDiagnosticPrinted = false
 
 	local function dumpBagDiagnostic(SelectedType)
@@ -1629,91 +1633,89 @@ return function(Config)
 		warn(string.format("[KELV][AutoTrain] Bag diagnostic done (%d nearby RemoteEvents printed)", Dumped))
 	end
 
-	local function findNearestStrengthBagRemote()
+	local function refreshBagList(SelectedType)
+		local Aliases = getAliases(SelectedType)
+		local Bags = {}
+
+		for _, Desc in ipairs(workspace:GetDescendants()) do
+			if Desc:IsA("RemoteEvent") and Desc.Name == "RemoteEvent" then
+				local Current = Desc.Parent
+				local IsBag = false
+				local Pos = nil
+
+				for _ = 1, 8 do
+					if not Current or Current == workspace then break end
+					if containsAlias(Current.Name, Aliases) then IsBag = true end
+
+					if not Pos then
+						if Current:IsA("BasePart") then
+							Pos = Current.Position
+						elseif Current:IsA("Model") then
+							local Part = Current.PrimaryPart or Current:FindFirstChildWhichIsA("BasePart")
+							if Part then Pos = Part.Position end
+						end
+					end
+
+					Current = Current.Parent
+				end
+
+				if IsBag and Pos then
+					table.insert(Bags, {Remote = Desc, Position = Pos})
+				end
+			end
+		end
+
+		StrengthBagListCache.Bags = Bags
+		StrengthBagListCache.At = os.clock()
+		StrengthBagListCache.Type = SelectedType
+		return Bags
+	end
+
+	local function getBagList(SelectedType)
 		local Now = os.clock()
+
+		if StrengthBagListCache.Type == SelectedType
+			and (Now - StrengthBagListCache.At) < 60 then
+			-- Trust the cached list until one of its remotes disappears.
+			for _, Entry in ipairs(StrengthBagListCache.Bags) do
+				if not Entry.Remote or not Entry.Remote.Parent then
+					return refreshBagList(SelectedType)
+				end
+			end
+			return StrengthBagListCache.Bags
+		end
+
+		return refreshBagList(SelectedType)
+	end
+
+	local function findNearestStrengthBagRemote()
 		local SelectedType = AutoTrainFeature.SelectedType
+		local Bags = getBagList(SelectedType)
 
-		-- Long TTL: bags don't move or respawn, and the fallback path does
-		-- a full workspace:GetDescendants scan which is expensive. Invalidate
-		-- only when the cached Remote has actually been removed.
-		if StrengthBagRemoteCache.Remote
-			and StrengthBagRemoteCache.Remote.Parent
-			and StrengthBagRemoteCache.Type == SelectedType
-			and (Now - StrengthBagRemoteCache.At) < 60 then
-			return StrengthBagRemoteCache.Remote, StrengthBagRemoteCache.Position
-		end
-
-		-- Find root model of nearest bag via its proximity prompt
-		local Prompt = AutoTrainFeature:GetTargetPrompt()
-		local BagRoot = Prompt and Prompt.Parent
-		while BagRoot and BagRoot ~= workspace do
-			if BagRoot:IsA("Model") then break end
-			BagRoot = BagRoot.Parent
-		end
-
-		local Remote = nil
-		local Position = nil
-
-		if BagRoot and BagRoot ~= workspace then
-			for _, Desc in ipairs(BagRoot:GetDescendants()) do
-				if Desc:IsA("RemoteEvent") and Desc.Name == "RemoteEvent" then
-					Remote = Desc
-					break
-				end
-			end
-
-			local Part = BagRoot:IsA("Model") and (BagRoot.PrimaryPart or BagRoot:FindFirstChildWhichIsA("BasePart"))
-			if Part then Position = Part.Position end
-		end
-
-		-- Fallback: scan all workspace for the nearest bag matching the
-		-- currently selected type (Strength or Attack speed).
-		if not Remote then
-			local RootPart = getRootPart()
-			local Aliases = getAliases(SelectedType)
-			local BestDist = math.huge
-
-			for _, Desc in ipairs(workspace:GetDescendants()) do
-				if Desc:IsA("RemoteEvent") and Desc.Name == "RemoteEvent" then
-					local Current = Desc.Parent
-					local IsBag = false
-					local Pos = nil
-
-					for _ = 1, 8 do
-						if not Current or Current == workspace then break end
-						if containsAlias(Current.Name, Aliases) then IsBag = true end
-						if not Pos then
-							if Current:IsA("BasePart") then
-								Pos = Current.Position
-							elseif Current:IsA("Model") then
-								local Part = Current.PrimaryPart or Current:FindFirstChildWhichIsA("BasePart")
-								if Part then Pos = Part.Position end
-							end
-						end
-						Current = Current.Parent
-					end
-
-					if IsBag then
-						local Dist = (RootPart and Pos) and (RootPart.Position - Pos).Magnitude or 999
-						if Dist < BestDist then
-							BestDist = Dist
-							Remote = Desc
-							Position = Pos
-						end
-					end
-				end
-			end
-		end
-
-		if not Remote then
+		if #Bags == 0 then
 			dumpBagDiagnostic(SelectedType)
+			return nil, nil
 		end
 
-		StrengthBagRemoteCache.Remote = Remote
-		StrengthBagRemoteCache.Position = Position
-		StrengthBagRemoteCache.At = Now
-		StrengthBagRemoteCache.Type = SelectedType
-		return Remote, Position
+		local RootPart = getRootPart()
+
+		if not RootPart then
+			return Bags[1].Remote, Bags[1].Position
+		end
+
+		local BestRemote, BestPosition, BestDist = nil, nil, math.huge
+
+		for _, Entry in ipairs(Bags) do
+			local Dist = (RootPart.Position - Entry.Position).Magnitude
+
+			if Dist < BestDist then
+				BestDist = Dist
+				BestRemote = Entry.Remote
+				BestPosition = Entry.Position
+			end
+		end
+
+		return BestRemote, BestPosition
 	end
 
 	local function fireBagRemote(Arg)
@@ -1807,7 +1809,7 @@ return function(Config)
 			self.StrengthGlovesActive = true
 			self.StrengthPunchIndex = 0
 			self.LastStrengthHitAt = Now
-			StrengthBagRemoteCache.At = 0
+			StrengthBagListCache.At = 0
 			MachineRemoteCache.At = 0
 			return
 		end
@@ -2008,7 +2010,7 @@ return function(Config)
 				if not IsHungry and not FoodFeature.IsEating then
 					self.EatingBreak = false
 					self.LastRideEndAt = Now
-					StrengthBagRemoteCache.At = 0
+					StrengthBagListCache.At = 0
 
 					if Notification then
 						Notification:Notify({
