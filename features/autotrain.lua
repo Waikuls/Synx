@@ -9,7 +9,7 @@ return function(Config)
 	local WheyFeature = Config and Config.WheyFeature
 	local OpTrainingFeature = Config and Config.OpTrainingFeature
 
-	warn("[KELV][AutoTrain] module loaded version=v2-skip-occupied-machines")
+	warn("[KELV][AutoTrain] module loaded version=v3-pause-for-optraining")
 
 	local AvailableTypes = {
 		"Attack speed",
