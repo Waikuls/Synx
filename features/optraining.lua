@@ -23,7 +23,6 @@ return function(Config)
 	OpTrainingFeature.FatigueTriggerPercent = 100
 	OpTrainingFeature.FatigueExitPercent = 0
 	OpTrainingFeature.MountWaitSeconds = 3
-	OpTrainingFeature.SleepTimeoutSeconds = 180
 	OpTrainingFeature.RetryCooldownSeconds = 5
 	OpTrainingFeature.WalkTimeoutSeconds = 20
 	OpTrainingFeature.WaypointArriveDistance = 4
@@ -1571,16 +1570,10 @@ return function(Config)
 		unlockCamera()
 		notify("OP Training", "Sleeping — fatigue recovering")
 
-		local SleepStart = os.clock()
-
 		while self.Enabled do
 			local Fatigue = getBodyFatigue()
 
 			if Fatigue <= self.FatigueExitPercent then
-				break
-			end
-
-			if os.clock() - SleepStart > self.SleepTimeoutSeconds then
 				break
 			end
 
