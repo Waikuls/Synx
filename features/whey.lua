@@ -4,10 +4,17 @@ return function(Config)
 	local LocalPlayer = Players.LocalPlayer
 	local Notification = Config and Config.Notification
 
+	warn("[KELV][Whey] module loaded version=v2-standalone-loop")
+
+	-- Each entry is a substring pattern matched against the lowercased,
+	-- punctuation-stripped tool name. "whey" alone is intentional so
+	-- CamelCase names like "WheyProtein" still match.
 	local WheyAliases = {
-		"whey protein",
+		"whey",
 		"fat burner",
-		"muscle burner"
+		"fatburner",
+		"muscle burner",
+		"muscleburner",
 	}
 
 	local WheyFeature = {
@@ -18,7 +25,18 @@ return function(Config)
 		CachedBuffActive = false,
 		LastConsumeAt = 0,
 		ConsumeCooldown = 20,
+		Connection = nil,
+		LoopInterval = 3,
+		LoopElapsed = 0,
+		LastDebugAt = 0,
+		DebugInterval = 10,
 	}
+
+	local function squashToolName(Name)
+		if type(Name) ~= "string" then return "" end
+		local Lower = string.lower(Name)
+		return (string.gsub(Lower, "[^%w]", ""))
+	end
 
 	local function findWheyTool()
 		local Character = LocalPlayer.Character
@@ -29,8 +47,16 @@ return function(Config)
 			for _, Item in ipairs(Container:GetChildren()) do
 				if Item:IsA("Tool") then
 					local NameLower = string.lower(Item.Name)
+					local Squashed = squashToolName(Item.Name)
+
 					for _, Alias in ipairs(WheyAliases) do
 						if string.find(NameLower, Alias, 1, true) then
+							return Item
+						end
+
+						local AliasSquashed = squashToolName(Alias)
+
+						if AliasSquashed ~= "" and string.find(Squashed, AliasSquashed, 1, true) then
 							return Item
 						end
 					end
@@ -169,21 +195,83 @@ return function(Config)
 		if (os.clock() - self.LastConsumeAt) < self.ConsumeCooldown then return true end
 
 		local Tool = findWheyTool()
-		if not Tool then return false end
 
+		if not Tool then
+			local Now = os.clock()
+
+			if (Now - self.LastDebugAt) >= self.DebugInterval then
+				self.LastDebugAt = Now
+				warn("[KELV][Whey] no whey/burner tool found in Character or Backpack")
+			end
+
+			return false
+		end
+
+		warn(string.format("[KELV][Whey] consuming %s", Tool.Name))
 		consumeWhey(Tool)
 		return true
 	end
 
+	local function standaloneTick(self)
+		if not self.Enabled then return end
+		if self.IsConsuming then return end
+
+		if (os.clock() - self.LastConsumeAt) < self.ConsumeCooldown then
+			return
+		end
+
+		if isBuffActive() then
+			return
+		end
+
+		self:TryConsume(false)
+	end
+
 	function WheyFeature:SetEnabled(Value)
-		self.Enabled = Value and true or false
+		local State = Value and true or false
+
+		if self.Enabled == State then
+			return State
+		end
+
+		self.Enabled = State
 		self.LastBuffCheckAt = 0
 		self.CachedBuffActive = false
+
+		if self.Connection then
+			self.Connection:Disconnect()
+			self.Connection = nil
+		end
+
+		if State then
+			self.LoopElapsed = 0
+			self.Connection = RunService.Heartbeat:Connect(function(DeltaTime)
+				self.LoopElapsed = self.LoopElapsed + DeltaTime
+
+				if self.LoopElapsed < self.LoopInterval then
+					return
+				end
+
+				self.LoopElapsed = 0
+				standaloneTick(self)
+			end)
+
+			warn("[KELV][Whey] enabled — standalone loop every " .. tostring(self.LoopInterval) .. "s")
+		else
+			warn("[KELV][Whey] disabled")
+		end
+
+		return State
 	end
 
 	function WheyFeature:Destroy()
 		self.Enabled = false
 		self.IsConsuming = false
+
+		if self.Connection then
+			self.Connection:Disconnect()
+			self.Connection = nil
+		end
 	end
 
 	return WheyFeature
