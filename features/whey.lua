@@ -4,7 +4,7 @@ return function(Config)
 	local LocalPlayer = Players.LocalPlayer
 	local Notification = Config and Config.Notification
 
-	warn("[KELV][Whey] module loaded version=v2-standalone-loop")
+	warn("[KELV][Whey] module loaded version=v3-robust-consume")
 
 	-- Each entry is a substring pattern matched against the lowercased,
 	-- punctuation-stripped tool name. "whey" alone is intentional so
@@ -138,42 +138,62 @@ return function(Config)
 		WheyFeature.LastConsumeAt = os.clock()
 
 		task.spawn(function()
-			local HotbarRemote = getCustomHotbarRemote()
-
-			if HotbarRemote then
-				pcall(function() HotbarRemote:FireServer(Tool.Name) end)
-
-				local Character = LocalPlayer.Character
-				if Character then
-					local Deadline = os.clock() + 1.5
-					repeat task.wait(0.05) until Tool.Parent == Character or os.clock() > Deadline
-				end
-
-				task.wait(0.1)
-				fireInputKey("LMB", true)
-				task.wait(0.1)
-				fireInputKey("LMB", false)
-			else
-				local Character = LocalPlayer.Character
-				local Humanoid = Character and Character:FindFirstChildOfClass("Humanoid")
-				if Character and Humanoid then
-					pcall(function() Humanoid:EquipTool(Tool) end)
-					local Deadline = os.clock() + 1.5
-					repeat task.wait(0.05) until Tool.Parent == Character or os.clock() > Deadline
-					task.wait(0.1)
-					pcall(function() Tool:Activate() end)
-				end
-			end
-
-			task.wait(0.3)
-
 			local Character = LocalPlayer.Character
 			local Humanoid = Character and Character:FindFirstChildOfClass("Humanoid")
-			if Humanoid then
-				pcall(function() Humanoid:UnequipTools() end)
+			local HotbarRemote = getCustomHotbarRemote()
+
+			-- Equip via CustomHotbar first (client-authoritative path).
+			if HotbarRemote then
+				warn("[KELV][Whey] equip via CustomHotbar remote")
+				pcall(function() HotbarRemote:FireServer(Tool.Name) end)
 			end
 
+			-- Fallback: Humanoid:EquipTool directly so something moves if the
+			-- hotbar remote didn't land.
+			if Character and Humanoid and Tool.Parent ~= Character then
+				warn("[KELV][Whey] equip via Humanoid:EquipTool fallback")
+				pcall(function() Humanoid:EquipTool(Tool) end)
+			end
+
+			-- Wait up to 2s for the tool to actually appear on the character
+			-- before trying to activate it.
+			local Deadline = os.clock() + 2
+
+			while os.clock() < Deadline do
+				if Tool.Parent == Character then break end
+				task.wait(0.05)
+			end
+
+			if Tool.Parent ~= Character then
+				warn("[KELV][Whey] tool never equipped — aborting")
+				WheyFeature.IsConsuming = false
+				return
+			end
+
+			warn("[KELV][Whey] tool equipped, activating")
+			task.wait(0.25)
+
+			-- Fire every activation path we have: Tool:Activate is the
+			-- canonical Roblox hook, the Input remote matches the game's
+			-- own LMB handler, and firing both covers whichever the item
+			-- actually listens to.
+			pcall(function() Tool:Activate() end)
+
+			fireInputKey("LMB", true)
+			task.wait(0.1)
+			fireInputKey("LMB", false)
+
+			-- Some consumables require a second tap (e.g. confirm drink).
+			task.wait(0.4)
+			pcall(function() Tool:Activate() end)
+
+			-- Leave the tool equipped — the game usually auto-consumes and
+			-- removes the tool itself. Forcing Unequip right away was
+			-- cancelling the drink animation before the buff applied.
+			task.wait(1.5)
+
 			WheyFeature.IsConsuming = false
+			warn("[KELV][Whey] consume sequence complete")
 		end)
 	end
 
