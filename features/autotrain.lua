@@ -9,7 +9,7 @@ return function(Config)
 	local WheyFeature = Config and Config.WheyFeature
 	local OpTrainingFeature = Config and Config.OpTrainingFeature
 
-	warn("[KELV][AutoTrain] module loaded version=v6-bag-alias-squash")
+	warn("[KELV][AutoTrain] module loaded version=v8-bag-remote-fallback")
 
 	local AvailableTypes = {
 		"Attack speed",
@@ -1582,14 +1582,17 @@ return function(Config)
 		end)
 	end
 
-	local StrengthBagRemoteCache = {Remote = nil, At = 0}
+	local StrengthBagRemoteCache = {Remote = nil, Position = nil, At = 0, Type = nil}
 
 	local function findNearestStrengthBagRemote()
 		local Now = os.clock()
+		local SelectedType = AutoTrainFeature.SelectedType
+
 		if StrengthBagRemoteCache.Remote
 			and StrengthBagRemoteCache.Remote.Parent
+			and StrengthBagRemoteCache.Type == SelectedType
 			and (Now - StrengthBagRemoteCache.At) < 3 then
-			return StrengthBagRemoteCache.Remote
+			return StrengthBagRemoteCache.Remote, StrengthBagRemoteCache.Position
 		end
 
 		-- Find root model of nearest bag via its proximity prompt
@@ -1601,6 +1604,7 @@ return function(Config)
 		end
 
 		local Remote = nil
+		local Position = nil
 
 		if BagRoot and BagRoot ~= workspace then
 			for _, Desc in ipairs(BagRoot:GetDescendants()) do
@@ -1609,12 +1613,16 @@ return function(Config)
 					break
 				end
 			end
+
+			local Part = BagRoot:IsA("Model") and (BagRoot.PrimaryPart or BagRoot:FindFirstChildWhichIsA("BasePart"))
+			if Part then Position = Part.Position end
 		end
 
-		-- Fallback: scan all workspace for the nearest bag remote by distance
+		-- Fallback: scan all workspace for the nearest bag matching the
+		-- currently selected type (Strength or Attack speed).
 		if not Remote then
 			local RootPart = getRootPart()
-			local Aliases = MachineAliases["Strength"] or {}
+			local Aliases = getAliases(SelectedType)
 			local BestDist = math.huge
 
 			for _, Desc in ipairs(workspace:GetDescendants()) do
@@ -1642,6 +1650,7 @@ return function(Config)
 						if Dist < BestDist then
 							BestDist = Dist
 							Remote = Desc
+							Position = Pos
 						end
 					end
 				end
@@ -1649,8 +1658,10 @@ return function(Config)
 		end
 
 		StrengthBagRemoteCache.Remote = Remote
+		StrengthBagRemoteCache.Position = Position
 		StrengthBagRemoteCache.At = Now
-		return Remote
+		StrengthBagRemoteCache.Type = SelectedType
+		return Remote, Position
 	end
 
 	local function fireBagRemote(Arg)
@@ -1682,19 +1693,50 @@ return function(Config)
 		end
 
 		if not self.StrengthGlovesActive then
-			local Prompt = self:GetTargetPrompt()
-			if not Prompt then return end
-
 			local RootPart = getRootPart()
-			local PromptPos = getPromptPosition(Prompt)
-			if not RootPart or not PromptPos then return end
+			if not RootPart then return end
 
-			local Dist = (RootPart.Position - PromptPos).Magnitude
-			local MaxDist = math.max((Prompt.MaxActivationDistance or 10) - 1, 3)
+			-- Bags usually have no ProximityPrompt, so GetTargetPrompt returns
+			-- nil. Locate the bag via its RemoteEvent instead.
+			local Prompt = self:GetTargetPrompt()
+			local BagPos = Prompt and getPromptPosition(Prompt) or nil
+
+			if not BagPos then
+				local _, RemotePos = findNearestStrengthBagRemote()
+				BagPos = RemotePos
+			end
+
+			if not BagPos then
+				if (Now - self.LastDebugNotifyAt) > self.DebugNotifyCooldown then
+					debugBike("Bag not found for " .. tostring(self.SelectedType), false)
+				end
+				return
+			end
+
+			local Dist = (RootPart.Position - BagPos).Magnitude
+			local MaxDist = Prompt and math.max((Prompt.MaxActivationDistance or 10) - 1, 3) or 6
 
 			if Dist > MaxDist then
 				if (Now - self.LastPromptAt) >= self.PromptCooldown then
-					if moveNearPrompt(Prompt) then self.LastPromptAt = Now end
+					local Humanoid = getHumanoid()
+
+					if Humanoid then
+						-- Approach along the horizontal line between character
+						-- and bag. LookVector-based targeting sends the
+						-- character under/over the bag when it hangs vertically.
+						local Diff = RootPart.Position - BagPos
+						local Flat = Vector3.new(Diff.X, 0, Diff.Z)
+						local Dir = Flat.Magnitude > 0.1 and Flat.Unit or Vector3.new(0, 0, 1)
+						local Target = BagPos + Dir * self.DesiredStandDistance
+
+						local Ok = pcall(function()
+							Humanoid:MoveTo(Vector3.new(Target.X, RootPart.Position.Y, Target.Z))
+						end)
+
+						if Ok then
+							self.LastPromptAt = Now
+						end
+					end
 				end
 				return
 			end
