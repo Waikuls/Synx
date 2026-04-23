@@ -9,7 +9,7 @@ return function(Config)
 	local WheyFeature = Config and Config.WheyFeature
 	local OpTrainingFeature = Config and Config.OpTrainingFeature
 
-	warn("[KELV][AutoTrain] module loaded version=v8-bag-remote-fallback")
+	warn("[KELV][AutoTrain] module loaded version=v9-bag-diagnostic")
 
 	local AvailableTypes = {
 		"Attack speed",
@@ -1583,6 +1583,51 @@ return function(Config)
 	end
 
 	local StrengthBagRemoteCache = {Remote = nil, Position = nil, At = 0, Type = nil}
+	local BagDiagnosticPrinted = false
+
+	local function dumpBagDiagnostic(SelectedType)
+		if BagDiagnosticPrinted then return end
+		BagDiagnosticPrinted = true
+
+		local RootPart = getRootPart()
+
+		warn(string.format("[KELV][AutoTrain] Bag diagnostic for %s — workspace RemoteEvents within 60 studs:", tostring(SelectedType)))
+
+		local Dumped = 0
+
+		for _, Desc in ipairs(workspace:GetDescendants()) do
+			if Desc:IsA("RemoteEvent") and Desc.Name == "RemoteEvent" then
+				local Current = Desc.Parent
+				local Chain = {}
+				local ModelPos = nil
+
+				for _ = 1, 6 do
+					if not Current or Current == workspace then break end
+					table.insert(Chain, Current.Name)
+
+					if not ModelPos then
+						if Current:IsA("BasePart") then
+							ModelPos = Current.Position
+						elseif Current:IsA("Model") then
+							local Part = Current.PrimaryPart or Current:FindFirstChildWhichIsA("BasePart")
+							if Part then ModelPos = Part.Position end
+						end
+					end
+
+					Current = Current.Parent
+				end
+
+				local Dist = (RootPart and ModelPos) and (RootPart.Position - ModelPos).Magnitude or -1
+
+				if Dist >= 0 and Dist < 60 then
+					warn(string.format("  dist=%.0f  %s", Dist, table.concat(Chain, " > ")))
+					Dumped = Dumped + 1
+				end
+			end
+		end
+
+		warn(string.format("[KELV][AutoTrain] Bag diagnostic done (%d nearby RemoteEvents printed)", Dumped))
+	end
 
 	local function findNearestStrengthBagRemote()
 		local Now = os.clock()
@@ -1655,6 +1700,10 @@ return function(Config)
 					end
 				end
 			end
+		end
+
+		if not Remote then
+			dumpBagDiagnostic(SelectedType)
 		end
 
 		StrengthBagRemoteCache.Remote = Remote
