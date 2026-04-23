@@ -9,7 +9,7 @@ return function(Config)
 	local WheyFeature = Config and Config.WheyFeature
 	local OpTrainingFeature = Config and Config.OpTrainingFeature
 
-	warn("[KELV][AutoTrain] module loaded version=v11-bag-list-cache")
+	warn("[KELV][AutoTrain] module loaded version=v12-attack-speed-uses-punching-bag")
 
 	local AvailableTypes = {
 		"Attack speed",
@@ -24,7 +24,7 @@ return function(Config)
 	local MachineAliases = {}
 	MachineAliases["Bag"] = {"bag", "punching bag"}
 	MachineAliases["Strength"] = {"strength", "punching bag", "boxing bag"}
-	MachineAliases["Attack speed"] = {"attack speed", "speed bag", "speed ball"}
+	MachineAliases["Attack speed"] = {"attack speed", "speed bag", "speed ball", "punching bag", "boxing bag"}
 	MachineAliases["Bar"] = {"bar", "barbell", "pullup", "pull up", "pull-up"}
 	MachineAliases["Bench"] = {"bench", "bench press"}
 	MachineAliases["Bike"] = {"bike", "cycling", "cycle"}
