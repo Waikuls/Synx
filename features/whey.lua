@@ -171,6 +171,37 @@ return function(Config)
 		return false
 	end
 
+	-- Authoritative server-side buff check.
+	-- The game places an instance like "Whey Boost" / "Fat Burner Boost" /
+	-- "Muscle Burner Boost" under workspace.Entities[name].MainScript.Status
+	-- whenever the corresponding supplement buff is active. Match by alias
+	-- substring so the same logic covers every supplement variant.
+	local function readBuffFromStatus()
+		local Entities = workspace:FindFirstChild("Entities")
+		if not Entities then return false end
+
+		local Entity = Entities:FindFirstChild(LocalPlayer.Name)
+		if not Entity then return false end
+
+		local MainScript = Entity:FindFirstChild("MainScript")
+		if not MainScript then return false end
+
+		local Status = MainScript:FindFirstChild("Status")
+		if not Status then return false end
+
+		for _, Child in ipairs(Status:GetChildren()) do
+			local NameLower = string.lower(Child.Name)
+
+			for _, Alias in ipairs(WheyAliases) do
+				if string.find(NameLower, Alias, 1, true) then
+					return true
+				end
+			end
+		end
+
+		return false
+	end
+
 	local function isBuffActive()
 		local Now = os.clock()
 
@@ -180,6 +211,14 @@ return function(Config)
 
 		WheyFeature.LastBuffCheckAt = Now
 
+		-- Authoritative server-side check: presence of "<Alias> Boost"
+		-- under MainScript.Status means the buff is currently active.
+		if readBuffFromStatus() then
+			WheyFeature.CachedBuffActive = true
+			return true
+		end
+
+		-- UI fallback for games where the Status folder layout differs.
 		local Nodes = collectTextNodes()
 
 		for _, Node in ipairs(Nodes) do
