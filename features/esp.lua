@@ -10,7 +10,10 @@ return function(Config)
 		Black = Color3.fromRGB(16, 16, 16),
 		Border = Color3.fromRGB(29, 29, 29),
 		Text = Color3.fromRGB(255, 255, 255),
-		Muted = Color3.fromRGB(170, 170, 170)
+		Muted = Color3.fromRGB(170, 170, 170),
+		PvpOn = Color3.fromRGB(76, 217, 100),
+		PvpOff = Color3.fromRGB(255, 90, 90),
+		Money = Color3.fromRGB(247, 207, 71)
 	}
 
 	local ESP = {
@@ -18,12 +21,52 @@ return function(Config)
 		Entries = {},
 		Connection = nil,
 		GuiRoot = nil,
+		PvpCache = {},
+		MoneyCache = {},
+		ExtrasCacheTTL = 1.0,
 		Settings = {
 			DistanceLimit = 1500,
 			ShowName = true,
 			ShowHealth = true,
-			ShowDistance = true
+			ShowDistance = true,
+			ShowPvpProtection = false,
+			ShowMoney = false
 		}
+	}
+
+	local PvpProtectionAliases = {
+		"PvpProtection",
+		"PVPProtection",
+		"PvPProtection",
+		"PvpProtected",
+		"PVPProtected",
+		"IsProtected",
+		"Protected",
+		"InProtection",
+		"Protection",
+		"PvpEnabled",
+		"PvPEnabled",
+		"PvpOn",
+		"Pvp",
+		"PVP",
+		"PvpTime",
+		"ProtectionTime",
+		"NoPvp",
+		"PvpDisabled",
+		"SafeZone",
+		"InSafeZone"
+	}
+
+	local MoneyAliases = {
+		"Money",
+		"Cash",
+		"Coins",
+		"Currency",
+		"Balance",
+		"Gold",
+		"Credits",
+		"Bucks",
+		"Dollars"
 	}
 
 	local function colorToHex(Color)
@@ -38,6 +81,165 @@ return function(Config)
 	local MainHex = colorToHex(Theme.Main)
 	local TextHex = colorToHex(Theme.Text)
 	local MutedHex = colorToHex(Theme.Muted)
+	local PvpOnHex = colorToHex(Theme.PvpOn)
+	local PvpOffHex = colorToHex(Theme.PvpOff)
+	local MoneyHex = colorToHex(Theme.Money)
+
+	local function formatWithCommas(IntegerValue)
+		local Sign = ""
+		local Str = tostring(IntegerValue)
+
+		if string.sub(Str, 1, 1) == "-" then
+			Sign = "-"
+			Str = string.sub(Str, 2)
+		end
+
+		local WithCommas = string.reverse(Str):gsub("(%d%d%d)", "%1,")
+		WithCommas = string.reverse(WithCommas)
+
+		if string.sub(WithCommas, 1, 1) == "," then
+			WithCommas = string.sub(WithCommas, 2)
+		end
+
+		return Sign .. WithCommas
+	end
+
+	local function findValueInRoot(Root, Aliases)
+		if not Root then
+			return nil
+		end
+
+		for _, Alias in ipairs(Aliases) do
+			local Child = Root:FindFirstChild(Alias)
+
+			if Child and Child:IsA("ValueBase") then
+				return Child.Value
+			end
+		end
+
+		for _, Alias in ipairs(Aliases) do
+			local Ok, Attribute = pcall(Root.GetAttribute, Root, Alias)
+
+			if Ok and Attribute ~= nil then
+				return Attribute
+			end
+		end
+
+		return nil
+	end
+
+	local function findPlayerValue(Player, Aliases)
+		if not Player then
+			return nil
+		end
+
+		local Roots = {
+			Player,
+			Player:FindFirstChild("leaderstats"),
+			Player:FindFirstChild("Stats"),
+			Player:FindFirstChild("Data"),
+			Player:FindFirstChild("PlayerData"),
+			Player:FindFirstChild("Profile"),
+			Player.Character
+		}
+
+		local Entities = workspace:FindFirstChild("Entities")
+
+		if Entities then
+			local Entity = Entities:FindFirstChild(Player.Name)
+
+			if Entity then
+				table.insert(Roots, Entity)
+
+				local MainScript = Entity:FindFirstChild("MainScript")
+
+				if MainScript then
+					table.insert(Roots, MainScript)
+					table.insert(Roots, MainScript:FindFirstChild("Stats"))
+					table.insert(Roots, MainScript:FindFirstChild("Data"))
+				end
+			end
+		end
+
+		for _, Root in ipairs(Roots) do
+			local Value = findValueInRoot(Root, Aliases)
+
+			if Value ~= nil then
+				return Value
+			end
+		end
+
+		return nil
+	end
+
+	local function readCachedExtra(Cache, Player, Aliases, Now, TTL)
+		local Cached = Cache[Player]
+
+		if Cached and (Now - Cached.At) < TTL then
+			return Cached.Value
+		end
+
+		local Value = findPlayerValue(Player, Aliases)
+
+		Cache[Player] = {
+			Value = Value,
+			At = Now
+		}
+
+		return Value
+	end
+
+	local function classifyPvpProtection(Value)
+		if Value == nil then
+			return nil
+		end
+
+		if type(Value) == "boolean" then
+			return Value
+		end
+
+		if type(Value) == "number" then
+			return Value > 0
+		end
+
+		if type(Value) == "string" then
+			local Lower = string.lower(Value)
+
+			if Lower == "true" or Lower == "on" or Lower == "yes" or Lower == "protected" then
+				return true
+			end
+
+			if Lower == "false" or Lower == "off" or Lower == "no" or Lower == "open" then
+				return false
+			end
+
+			local AsNumber = tonumber(Value)
+
+			if AsNumber ~= nil then
+				return AsNumber > 0
+			end
+		end
+
+		return nil
+	end
+
+	local function formatMoneyValue(Value)
+		if Value == nil then
+			return nil
+		end
+
+		if type(Value) == "number" then
+			return "$" .. formatWithCommas(math.floor(Value + 0.5))
+		end
+
+		local AsNumber = tonumber(Value)
+
+		if AsNumber ~= nil then
+			return "$" .. formatWithCommas(math.floor(AsNumber + 0.5))
+		end
+
+		return "$" .. tostring(Value)
+	end
 
 	local function getGuiParent()
 		if LocalPlayer then
@@ -178,7 +380,25 @@ return function(Config)
 		return MinX, MinY, MaxX, MaxY
 	end
 
-	local function buildInfoText(NameText, HealthText, DistanceText)
+	local function appendBracketedPart(PlainParts, RichParts, Text, ValueColorHex)
+		if not Text or Text == "" then
+			return
+		end
+
+		table.insert(PlainParts, "[" .. Text .. "]")
+		table.insert(
+			RichParts,
+			string.format(
+				'<font color="#%s">[</font><font color="#%s">%s</font><font color="#%s">]</font>',
+				MutedHex,
+				ValueColorHex,
+				escapeRichText(Text),
+				MutedHex
+			)
+		)
+	end
+
+	local function buildInfoText(NameText, HealthText, DistanceText, PvpText, PvpColorHex, MoneyText)
 		local PlainParts = {}
 		local RichParts = {}
 
@@ -187,33 +407,10 @@ return function(Config)
 			table.insert(RichParts, string.format('<font color="#%s">%s</font>', TextHex, escapeRichText(NameText)))
 		end
 
-		if HealthText and HealthText ~= "" then
-			table.insert(PlainParts, "[" .. HealthText .. "]")
-			table.insert(
-				RichParts,
-				string.format(
-					'<font color="#%s">[</font><font color="#%s">%s</font><font color="#%s">]</font>',
-					MutedHex,
-					MainHex,
-					escapeRichText(HealthText),
-					MutedHex
-				)
-			)
-		end
-
-		if DistanceText and DistanceText ~= "" then
-			table.insert(PlainParts, "[" .. DistanceText .. "]")
-			table.insert(
-				RichParts,
-				string.format(
-					'<font color="#%s">[</font><font color="#%s">%s</font><font color="#%s">]</font>',
-					MutedHex,
-					MainHex,
-					escapeRichText(DistanceText),
-					MutedHex
-				)
-			)
-		end
+		appendBracketedPart(PlainParts, RichParts, HealthText, MainHex)
+		appendBracketedPart(PlainParts, RichParts, DistanceText, MainHex)
+		appendBracketedPart(PlainParts, RichParts, PvpText, PvpColorHex or MainHex)
+		appendBracketedPart(PlainParts, RichParts, MoneyText, MoneyHex)
 
 		return table.concat(PlainParts, " "), table.concat(RichParts, " ")
 	end
@@ -327,6 +524,8 @@ return function(Config)
 
 		Entry.Container:Destroy()
 		self.Entries[Player] = nil
+		self.PvpCache[Player] = nil
+		self.MoneyCache[Player] = nil
 	end
 
 	function ESP:Clear()
@@ -340,6 +539,9 @@ return function(Config)
 		local NameText = self.Settings.ShowName and (Player.DisplayName or Player.Name) or nil
 		local HealthText = nil
 		local DistanceText = self.Settings.ShowDistance and Distance and string.format("%d studs", math.floor(Distance + 0.5)) or nil
+		local PvpText = nil
+		local PvpColorHex = nil
+		local MoneyText = nil
 
 		if self.Settings.ShowHealth and Humanoid then
 			HealthText = string.format(
@@ -348,10 +550,32 @@ return function(Config)
 				math.floor(Humanoid.MaxHealth + 0.5)
 			)
 		end
+
+		if self.Settings.ShowPvpProtection then
+			local Now = os.clock()
+			local Raw = readCachedExtra(self.PvpCache, Player, PvpProtectionAliases, Now, self.ExtrasCacheTTL)
+			local Protected = classifyPvpProtection(Raw)
+
+			if Protected == true then
+				PvpText = "PROT"
+				PvpColorHex = PvpOnHex
+			elseif Protected == false then
+				PvpText = "OPEN"
+				PvpColorHex = PvpOffHex
+			end
+		end
+
+		if self.Settings.ShowMoney then
+			local Now = os.clock()
+			local Raw = readCachedExtra(self.MoneyCache, Player, MoneyAliases, Now, self.ExtrasCacheTTL)
+
+			MoneyText = formatMoneyValue(Raw)
+		end
+
 		local Width = math.max(math.floor((MaxX - MinX) + 0.5), 2)
 		local Height = math.max(math.floor((MaxY - MinY) + 0.5), 2)
 
-		local PlainInfo, RichInfo = buildInfoText(NameText, HealthText, DistanceText)
+		local PlainInfo, RichInfo = buildInfoText(NameText, HealthText, DistanceText, PvpText, PvpColorHex, MoneyText)
 
 		Entry.Container.Position = UDim2.new(0, math.floor(MinX + 0.5), 0, math.floor(MinY + 0.5))
 		Entry.Container.Size = UDim2.new(0, Width, 0, Height)
@@ -501,6 +725,22 @@ return function(Config)
 
 	function ESP:SetShowDistance(Value)
 		self.Settings.ShowDistance = Value and true or false
+	end
+
+	function ESP:SetShowPvpProtection(Value)
+		self.Settings.ShowPvpProtection = Value and true or false
+
+		if not self.Settings.ShowPvpProtection then
+			table.clear(self.PvpCache)
+		end
+	end
+
+	function ESP:SetShowMoney(Value)
+		self.Settings.ShowMoney = Value and true or false
+
+		if not self.Settings.ShowMoney then
+			table.clear(self.MoneyCache)
+		end
 	end
 
 	return ESP

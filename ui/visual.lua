@@ -160,4 +160,20 @@ return function(Config)
 			ESP:SetShowDistance(Value)
 		end
 	})
+
+	Setting:AddToggle({
+		Name = "PVP Protection",
+		Default = false,
+		Callback = function(Value)
+			ESP:SetShowPvpProtection(Value)
+		end
+	})
+
+	Setting:AddToggle({
+		Name = "Money",
+		Default = false,
+		Callback = function(Value)
+			ESP:SetShowMoney(Value)
+		end
+	})
 end

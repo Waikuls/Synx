@@ -309,6 +309,10 @@ local function createFallbackESP(ErrorMessage)
 		end,
 		SetShowDistance = function()
 		end,
+		SetShowPvpProtection = function()
+		end,
+		SetShowMoney = function()
+		end,
 		Destroy = function()
 		end
 	}
