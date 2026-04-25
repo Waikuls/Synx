@@ -1667,6 +1667,10 @@ return function(Config)
 				self.Elapsed = 0
 
 				if not self.Enabled or self.IsEating then
+					if self.IsEating and (os.clock() - (self.LastDebugTickAt or 0)) > 5 then
+						warn("[KELV][Food] tick skipped: IsEating stuck true")
+						self.LastDebugTickAt = os.clock()
+					end
 					return
 				end
 
@@ -1675,6 +1679,18 @@ return function(Config)
 				end
 
 				local HungerState = getHungerState()
+				local Now = os.clock()
+
+				if (Now - (self.LastDebugTickAt or 0)) > 5 then
+					self.LastDebugTickAt = Now
+					warn(string.format(
+						"[KELV][Food] tick: HasSignal=%s ShouldEat=%s Current=%s Threshold=%s",
+						tostring(HungerState.HasSignal),
+						tostring(HungerState.ShouldEat),
+						tostring(HungerState.CurrentValue),
+						tostring(self.DirectHungerThreshold)
+					))
+				end
 
 				if not HungerState.HasSignal then
 					return
@@ -1691,10 +1707,12 @@ return function(Config)
 				local Tool = findFoodTool()
 
 				if not Tool then
+					warn("[KELV][Food] hungry but findFoodTool returned nil")
 					handleMissingFood()
 					return
 				end
 
+				warn(string.format("[KELV][Food] consuming tool=%s", tostring(Tool.Name)))
 				self.LastMissingFoodAt = 0
 
 				consumeFood(Tool)
