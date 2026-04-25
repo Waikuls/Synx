@@ -117,20 +117,35 @@ local function executeEntrySource(SourceCode, SourceLabel)
 	return Result
 end
 
+local function getEntrySourceMode()
+	local Environment = type(getgenv) == "function" and getgenv() or nil
+	local ForcedMode = Environment and Environment.__FatalitySourceMode
+
+	if ForcedMode == "local" or ForcedMode == "remote" then
+		return ForcedMode
+	end
+
+	return nil
+end
+
 do
 	local Errors = {}
-	local LocalSuccess, LocalResult = tryReadLocalEntry()
+	local SourceMode = getEntrySourceMode()
 
-	if LocalSuccess then
-		local ExecuteSuccess, ExecuteResult = pcall(executeEntrySource, LocalResult, "Fatality/main.lua")
+	if SourceMode ~= "remote" then
+		local LocalSuccess, LocalResult = tryReadLocalEntry()
 
-		if ExecuteSuccess then
-			return ExecuteResult
+		if LocalSuccess then
+			local ExecuteSuccess, ExecuteResult = pcall(executeEntrySource, LocalResult, "Fatality/main.lua")
+
+			if ExecuteSuccess then
+				return ExecuteResult
+			end
+
+			table.insert(Errors, tostring(ExecuteResult))
+		else
+			table.insert(Errors, LocalResult)
 		end
-
-		table.insert(Errors, tostring(ExecuteResult))
-	else
-		table.insert(Errors, LocalResult)
 	end
 
 	local RemoteSuccess, RemoteResult = pcall(fetchLatestEntry)
@@ -145,6 +160,22 @@ do
 		table.insert(Errors, tostring(ExecuteResult))
 	else
 		table.insert(Errors, tostring(RemoteResult))
+	end
+
+	if SourceMode == "remote" then
+		local LocalSuccess, LocalResult = tryReadLocalEntry()
+
+		if LocalSuccess then
+			local ExecuteSuccess, ExecuteResult = pcall(executeEntrySource, LocalResult, "Fatality/main.lua")
+
+			if ExecuteSuccess then
+				return ExecuteResult
+			end
+
+			table.insert(Errors, tostring(ExecuteResult))
+		else
+			table.insert(Errors, LocalResult)
+		end
 	end
 
 	error(table.concat(Errors, " | "), 0)
