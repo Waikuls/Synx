@@ -1,8 +1,11 @@
 return function(Config)
+	local Players = game:GetService("Players")
+
 	local Visual = Config.Visual
 	local Window = Config.Window
 	local ESP = Config.ESP
 	local FreecamFeature = Config.FreecamFeature
+	local SpectatorFeature = Config.SpectatorFeature
 
 	local Misc = Visual:AddSection({
 		Name = "MISC",
@@ -53,6 +56,74 @@ return function(Config)
 		end,
 		Flag = "Freecam"
 	})
+
+	Misc:AddToggle({
+		Name = "Spectator",
+		Callback = function(Value)
+			if not SpectatorFeature then
+				return
+			end
+
+			local Enabled = SpectatorFeature:SetEnabled(Value)
+
+			if not Enabled and Value then
+				task.defer(function()
+					local Flag = Window:GetFlags().SpectatorToggle
+
+					if Flag then
+						Flag:SetValue(false)
+					end
+				end)
+			end
+		end,
+		Flag = "Spectator"
+	})
+
+	local SpectatorTargetDropdown = Misc:AddDropdown({
+		Name = "Player",
+		Default = SpectatorFeature and SpectatorFeature:GetTargetPlayerName() or "(no players)",
+		Values = SpectatorFeature and SpectatorFeature:GetPlayerOptions() or {"(no players)"},
+		Callback = function(Value)
+			if not SpectatorFeature then
+				return
+			end
+
+			SpectatorFeature:SetTargetPlayerName(Value)
+		end,
+		Flag = "SpectatorTarget"
+	})
+
+	local function refreshSpectatorDropdown()
+		if not SpectatorFeature or not SpectatorTargetDropdown then
+			return
+		end
+
+		SpectatorTargetDropdown:SetData(SpectatorFeature:GetPlayerOptions())
+	end
+
+	Players.PlayerAdded:Connect(function()
+		task.defer(refreshSpectatorDropdown)
+	end)
+
+	Players.PlayerRemoving:Connect(function()
+		task.defer(function()
+			refreshSpectatorDropdown()
+
+			if not SpectatorFeature then
+				return
+			end
+
+			local SpectatorFlag = Window:GetFlags().SpectatorToggle
+
+			if SpectatorFlag and SpectatorFlag:GetValue() and not SpectatorFeature:IsEnabled() then
+				SpectatorFlag:SetValue(false)
+			end
+
+			if SpectatorTargetDropdown then
+				SpectatorTargetDropdown:SetValue(SpectatorFeature:GetTargetPlayerName())
+			end
+		end)
+	end)
 
 	Setting:AddSlider({
 		Name = "Distance limit",

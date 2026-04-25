@@ -56,6 +56,7 @@ local function hasCompleteLocalProject()
 		"features/antiafk.lua",
 		"features/esp.lua",
 		"features/freecam.lua",
+		"features/spectator.lua",
 		"features/food.lua",
 		"features/stamina.lua",
 		"features/stats.lua",
@@ -325,6 +326,30 @@ local function createFallbackFreecamFeature(ErrorMessage)
 	}
 end
 
+local function createFallbackSpectatorFeature(ErrorMessage)
+	notifyModuleFailure("features/spectator.lua", ErrorMessage)
+
+	return {
+		Enabled = false,
+		SetEnabled = function()
+			return false
+		end,
+		IsEnabled = function()
+			return false
+		end,
+		SetTargetPlayerName = function()
+		end,
+		GetTargetPlayerName = function()
+			return "(no players)"
+		end,
+		GetPlayerOptions = function()
+			return {"(no players)"}
+		end,
+		Destroy = function()
+		end
+	}
+end
+
 local function createFallbackAntiAfkFeature(ErrorMessage)
 	notifyModuleFailure("features/antiafk.lua", ErrorMessage)
 
@@ -586,6 +611,7 @@ local Skins = Window:AddMenu({
 local CreateAntiAfkFeature = safeLoadModule("features/antiafk.lua", createFallbackAntiAfkFeature)
 local CreateESP = safeLoadModule("features/esp.lua", createFallbackESP)
 local CreateFreecamFeature = safeLoadModule("features/freecam.lua", createFallbackFreecamFeature)
+local CreateSpectatorFeature = safeLoadModule("features/spectator.lua", createFallbackSpectatorFeature)
 local CreateFoodFeature = safeLoadModule("features/food.lua", createFallbackFoodFeature)
 local CreateAutoTrainFeature = safeLoadModule("features/autotrain.lua", createFallbackAutoTrainFeature)
 local CreateOpTrainingFeature = safeLoadModule("features/optraining.lua", createFallbackOpTrainingFeature)
@@ -615,6 +641,9 @@ local ESP = safeCreateModule("features/esp.lua", CreateESP, {
 local FreecamFeature = safeCreateModule("features/freecam.lua", CreateFreecamFeature, {
 	Notification = Notification
 }, createFallbackFreecamFeature)
+local SpectatorFeature = safeCreateModule("features/spectator.lua", CreateSpectatorFeature, {
+	Notification = Notification
+}, createFallbackSpectatorFeature)
 local FoodFeature = safeCreateModule("features/food.lua", CreateFoodFeature, {
 	Notification = Notification
 }, createFallbackFoodFeature)
@@ -668,7 +697,8 @@ safeRunModule("ui/visual.lua", CreateVisualUI, {
 	Visual = Visual,
 	Window = Window,
 	ESP = ESP,
-	FreecamFeature = FreecamFeature
+	FreecamFeature = FreecamFeature,
+	SpectatorFeature = SpectatorFeature
 })
 
 safeBuildBlock("Fatality/main.lua:LEGIT_STATIC", function()
@@ -1016,6 +1046,7 @@ safeBuildBlock("Fatality/main.lua:MISC_STATIC", function()
 			ESP:Destroy()
 			AntiAfkFeature:Destroy()
 			FreecamFeature:Destroy()
+			SpectatorFeature:Destroy()
 			FoodFeature:Destroy()
 			AutoTrainFeature:Destroy()
 			OpTrainingFeature:Destroy()
