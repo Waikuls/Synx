@@ -81,9 +81,6 @@ return function(Config)
 	local MainHex = colorToHex(Theme.Main)
 	local TextHex = colorToHex(Theme.Text)
 	local MutedHex = colorToHex(Theme.Muted)
-	local PvpOnHex = colorToHex(Theme.PvpOn)
-	local PvpOffHex = colorToHex(Theme.PvpOff)
-	local MoneyHex = colorToHex(Theme.Money)
 
 	local function formatWithCommas(IntegerValue)
 		local Sign = ""
@@ -172,14 +169,14 @@ return function(Config)
 		return nil
 	end
 
-	local function readCachedExtra(Cache, Player, Aliases, Now, TTL)
+	local function readCached(Cache, Player, Reader, Now, TTL)
 		local Cached = Cache[Player]
 
 		if Cached and (Now - Cached.At) < TTL then
 			return Cached.Value
 		end
 
-		local Value = findPlayerValue(Player, Aliases)
+		local Value = Reader(Player)
 
 		Cache[Player] = {
 			Value = Value,
@@ -221,6 +218,70 @@ return function(Config)
 		end
 
 		return nil
+	end
+
+	local function readMoneyValue(Player)
+		if not Player then
+			return nil
+		end
+
+		local Currencies = Player:FindFirstChild("Currencies")
+
+		if Currencies then
+			local Yen = Currencies:FindFirstChild("Yen")
+
+			if Yen and Yen:IsA("ValueBase") then
+				return Yen.Value
+			end
+
+			local Ok, YenAttr = pcall(Currencies.GetAttribute, Currencies, "Yen")
+
+			if Ok and YenAttr ~= nil then
+				return YenAttr
+			end
+
+			for _, Alias in ipairs(MoneyAliases) do
+				local Child = Currencies:FindFirstChild(Alias)
+
+				if Child and Child:IsA("ValueBase") then
+					return Child.Value
+				end
+			end
+		end
+
+		return findPlayerValue(Player, MoneyAliases)
+	end
+
+	local function readPvpProtection(Player)
+		if not Player then
+			return nil
+		end
+
+		local Entities = workspace:FindFirstChild("Entities")
+
+		if Entities then
+			local Entity = Entities:FindFirstChild(Player.Name)
+
+			if Entity then
+				local MainScript = Entity:FindFirstChild("MainScript")
+
+				if MainScript then
+					local Status = MainScript:FindFirstChild("Status")
+
+					if Status then
+						if Status:FindFirstChild("PvpProtection")
+							or Status:FindFirstChild("PVPProtection")
+							or Status:FindFirstChild("Protection") then
+							return true
+						end
+
+						return false
+					end
+				end
+			end
+		end
+
+		return classifyPvpProtection(findPlayerValue(Player, PvpProtectionAliases))
 	end
 
 	local function formatMoneyValue(Value)
@@ -398,7 +459,7 @@ return function(Config)
 		)
 	end
 
-	local function buildInfoText(NameText, HealthText, DistanceText, PvpText, PvpColorHex, MoneyText)
+	local function buildInfoText(NameText, HealthText, DistanceText)
 		local PlainParts = {}
 		local RichParts = {}
 
@@ -409,8 +470,6 @@ return function(Config)
 
 		appendBracketedPart(PlainParts, RichParts, HealthText, MainHex)
 		appendBracketedPart(PlainParts, RichParts, DistanceText, MainHex)
-		appendBracketedPart(PlainParts, RichParts, PvpText, PvpColorHex or MainHex)
-		appendBracketedPart(PlainParts, RichParts, MoneyText, MoneyHex)
 
 		return table.concat(PlainParts, " "), table.concat(RichParts, " ")
 	end
@@ -484,6 +543,44 @@ return function(Config)
 		InfoLabel.ZIndex = 503
 		InfoLabel.Parent = Container
 
+		local MoneyLabel = Instance.new("TextLabel")
+		MoneyLabel.Name = "MoneyLabel"
+		MoneyLabel.AnchorPoint = Vector2.new(1, 0.5)
+		MoneyLabel.BackgroundTransparency = 1
+		MoneyLabel.BorderSizePixel = 0
+		MoneyLabel.Position = UDim2.new(0, -6, 0.5, 0)
+		MoneyLabel.Size = UDim2.new(0, 80, 0, 18)
+		MoneyLabel.Font = Enum.Font.GothamSemibold
+		MoneyLabel.Text = ""
+		MoneyLabel.TextColor3 = Theme.Money
+		MoneyLabel.TextSize = 13
+		MoneyLabel.TextStrokeColor3 = Theme.Black
+		MoneyLabel.TextStrokeTransparency = 0.35
+		MoneyLabel.TextWrapped = false
+		MoneyLabel.TextXAlignment = Enum.TextXAlignment.Right
+		MoneyLabel.Visible = false
+		MoneyLabel.ZIndex = 503
+		MoneyLabel.Parent = Container
+
+		local PvpLabel = Instance.new("TextLabel")
+		PvpLabel.Name = "PvpLabel"
+		PvpLabel.AnchorPoint = Vector2.new(0, 0.5)
+		PvpLabel.BackgroundTransparency = 1
+		PvpLabel.BorderSizePixel = 0
+		PvpLabel.Position = UDim2.new(1, 6, 0.5, 0)
+		PvpLabel.Size = UDim2.new(0, 60, 0, 18)
+		PvpLabel.Font = Enum.Font.GothamSemibold
+		PvpLabel.Text = ""
+		PvpLabel.TextColor3 = Theme.Text
+		PvpLabel.TextSize = 13
+		PvpLabel.TextStrokeColor3 = Theme.Black
+		PvpLabel.TextStrokeTransparency = 0.35
+		PvpLabel.TextWrapped = false
+		PvpLabel.TextXAlignment = Enum.TextXAlignment.Left
+		PvpLabel.Visible = false
+		PvpLabel.ZIndex = 503
+		PvpLabel.Parent = Container
+
 		self.Entries[Player] = {
 			Container = Container,
 			OutlineTop = OutlineTop,
@@ -495,6 +592,8 @@ return function(Config)
 			BoxLeft = BoxLeft,
 			BoxRight = BoxRight,
 			InfoLabel = InfoLabel,
+			MoneyLabel = MoneyLabel,
+			PvpLabel = PvpLabel,
 		}
 
 		return self.Entries[Player]
@@ -513,6 +612,8 @@ return function(Config)
 
 		Entry.Container.Visible = false
 		Entry.InfoLabel.Visible = false
+		Entry.MoneyLabel.Visible = false
+		Entry.PvpLabel.Visible = false
 	end
 
 	function ESP:RemoveEntry(Player)
@@ -540,7 +641,7 @@ return function(Config)
 		local HealthText = nil
 		local DistanceText = self.Settings.ShowDistance and Distance and string.format("%d studs", math.floor(Distance + 0.5)) or nil
 		local PvpText = nil
-		local PvpColorHex = nil
+		local PvpColor = nil
 		local MoneyText = nil
 
 		if self.Settings.ShowHealth and Humanoid then
@@ -553,21 +654,20 @@ return function(Config)
 
 		if self.Settings.ShowPvpProtection then
 			local Now = os.clock()
-			local Raw = readCachedExtra(self.PvpCache, Player, PvpProtectionAliases, Now, self.ExtrasCacheTTL)
-			local Protected = classifyPvpProtection(Raw)
+			local Protected = readCached(self.PvpCache, Player, readPvpProtection, Now, self.ExtrasCacheTTL)
 
 			if Protected == true then
 				PvpText = "PROT"
-				PvpColorHex = PvpOnHex
+				PvpColor = Theme.PvpOn
 			elseif Protected == false then
 				PvpText = "OPEN"
-				PvpColorHex = PvpOffHex
+				PvpColor = Theme.PvpOff
 			end
 		end
 
 		if self.Settings.ShowMoney then
 			local Now = os.clock()
-			local Raw = readCachedExtra(self.MoneyCache, Player, MoneyAliases, Now, self.ExtrasCacheTTL)
+			local Raw = readCached(self.MoneyCache, Player, readMoneyValue, Now, self.ExtrasCacheTTL)
 
 			MoneyText = formatMoneyValue(Raw)
 		end
@@ -575,7 +675,7 @@ return function(Config)
 		local Width = math.max(math.floor((MaxX - MinX) + 0.5), 2)
 		local Height = math.max(math.floor((MaxY - MinY) + 0.5), 2)
 
-		local PlainInfo, RichInfo = buildInfoText(NameText, HealthText, DistanceText, PvpText, PvpColorHex, MoneyText)
+		local PlainInfo, RichInfo = buildInfoText(NameText, HealthText, DistanceText)
 
 		Entry.Container.Position = UDim2.new(0, math.floor(MinX + 0.5), 0, math.floor(MinY + 0.5))
 		Entry.Container.Size = UDim2.new(0, Width, 0, Height)
@@ -613,6 +713,39 @@ return function(Config)
 		else
 			Entry.InfoLabel.Text = ""
 			Entry.InfoLabel.Visible = false
+		end
+
+		if MoneyText then
+			local Bounds = TextService:GetTextSize(
+				MoneyText,
+				13,
+				Enum.Font.GothamSemibold,
+				Vector2.new(1000, 18)
+			)
+
+			Entry.MoneyLabel.Text = MoneyText
+			Entry.MoneyLabel.Size = UDim2.new(0, math.max(Bounds.X + 4, 24), 0, 18)
+			Entry.MoneyLabel.Visible = true
+		else
+			Entry.MoneyLabel.Text = ""
+			Entry.MoneyLabel.Visible = false
+		end
+
+		if PvpText then
+			local Bounds = TextService:GetTextSize(
+				PvpText,
+				13,
+				Enum.Font.GothamSemibold,
+				Vector2.new(1000, 18)
+			)
+
+			Entry.PvpLabel.Text = PvpText
+			Entry.PvpLabel.TextColor3 = PvpColor or Theme.Text
+			Entry.PvpLabel.Size = UDim2.new(0, math.max(Bounds.X + 4, 24), 0, 18)
+			Entry.PvpLabel.Visible = true
+		else
+			Entry.PvpLabel.Text = ""
+			Entry.PvpLabel.Visible = false
 		end
 	end
 
