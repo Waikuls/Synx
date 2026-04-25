@@ -2066,13 +2066,20 @@ return function(Config)
 			end
 
 			-- Whey only runs before Bench or Squat machine use.
+			-- Only block autotrain if TryConsume actually started/queued a
+			-- consume (returns true). If it bails out (no tool, food busy,
+			-- etc.) we must keep going — otherwise the cooldown never
+			-- arms and autotrain spins forever waiting for a consume that
+			-- can't start.
 			if self.SelectedType == "Bench" or self.SelectedType == "Squat machine" then
 				if WheyFeature and WheyFeature.Enabled then
 					if WheyFeature.IsConsuming then return end
 					if WheyFeature:ShouldConsume() then
 						local FoodBusy = FoodFeature and FoodFeature.IsEating
-						WheyFeature:TryConsume(FoodBusy)
-						return
+
+						if WheyFeature:TryConsume(FoodBusy) then
+							return
+						end
 					end
 				end
 			end
