@@ -1990,7 +1990,7 @@ return function(Config)
 				self.EatingBreakDismounted = false
 				self.LastLeaveAttemptAt = 0
 				LeavePromptCache.At = 0
-				self.StrengthGlovesActive = false
+				self:UnequipGloves()
 
 				if Notification then
 					Notification:Notify({
