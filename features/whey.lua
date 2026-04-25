@@ -3,8 +3,9 @@ return function(Config)
 	local RunService = game:GetService("RunService")
 	local LocalPlayer = Players.LocalPlayer
 	local Notification = Config and Config.Notification
+	local FoodFeature = Config and Config.FoodFeature
 
-	warn("[KELV][Whey] module loaded version=v10-25m-cooldown")
+	warn("[KELV][Whey] module loaded version=v11-self-loop")
 
 	-- Each entry is a substring pattern matched against the lowercased,
 	-- punctuation-stripped tool name. "whey" alone is intentional so
@@ -31,6 +32,12 @@ return function(Config)
 		ConsumeCooldown = 1500,
 		LastDebugAt = 0,
 		DebugInterval = 10,
+		Connection = nil,
+		LastTickAt = 0,
+		-- Heartbeat poll interval. Buff state changes are minute-scale so
+		-- there's no point scanning every frame; 2 s lines up with the
+		-- internal buff cache window.
+		TickInterval = 2,
 	}
 
 	local function squashToolName(Name)
@@ -411,6 +418,71 @@ return function(Config)
 		return true
 	end
 
+	local function isPlayerSeated()
+		local Character = LocalPlayer.Character
+
+		if not Character then
+			return false
+		end
+
+		local Humanoid = Character:FindFirstChildOfClass("Humanoid")
+
+		if not Humanoid then
+			return false
+		end
+
+		return Humanoid.SeatPart ~= nil
+	end
+
+	local function isFoodBusy()
+		if not FoodFeature then
+			return false
+		end
+
+		return FoodFeature.IsEating == true
+	end
+
+	local function tryConsumeFromLoop()
+		if not WheyFeature.Enabled then return end
+		if WheyFeature.IsConsuming then return end
+
+		-- Equipping a Tool while seated on a machine is a no-op in Roblox,
+		-- and the consume task would set the 25 min cooldown on a failed
+		-- attempt — locking us out of drinking until well after the buff
+		-- expires. Wait until the player has dismounted.
+		if isPlayerSeated() then return end
+
+		if isFoodBusy() then return end
+
+		if not WheyFeature:ShouldConsume() then return end
+
+		WheyFeature:TryConsume(false)
+	end
+
+	local function startLoop()
+		if WheyFeature.Connection then return end
+
+		WheyFeature.LastTickAt = 0
+
+		WheyFeature.Connection = RunService.Heartbeat:Connect(function()
+			local Now = os.clock()
+
+			if (Now - WheyFeature.LastTickAt) < WheyFeature.TickInterval then
+				return
+			end
+
+			WheyFeature.LastTickAt = Now
+			tryConsumeFromLoop()
+		end)
+	end
+
+	local function stopLoop()
+		if WheyFeature.Connection then
+			pcall(function() WheyFeature.Connection:Disconnect() end)
+			WheyFeature.Connection = nil
+		end
+	end
+
 	function WheyFeature:SetEnabled(Value)
 		local State = Value and true or false
 
@@ -422,7 +494,16 @@ return function(Config)
 		self.LastBuffCheckAt = 0
 		self.CachedBuffActive = false
 
-		warn("[KELV][Whey] " .. (State and "enabled — consumes only before machine use" or "disabled"))
+		if State then
+			startLoop()
+			-- Don't make the user wait up to TickInterval for the first
+			-- check — kick the loop immediately on enable.
+			task.spawn(tryConsumeFromLoop)
+		else
+			stopLoop()
+		end
+
+		warn("[KELV][Whey] " .. (State and "enabled — self-driven loop" or "disabled"))
 
 		return State
 	end
@@ -430,6 +511,7 @@ return function(Config)
 	function WheyFeature:Destroy()
 		self.Enabled = false
 		self.IsConsuming = false
+		stopLoop()
 	end
 
 	return WheyFeature

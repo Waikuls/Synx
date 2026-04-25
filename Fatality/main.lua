@@ -655,7 +655,8 @@ local WebhookFeature = safeCreateModule("features/webhook.lua", CreateWebhookFea
 	Notification = Notification
 }, createFallbackWebhookFeature)
 local WheyFeature = safeCreateModule("features/whey.lua", CreateWheyFeature, {
-	Notification = Notification
+	Notification = Notification,
+	FoodFeature = FoodFeature
 }, createFallbackWheyFeature)
 local OpTrainingFeature = safeCreateModule("features/optraining.lua", CreateOpTrainingFeature, {
 	Notification = Notification
