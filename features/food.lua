@@ -1557,74 +1557,80 @@ return function(Config)
 		FoodFeature.StopRequested = false
 
 		task.spawn(function()
-			local PreviouslyEquippedTool = getEquippedTool(Character)
-			local WasAlreadyHoldingFood = isToolEquipped(Tool, Character)
-			local ShouldManageTool = not WasAlreadyHoldingFood
+			local Ok, Err = pcall(function()
+				local PreviouslyEquippedTool = getEquippedTool(Character)
+				local WasAlreadyHoldingFood = isToolEquipped(Tool, Character)
+				local ShouldManageTool = not WasAlreadyHoldingFood
 
-			if isFoodTool(PreviouslyEquippedTool) then
-				PreviouslyEquippedTool = nil
-			end
-
-			if FoodFeature.AutoManagedTool and isSameTool(FoodFeature.AutoManagedTool, Tool) then
-				ShouldManageTool = true
-			end
-
-			if ShouldManageTool then
-				FoodFeature.AutoManagedTool = Tool
-			end
-
-			local EquippedFood = equipFoodTool(Tool, Character, Humanoid)
-
-			if EquippedFood then
-				pcall(function()
-					if Tool.Enabled ~= nil then
-						Tool.Enabled = true
-					end
-				end)
-
-				task.wait(FoodFeature.HoldBeforeUseDelay)
-			end
-
-			for _ = 1, FoodFeature.MaxActivationAttempts do
-				if FoodFeature.StopRequested then
-					break
+				if isFoodTool(PreviouslyEquippedTool) then
+					PreviouslyEquippedTool = nil
 				end
 
-				if not Tool.Parent then
-					break
+				if FoodFeature.AutoManagedTool and isSameTool(FoodFeature.AutoManagedTool, Tool) then
+					ShouldManageTool = true
 				end
 
-				local Equipped = equipFoodTool(Tool, Character, Humanoid)
-
-				if not Equipped then
-					task.wait(FoodFeature.EquipDelay)
-					Equipped = isToolEquipped(Tool, Character)
+				if ShouldManageTool then
+					FoodFeature.AutoManagedTool = Tool
 				end
 
-				if Equipped then
+				local EquippedFood = equipFoodTool(Tool, Character, Humanoid)
+
+				if EquippedFood then
+					pcall(function()
+						if Tool.Enabled ~= nil then
+							Tool.Enabled = true
+						end
+					end)
+
 					task.wait(FoodFeature.HoldBeforeUseDelay)
-					triggerToolUse(Tool)
 				end
 
-				task.wait(FoodFeature.ActivationDelay)
+				for _ = 1, FoodFeature.MaxActivationAttempts do
+					if FoodFeature.StopRequested then
+						break
+					end
 
-				local HungerState = getHungerState(true)
+					if not Tool.Parent then
+						break
+					end
 
-				if HungerState.HasSignal and not HungerState.ShouldEat then
-					break
+					local Equipped = equipFoodTool(Tool, Character, Humanoid)
+
+					if not Equipped then
+						task.wait(FoodFeature.EquipDelay)
+						Equipped = isToolEquipped(Tool, Character)
+					end
+
+					if Equipped then
+						task.wait(FoodFeature.HoldBeforeUseDelay)
+						triggerToolUse(Tool)
+					end
+
+					task.wait(FoodFeature.ActivationDelay)
+
+					local HungerState = getHungerState(true)
+
+					if HungerState.HasSignal and not HungerState.ShouldEat then
+						break
+					end
 				end
-			end
 
-			unequipFoodTools(ShouldManageTool and Tool or nil)
+				unequipFoodTools(ShouldManageTool and Tool or nil)
 
-			if FoodFeature.AutoManagedTool and isSameTool(FoodFeature.AutoManagedTool, Tool) then
-				FoodFeature.AutoManagedTool = nil
-			end
+				if FoodFeature.AutoManagedTool and isSameTool(FoodFeature.AutoManagedTool, Tool) then
+					FoodFeature.AutoManagedTool = nil
+				end
 
-			if PreviouslyEquippedTool and PreviouslyEquippedTool.Parent then
-				pcall(function()
-					Humanoid:EquipTool(PreviouslyEquippedTool)
-				end)
+				if PreviouslyEquippedTool and PreviouslyEquippedTool.Parent then
+					pcall(function()
+						Humanoid:EquipTool(PreviouslyEquippedTool)
+					end)
+				end
+			end)
+
+			if not Ok then
+				warn("[KELV][Food] consumeFood error: " .. tostring(Err))
 			end
 
 			FoodFeature.IsEating = false
@@ -1667,10 +1673,6 @@ return function(Config)
 				self.Elapsed = 0
 
 				if not self.Enabled or self.IsEating then
-					if self.IsEating and (os.clock() - (self.LastDebugTickAt or 0)) > 5 then
-						warn("[KELV][Food] tick skipped: IsEating stuck true")
-						self.LastDebugTickAt = os.clock()
-					end
 					return
 				end
 
@@ -1679,18 +1681,6 @@ return function(Config)
 				end
 
 				local HungerState = getHungerState()
-				local Now = os.clock()
-
-				if (Now - (self.LastDebugTickAt or 0)) > 5 then
-					self.LastDebugTickAt = Now
-					warn(string.format(
-						"[KELV][Food] tick: HasSignal=%s ShouldEat=%s Current=%s Threshold=%s",
-						tostring(HungerState.HasSignal),
-						tostring(HungerState.ShouldEat),
-						tostring(HungerState.CurrentValue),
-						tostring(self.DirectHungerThreshold)
-					))
-				end
 
 				if not HungerState.HasSignal then
 					return
@@ -1707,12 +1697,10 @@ return function(Config)
 				local Tool = findFoodTool()
 
 				if not Tool then
-					warn("[KELV][Food] hungry but findFoodTool returned nil")
 					handleMissingFood()
 					return
 				end
 
-				warn(string.format("[KELV][Food] consuming tool=%s", tostring(Tool.Name)))
 				self.LastMissingFoodAt = 0
 
 				consumeFood(Tool)
