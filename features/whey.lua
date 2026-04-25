@@ -38,6 +38,15 @@ return function(Config)
 		-- there's no point scanning every frame; 2 s lines up with the
 		-- internal buff cache window.
 		TickInterval = 2,
+		AutoTrainRef = nil,
+	}
+
+	-- Whey buff is only useful while training Bench or Squat (strength
+	-- gains), so the loop only fires when autotrain is configured for one
+	-- of those types. Anything else would burn cooldown without payoff.
+	local AllowedTrainingTypes = {
+		["Bench"] = true,
+		["Squat machine"] = true,
 	}
 
 	local function squashToolName(Name)
@@ -442,9 +451,37 @@ return function(Config)
 		return FoodFeature.IsEating == true
 	end
 
+	local function isAllowedTrainingType()
+		local Ref = WheyFeature.AutoTrainRef
+
+		if not Ref then return false end
+		if Ref.Enabled ~= true then return false end
+
+		local SelectedType = nil
+
+		if type(Ref.GetSelectedType) == "function" then
+			local Ok, Value = pcall(Ref.GetSelectedType, Ref)
+
+			if Ok then
+				SelectedType = Value
+			end
+		end
+
+		if SelectedType == nil then
+			SelectedType = Ref.SelectedType
+		end
+
+		return AllowedTrainingTypes[SelectedType] == true
+	end
+
 	local function tryConsumeFromLoop()
 		if not WheyFeature.Enabled then return end
 		if WheyFeature.IsConsuming then return end
+
+		-- Whey only refills around Bench / Squat machine training. If the
+		-- user isn't actively running one of those types, skip — drinking
+		-- now would burn the 25 min cooldown for no benefit.
+		if not isAllowedTrainingType() then return end
 
 		-- Equipping a Tool while seated on a machine is a no-op in Roblox,
 		-- and the consume task would set the 25 min cooldown on a failed
@@ -506,6 +543,10 @@ return function(Config)
 		warn("[KELV][Whey] " .. (State and "enabled — self-driven loop" or "disabled"))
 
 		return State
+	end
+
+	function WheyFeature:SetAutoTrainRef(Feature)
+		self.AutoTrainRef = Feature
 	end
 
 	function WheyFeature:Destroy()

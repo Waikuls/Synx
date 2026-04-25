@@ -278,6 +278,7 @@ local function createFallbackWheyFeature(ErrorMessage)
 		ShouldConsume = function() return false end,
 		IsBuffActive = function() return false end,
 		TryConsume = function() return false end,
+		SetAutoTrainRef = function() end,
 		Destroy = function() end
 	}
 end
@@ -674,6 +675,10 @@ local AutoJobFeature = safeCreateModule("features/autojob.lua", CreateAutoJobFea
 
 if OpTrainingFeature and type(OpTrainingFeature.SetAutoTrainRef) == "function" then
 	OpTrainingFeature:SetAutoTrainRef(AutoTrainFeature)
+end
+
+if WheyFeature and type(WheyFeature.SetAutoTrainRef) == "function" then
+	WheyFeature:SetAutoTrainRef(AutoTrainFeature)
 end
 local StaminaFeature = safeCreateModule("features/stamina.lua", CreateStaminaFeature, {
 	Notification = Notification
