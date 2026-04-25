@@ -659,9 +659,6 @@ return function(Config)
 			if Protected == true then
 				PvpText = "PROT"
 				PvpColor = Theme.PvpOn
-			elseif Protected == false then
-				PvpText = "OPEN"
-				PvpColor = Theme.PvpOff
 			end
 		end
 
