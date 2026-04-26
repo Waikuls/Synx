@@ -1076,6 +1076,11 @@ safeBuildBlock("Fatality/main.lua:MISC_BOOST", function()
 			end
 		end,
 	})
+
+	Boost:AddToggle({
+		Name = "Boost fps",
+		Flag = "BoostFps"
+	})
 end)
 
 safeBuildBlock("Fatality/main.lua:MISC_STATIC", function()
