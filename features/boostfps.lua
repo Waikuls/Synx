@@ -4,9 +4,8 @@ return function(Config)
 
 	local Notification = Config and Config.Notification
 
-	-- Effect ClassNames we disable to free render budget. These fire
-	-- every frame regardless of view direction and add up fast in busy
-	-- scenes.
+	-- Effect ClassNames we silence to free render budget. These fire
+	-- every frame regardless of view direction.
 	local DisableableEffects = {
 		ParticleEmitter = true,
 		Trail = true,
@@ -27,43 +26,64 @@ return function(Config)
 
 	local BoostFps = {
 		Enabled = false,
-		-- "normal" or "ultra". Tracked so the UI can mutual-exclude the
-		-- two toggles cleanly.
+		-- "normal" or "ultra".
 		Mode = nil,
-		-- Single bag of saved values keyed by name. Cleared on disable
-		-- after restore.
+		-- Saved global properties (Lighting / Terrain / Workspace).
 		Saved = {},
-		-- Map: instance -> previous Enabled value. Lets us restore only
-		-- the instances we actually touched.
-		TouchedEffects = {},
+		-- Per-instance property snapshots:
+		--   TouchedInstances[Inst] = { [Prop] = OriginalValue, ... }
+		-- Lets us restore exactly what we mutated, including
+		-- properties already at the target value (we skip those at
+		-- mutation time so they never enter this map).
+		TouchedInstances = {},
 		Connections = {},
+		-- Background scan generation. Ultra's workspace walk yields
+		-- between chunks; if the user toggles off mid-scan we bump this
+		-- and the in-flight scan exits on its next yield.
+		ScanGeneration = 0,
 		-- Normal mode keeps fog comfortable for melee / interior play.
 		NormalFogEnd = 250,
-		-- Ultra pulls fog in tight so distant geometry gets clipped.
-		-- Looks foggy but cuts the most render work outside.
+		-- Ultra pulls fog in tight so distant geometry still gets
+		-- fog-blended (mostly visual, not the main perf gain).
 		UltraFogEnd = 80,
-		-- Ultra streaming radius (only honored when the place uses
-		-- StreamingEnabled). 64 studs unloads anything past close
-		-- proximity.
+		-- Ultra streaming radius (only honored when StreamingEnabled).
 		UltraStreamingRadius = 64,
+		-- How many descendants to touch per chunk before yielding to
+		-- avoid a long freeze on Ultra activation in busy worlds.
+		ScanChunkSize = 500,
 	}
 
-	local function disableEffect(Inst)
-		if BoostFps.TouchedEffects[Inst] ~= nil then
+	local function trackProperty(Inst, Prop, NewValue)
+		if not Inst or type(Prop) ~= "string" then
 			return
 		end
 
-		local Ok, OldEnabled = pcall(function() return Inst.Enabled end)
+		local Existing = BoostFps.TouchedInstances[Inst]
+
+		-- Already touched this prop on this instance — leave the
+		-- saved original alone and don't overwrite our snapshot.
+		if Existing and Existing[Prop] ~= nil then
+			return
+		end
+
+		local Ok, OldValue = pcall(function() return Inst[Prop] end)
 
 		if not Ok then
 			return
 		end
 
-		BoostFps.TouchedEffects[Inst] = OldEnabled
-
-		if OldEnabled then
-			pcall(function() Inst.Enabled = false end)
+		-- Already at target — nothing to mutate, nothing to restore.
+		if OldValue == NewValue then
+			return
 		end
+
+		if not Existing then
+			Existing = {}
+			BoostFps.TouchedInstances[Inst] = Existing
+		end
+
+		Existing[Prop] = OldValue
+		pcall(function() Inst[Prop] = NewValue end)
 	end
 
 	local function trackedSet(Key, GetFn, SetFn, NewValue)
@@ -76,9 +96,68 @@ return function(Config)
 		pcall(SetFn, NewValue)
 	end
 
+	local function applyEffectDisable(Inst)
+		if DisableableEffects[Inst.ClassName] then
+			trackProperty(Inst, "Enabled", false)
+		end
+	end
+
+	local function applyPostEffectDisable(Inst)
+		if PostEffectClasses[Inst.ClassName] then
+			trackProperty(Inst, "Enabled", false)
+		end
+	end
+
+	-- The Ultra-only per-instance mutations. These are the ones that
+	-- actually move the FPS needle vs Normal mode — fog distance alone
+	-- doesn't really cull rendering, it just tints distant geometry.
+	local function applyUltraInstance(Inst)
+		if Inst:IsA("BasePart") then
+			-- CastShadow off saves the shadow rasterization pass even
+			-- after GlobalShadows toggle.
+			trackProperty(Inst, "CastShadow", false)
+		end
+
+		if Inst:IsA("MeshPart") then
+			-- Performance fidelity drops to a low-poly LOD mesh — the
+			-- single biggest geometry win in Ultra.
+			trackProperty(Inst, "RenderFidelity", Enum.RenderFidelity.Performance)
+		end
+
+		-- Texture inherits Decal, so this branch matches both.
+		if Inst:IsA("Decal") then
+			-- Hides the surface image and skips its texture sampler.
+			-- Walls / signs lose their art — the visible "Ultra is
+			-- ugly" tradeoff the user opted into.
+			trackProperty(Inst, "Transparency", 1)
+		end
+	end
+
+	local function scanWorkspace(Mode, Generation)
+		local Descendants = Workspace:GetDescendants()
+
+		for Index, Inst in ipairs(Descendants) do
+			if not BoostFps.Enabled or BoostFps.ScanGeneration ~= Generation then
+				return
+			end
+
+			applyEffectDisable(Inst)
+
+			if Mode == "ultra" then
+				applyUltraInstance(Inst)
+			end
+
+			if Index % BoostFps.ScanChunkSize == 0 then
+				task.wait()
+			end
+		end
+	end
+
 	local function applyBoost(Mode)
 		BoostFps.Saved = {}
-		BoostFps.TouchedEffects = {}
+		BoostFps.TouchedInstances = {}
+		BoostFps.ScanGeneration = BoostFps.ScanGeneration + 1
+		local Generation = BoostFps.ScanGeneration
 
 		-- Rendering quality (set both knobs — different executors honor
 		-- different ones)
@@ -123,35 +202,36 @@ return function(Config)
 			function(v) Lighting.EnvironmentSpecularScale = v end,
 			0)
 
-		-- Disable existing effects in workspace + Lighting post effects
-		for _, Inst in ipairs(Workspace:GetDescendants()) do
-			if DisableableEffects[Inst.ClassName] then
-				disableEffect(Inst)
-			end
-		end
-
+		-- Existing post effects under Lighting
 		for _, Inst in ipairs(Lighting:GetDescendants()) do
-			if PostEffectClasses[Inst.ClassName] then
-				disableEffect(Inst)
-			end
+			applyPostEffectDisable(Inst)
 		end
 
-		-- Hook future additions so effects spawned mid-session also get
-		-- silenced (explosions, weather, etc).
+		-- Workspace scan happens in the background so the toggle
+		-- callback returns immediately. Big worlds (50k+ descendants)
+		-- can otherwise freeze the client for hundreds of ms.
+		task.spawn(function()
+			scanWorkspace(Mode, Generation)
+		end)
+
+		-- Hook future additions so effects/parts spawned mid-session
+		-- also get treated. Mode is read from BoostFps.Mode at fire
+		-- time so a Normal -> Ultra switch picks up the new mode
+		-- without rewiring connections.
 		table.insert(BoostFps.Connections, Workspace.DescendantAdded:Connect(function(Inst)
 			if not BoostFps.Enabled then return end
 
-			if DisableableEffects[Inst.ClassName] then
-				disableEffect(Inst)
+			applyEffectDisable(Inst)
+
+			if BoostFps.Mode == "ultra" then
+				applyUltraInstance(Inst)
 			end
 		end))
 
 		table.insert(BoostFps.Connections, Lighting.DescendantAdded:Connect(function(Inst)
 			if not BoostFps.Enabled then return end
 
-			if PostEffectClasses[Inst.ClassName] then
-				disableEffect(Inst)
-			end
+			applyPostEffectDisable(Inst)
 		end))
 
 		-- Terrain water + decoration
@@ -187,18 +267,25 @@ return function(Config)
 	end
 
 	local function revertBoost()
+		-- Bump generation first so any in-flight Ultra scan exits on
+		-- its next yield instead of mutating state we're about to
+		-- restore.
+		BoostFps.ScanGeneration = BoostFps.ScanGeneration + 1
+
 		for _, Conn in ipairs(BoostFps.Connections) do
 			pcall(function() Conn:Disconnect() end)
 		end
 		BoostFps.Connections = {}
 
-		-- Restore individual effect Enabled flags
-		for Inst, OldEnabled in pairs(BoostFps.TouchedEffects) do
+		-- Restore every per-instance property we mutated.
+		for Inst, Props in pairs(BoostFps.TouchedInstances) do
 			if Inst and Inst.Parent then
-				pcall(function() Inst.Enabled = OldEnabled end)
+				for Prop, OldValue in pairs(Props) do
+					pcall(function() Inst[Prop] = OldValue end)
+				end
 			end
 		end
-		BoostFps.TouchedEffects = {}
+		BoostFps.TouchedInstances = {}
 
 		local Saved = BoostFps.Saved
 
@@ -253,7 +340,6 @@ return function(Config)
 		local State = Value and true or false
 		Mode = Mode or "normal"
 
-		-- No-op if nothing is changing.
 		if State == self.Enabled and (not State or Mode == self.Mode) then
 			return State
 		end
@@ -278,9 +364,8 @@ return function(Config)
 			return State
 		end
 
-		-- Enabling, possibly switching modes — revert old state first
-		-- so the new mode applies on top of the saved originals, not on
-		-- top of an already-mutated lighting set.
+		-- Switching modes: revert first so the new mode applies on top
+		-- of the saved originals, not on top of an already-mutated set.
 		if self.Enabled then
 			revertBoost()
 		end
@@ -290,9 +375,15 @@ return function(Config)
 		applyBoost(Mode)
 
 		if Notification then
+			local Msg = "Graphics minimized for higher FPS"
+
+			if Mode == "ultra" then
+				Msg = "Ultra mode applying — scan runs in background"
+			end
+
 			Notification:Notify({
 				Title = "Boost FPS",
-				Content = (Mode == "ultra") and "Ultra mode active" or "Graphics minimized for higher FPS",
+				Content = Msg,
 				Icon = "check-circle"
 			})
 		end
