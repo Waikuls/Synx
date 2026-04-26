@@ -2,7 +2,6 @@ return function(Config)
 	local Players = game:GetService("Players")
 	local ReplicatedStorage = game:GetService("ReplicatedStorage")
 	local LocalPlayer = Players.LocalPlayer
-	local StaminaFeature = Config and Config.StaminaFeature
 
 	local StatsFeature = {
 		TargetPlayerName = LocalPlayer.Name,
@@ -57,7 +56,6 @@ return function(Config)
 		"NoEeveeDeplete"
 	}
 	local PreferredLookup = {}
-	local CaptureProfiles = {"Free", "Run", "Dash", "Attack"}
 
 	for _, Name in ipairs(PreferredLeftStats) do
 		PreferredLookup[Name] = true
@@ -414,50 +412,6 @@ return function(Config)
 		return LeftLines, RightLines, FoundCount
 	end
 
-	local function appendStaminaDebugLines(TargetPlayer, RightLines)
-		if TargetPlayer ~= LocalPlayer
-			or not StaminaFeature
-			or type(StaminaFeature.GetDebugLines) ~= "function" then
-			return
-		end
-
-		local Success, Lines = pcall(function()
-			return StaminaFeature:GetDebugLines()
-		end)
-
-		if not Success or type(Lines) ~= "table" or #Lines == 0 then
-			return
-		end
-
-		table.insert(RightLines, "STAMINA DEBUG")
-
-		for _, Line in ipairs(Lines) do
-			table.insert(RightLines, Line)
-		end
-	end
-
-	local function appendStaminaStatusLines(TargetPlayer, RightLines)
-		if TargetPlayer ~= LocalPlayer
-			or not StaminaFeature
-			or type(StaminaFeature.GetStatusLines) ~= "function" then
-			return
-		end
-
-		local Success, Lines = pcall(function()
-			return StaminaFeature:GetStatusLines()
-		end)
-
-		if not Success or type(Lines) ~= "table" or #Lines == 0 then
-			return
-		end
-
-		table.insert(RightLines, "INF STAMINA STATUS")
-
-		for _, Line in ipairs(Lines) do
-			table.insert(RightLines, Line)
-		end
-	end
-
 	local function findScale(Character, Name)
 		local Scale = Character and Character:FindFirstChild(Name)
 
@@ -557,103 +511,11 @@ return function(Config)
 		return PlayerNames
 	end
 
-	function StatsFeature:IsStaminaDebugAvailable()
-		return StaminaFeature ~= nil
-			and type(StaminaFeature.SetDebugEnabled) == "function"
-			and type(StaminaFeature.GetDebugLines) == "function"
-	end
-
-	function StatsFeature:IsStaminaDebugEnabled()
-		if not self:IsStaminaDebugAvailable()
-			or type(StaminaFeature.IsDebugEnabled) ~= "function" then
-			return false
-		end
-
-		local Success, Value = pcall(function()
-			return StaminaFeature:IsDebugEnabled()
-		end)
-
-		return Success and Value == true
-	end
-
-	function StatsFeature:SetStaminaDebugEnabled(Value)
-		if not self:IsStaminaDebugAvailable() then
-			return false
-		end
-
-		local Success = pcall(function()
-			StaminaFeature:SetDebugEnabled(Value)
-		end)
-
-		return Success
-	end
-
-	function StatsFeature:GetStaminaDebugProfile()
-		if not self:IsStaminaDebugAvailable()
-			or type(StaminaFeature.GetDebugProfile) ~= "function" then
-			return "Run"
-		end
-
-		local Success, Value = pcall(function()
-			return StaminaFeature:GetDebugProfile()
-		end)
-
-		if Success and type(Value) == "string" and Value ~= "" then
-			return Value
-		end
-
-		return "Run"
-	end
-
-	function StatsFeature:GetStaminaCaptureProfiles()
-		return CaptureProfiles
-	end
-
-	function StatsFeature:SetStaminaDebugProfile(Profile)
-		if not self:IsStaminaDebugAvailable()
-			or type(StaminaFeature.SetDebugProfile) ~= "function" then
-			return false
-		end
-
-		local Success = pcall(function()
-			StaminaFeature:SetDebugProfile(Profile)
-		end)
-
-		return Success
-	end
-
-	function StatsFeature:StartStaminaDebugCapture()
-		if not self:IsStaminaDebugAvailable()
-			or type(StaminaFeature.StartDebugCapture) ~= "function" then
-			return false
-		end
-
-		local Success = pcall(function()
-			StaminaFeature:StartDebugCapture(self:GetStaminaDebugProfile())
-		end)
-
-		return Success
-	end
-
-	function StatsFeature:ClearStaminaDebugCapture()
-		if not self:IsStaminaDebugAvailable()
-			or type(StaminaFeature.ClearDebugCapture) ~= "function" then
-			return false
-		end
-
-		local Success = pcall(function()
-			StaminaFeature:ClearDebugCapture()
-		end)
-
-		return Success
-	end
-
 	function StatsFeature:GetPanels()
 		local TargetPlayer = self:GetTargetPlayer()
 		local PreferredLeft, PreferredRight, PreferredCount = buildPreferredPanels(TargetPlayer)
 
 		if PreferredCount >= 4 then
-			appendStaminaStatusLines(TargetPlayer, PreferredRight)
 			return PreferredLeft, PreferredRight
 		end
 
@@ -710,8 +572,6 @@ return function(Config)
 		for _, Line in ipairs(LeaderstatsLines) do
 			table.insert(RightLines, Line)
 		end
-
-		appendStaminaStatusLines(TargetPlayer, RightLines)
 
 		return LeftLines, RightLines
 	end

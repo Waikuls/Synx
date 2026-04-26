@@ -2,7 +2,6 @@ return function(Config)
 	local Main = Config.Main
 	local FoodFeature = Config.FoodFeature
 	local WheyFeature = Config.WheyFeature
-	local StaminaFeature = Config.StaminaFeature
 	local AutoTrainFeature = Config.AutoTrainFeature
 	local AutoJobFeature = Config.AutoJobFeature
 
@@ -49,20 +48,6 @@ return function(Config)
 			FoodFeature:SetNoFoodAction(Value)
 		end,
 		Flag = "AutoEatNoFoodAction"
-	})
-
-	local Character = Main:AddSection({
-		Name = "CHARACTER",
-		Position = "left",
-		Height = 115
-	})
-
-	Character:AddToggle({
-		Name = "Inf stamina",
-		Callback = function(Value)
-			StaminaFeature:SetEnabled(Value)
-		end,
-		Flag = "InfStamina"
 	})
 
 	local AutoTrain = Main:AddSection({

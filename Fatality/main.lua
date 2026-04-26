@@ -58,7 +58,6 @@ local function hasCompleteLocalProject()
 		"features/freecam.lua",
 		"features/spectator.lua",
 		"features/food.lua",
-		"features/stamina.lua",
 		"features/stats.lua",
 		"features/webhook.lua",
 		"features/whey.lua",
@@ -286,18 +285,6 @@ local function createFallbackWheyFeature(ErrorMessage)
 	}
 end
 
-local function createFallbackStaminaFeature(ErrorMessage)
-	notifyModuleFailure("features/stamina.lua", ErrorMessage)
-
-	return {
-		SetEnabled = function()
-			return false
-		end,
-		Destroy = function()
-		end
-	}
-end
-
 local function createFallbackESP(ErrorMessage)
 	notifyModuleFailure("features/esp.lua", ErrorMessage)
 
@@ -506,27 +493,6 @@ local function createFallbackStatsFeature(ErrorMessage)
 		end,
 		SetTargetPlayer = function()
 			return game.Players.LocalPlayer
-		end,
-		IsStaminaDebugAvailable = function()
-			return false
-		end,
-		IsStaminaDebugEnabled = function()
-			return false
-		end,
-		SetStaminaDebugEnabled = function()
-		end,
-		GetStaminaDebugProfile = function()
-			return "Run"
-		end,
-		GetStaminaCaptureProfiles = function()
-			return {"Free", "Run", "Dash", "Attack"}
-		end,
-		SetStaminaDebugProfile = function()
-		end,
-		StartStaminaDebugCapture = function()
-			return false
-		end,
-		ClearStaminaDebugCapture = function()
 		end
 	}
 end
@@ -660,7 +626,6 @@ local CreateFoodFeature = safeLoadModule("features/food.lua", createFallbackFood
 local CreateAutoTrainFeature = safeLoadModule("features/autotrain.lua", createFallbackAutoTrainFeature)
 local CreateOpTrainingFeature = safeLoadModule("features/optraining.lua", createFallbackOpTrainingFeature)
 local CreateAutoJobFeature = safeLoadModule("features/autojob.lua", createFallbackAutoJobFeature)
-local CreateStaminaFeature = safeLoadModule("features/stamina.lua", createFallbackStaminaFeature)
 local CreateWebhookFeature = safeLoadModule("features/webhook.lua", createFallbackWebhookFeature)
 local CreateWheyFeature = safeLoadModule("features/whey.lua", createFallbackWheyFeature)
 local CreateStatsFeature = safeLoadModule("features/stats.lua", createFallbackStatsFeature)
@@ -729,12 +694,7 @@ end
 if WheyFeature and type(WheyFeature.SetAutoTrainRef) == "function" then
 	WheyFeature:SetAutoTrainRef(AutoTrainFeature)
 end
-local StaminaFeature = safeCreateModule("features/stamina.lua", CreateStaminaFeature, {
-	Notification = Notification
-}, createFallbackStaminaFeature)
-local StatsFeature = safeCreateModule("features/stats.lua", CreateStatsFeature, {
-	StaminaFeature = StaminaFeature
-}, createFallbackStatsFeature)
+local StatsFeature = safeCreateModule("features/stats.lua", CreateStatsFeature, {}, createFallbackStatsFeature)
 local StatsUI = safeCreateModule("ui/stats.lua", CreateStatsUI, {
 	Window = Window,
 	Fatality = Fatality,
@@ -747,7 +707,6 @@ safeRunModule("ui/main.lua", CreateMainUI, {
 	Main = Main,
 	FoodFeature = FoodFeature,
 	WheyFeature = WheyFeature,
-	StaminaFeature = StaminaFeature,
 	AutoTrainFeature = AutoTrainFeature,
 	AutoJobFeature = AutoJobFeature
 })
@@ -1164,7 +1123,6 @@ safeBuildBlock("Fatality/main.lua:MISC_STATIC", function()
 			AutoTrainFeature:Destroy()
 			OpTrainingFeature:Destroy()
 			AutoJobFeature:Destroy()
-			StaminaFeature:Destroy()
 			BoostFeature:Destroy()
 			BoostFpsFeature:Destroy()
 			NpcFreezeFeature:Destroy()
