@@ -4,9 +4,9 @@ return function(Config)
 
 	local Notification = Config and Config.Notification
 
-	-- Effect ClassNames we disable to free render budget. These are the
-	-- ones that fire every frame regardless of view direction and add up
-	-- fast in busy scenes.
+	-- Effect ClassNames we disable to free render budget. These fire
+	-- every frame regardless of view direction and add up fast in busy
+	-- scenes.
 	local DisableableEffects = {
 		ParticleEmitter = true,
 		Trail = true,
@@ -27,21 +27,25 @@ return function(Config)
 
 	local BoostFps = {
 		Enabled = false,
+		-- "normal" or "ultra". Tracked so the UI can mutual-exclude the
+		-- two toggles cleanly.
+		Mode = nil,
 		-- Single bag of saved values keyed by name. Cleared on disable
 		-- after restore.
 		Saved = {},
-		-- Map: instance -> previous Enabled value. Used so we only
-		-- restore exactly what we touched (skip instances that were
-		-- already disabled before boost activated).
+		-- Map: instance -> previous Enabled value. Lets us restore only
+		-- the instances we actually touched.
 		TouchedEffects = {},
 		Connections = {},
-		-- Target FPS cap. 360 is high enough that the cap won't be the
-		-- bottleneck on any consumer monitor.
-		TargetFps = 360,
-		-- FogEnd while boost is on. Small enough that distant geometry
-		-- gets fog-clipped (cheaper to render) but far enough that
-		-- normal gameplay isn't visibly clipped at melee range.
-		BoostFogEnd = 250,
+		-- Normal mode keeps fog comfortable for melee / interior play.
+		NormalFogEnd = 250,
+		-- Ultra pulls fog in tight so distant geometry gets clipped.
+		-- Looks foggy but cuts the most render work outside.
+		UltraFogEnd = 80,
+		-- Ultra streaming radius (only honored when the place uses
+		-- StreamingEnabled). 64 studs unloads anything past close
+		-- proximity.
+		UltraStreamingRadius = 64,
 	}
 
 	local function disableEffect(Inst)
@@ -72,11 +76,12 @@ return function(Config)
 		pcall(SetFn, NewValue)
 	end
 
-	local function applyBoost()
+	local function applyBoost(Mode)
 		BoostFps.Saved = {}
 		BoostFps.TouchedEffects = {}
 
-		-- Rendering quality
+		-- Rendering quality (set both knobs — different executors honor
+		-- different ones)
 		pcall(function()
 			local Render = settings().Rendering
 
@@ -96,6 +101,8 @@ return function(Config)
 		end)
 
 		-- Lighting
+		local FogEndTarget = (Mode == "ultra") and BoostFps.UltraFogEnd or BoostFps.NormalFogEnd
+
 		trackedSet("GlobalShadows",
 			function() return Lighting.GlobalShadows end,
 			function(v) Lighting.GlobalShadows = v end,
@@ -104,7 +111,7 @@ return function(Config)
 		trackedSet("FogEnd",
 			function() return Lighting.FogEnd end,
 			function(v) Lighting.FogEnd = v end,
-			BoostFps.BoostFogEnd)
+			FogEndTarget)
 
 		trackedSet("EnvironmentDiffuseScale",
 			function() return Lighting.EnvironmentDiffuseScale end,
@@ -115,11 +122,6 @@ return function(Config)
 			function() return Lighting.EnvironmentSpecularScale end,
 			function(v) Lighting.EnvironmentSpecularScale = v end,
 			0)
-
-		-- FPS cap raise
-		if type(setfpscap) == "function" then
-			pcall(setfpscap, BoostFps.TargetFps)
-		end
 
 		-- Disable existing effects in workspace + Lighting post effects
 		for _, Inst in ipairs(Workspace:GetDescendants()) do
@@ -170,6 +172,18 @@ return function(Config)
 				Terrain.WaterTransparency = 1
 			end)
 		end
+
+		-- Ultra-only: shrink streaming radius. Only meaningful for
+		-- places that ship with StreamingEnabled — otherwise silently
+		-- skipped so we don't break worlds that load everything.
+		if Mode == "ultra" then
+			pcall(function()
+				if Workspace.StreamingEnabled then
+					BoostFps.Saved.StreamingTargetRadius = Workspace.StreamingTargetRadius
+					Workspace.StreamingTargetRadius = BoostFps.UltraStreamingRadius
+				end
+			end)
+		end
 	end
 
 	local function revertBoost()
@@ -216,12 +230,6 @@ return function(Config)
 			pcall(function() Lighting.EnvironmentSpecularScale = Saved.EnvironmentSpecularScale end)
 		end
 
-		-- FPS cap restore. Most executors treat very high values as
-		-- effectively uncapped, which matches the engine's default.
-		if type(setfpscap) == "function" then
-			pcall(setfpscap, 240)
-		end
-
 		local Terrain = Workspace:FindFirstChildOfClass("Terrain")
 
 		if Terrain then
@@ -234,30 +242,29 @@ return function(Config)
 			end)
 		end
 
+		if Saved.StreamingTargetRadius ~= nil then
+			pcall(function() Workspace.StreamingTargetRadius = Saved.StreamingTargetRadius end)
+		end
+
 		BoostFps.Saved = {}
 	end
 
-	function BoostFps:SetEnabled(Value)
+	function BoostFps:SetEnabled(Value, Mode)
 		local State = Value and true or false
+		Mode = Mode or "normal"
 
-		if self.Enabled == State then
+		-- No-op if nothing is changing.
+		if State == self.Enabled and (not State or Mode == self.Mode) then
 			return State
 		end
 
-		self.Enabled = State
-
-		if State then
-			applyBoost()
-
-			if Notification then
-				Notification:Notify({
-					Title = "Boost FPS",
-					Content = "Graphics minimized for higher FPS",
-					Icon = "check-circle"
-				})
+		if not State then
+			if self.Enabled then
+				revertBoost()
 			end
-		else
-			revertBoost()
+
+			self.Enabled = false
+			self.Mode = nil
 
 			if Notification then
 				Notification:Notify({
@@ -266,11 +273,36 @@ return function(Config)
 					Icon = "x-circle"
 				})
 			end
+
+			warn("[KELV][BoostFps] disabled")
+			return State
 		end
 
-		warn("[KELV][BoostFps] " .. (State and "enabled" or "disabled"))
+		-- Enabling, possibly switching modes — revert old state first
+		-- so the new mode applies on top of the saved originals, not on
+		-- top of an already-mutated lighting set.
+		if self.Enabled then
+			revertBoost()
+		end
 
+		self.Enabled = true
+		self.Mode = Mode
+		applyBoost(Mode)
+
+		if Notification then
+			Notification:Notify({
+				Title = "Boost FPS",
+				Content = (Mode == "ultra") and "Ultra mode active" or "Graphics minimized for higher FPS",
+				Icon = "check-circle"
+			})
+		end
+
+		warn("[KELV][BoostFps] enabled mode=" .. Mode)
 		return State
+	end
+
+	function BoostFps:GetMode()
+		return self.Mode
 	end
 
 	function BoostFps:IsEnabled()

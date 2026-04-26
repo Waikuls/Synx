@@ -64,7 +64,8 @@ local function hasCompleteLocalProject()
 		"features/whey.lua",
 		"features/autojob.lua",
 		"features/boost.lua",
-		"features/boostfps.lua"
+		"features/boostfps.lua",
+		"features/npcfreeze.lua"
 	}
 
 	for _, LocalPath in ipairs(RequiredLocalFiles) do
@@ -473,6 +474,19 @@ local function createFallbackBoostFpsFeature(ErrorMessage)
 
 	return {
 		Enabled = false,
+		Mode = nil,
+		SetEnabled = function() return false end,
+		IsEnabled = function() return false end,
+		GetMode = function() return nil end,
+		Destroy = function() end
+	}
+end
+
+local function createFallbackNpcFreezeFeature(ErrorMessage)
+	notifyModuleFailure("features/npcfreeze.lua", ErrorMessage)
+
+	return {
+		Enabled = false,
 		SetEnabled = function() return false end,
 		IsEnabled = function() return false end,
 		Destroy = function() end
@@ -640,6 +654,7 @@ local Skins = Window:AddMenu({
 local CreateAntiAfkFeature = safeLoadModule("features/antiafk.lua", createFallbackAntiAfkFeature)
 local CreateBoostFeature = safeLoadModule("features/boost.lua", createFallbackBoostFeature)
 local CreateBoostFpsFeature = safeLoadModule("features/boostfps.lua", createFallbackBoostFpsFeature)
+local CreateNpcFreezeFeature = safeLoadModule("features/npcfreeze.lua", createFallbackNpcFreezeFeature)
 local CreateESP = safeLoadModule("features/esp.lua", createFallbackESP)
 local CreateFreecamFeature = safeLoadModule("features/freecam.lua", createFallbackFreecamFeature)
 local CreateSpectatorFeature = safeLoadModule("features/spectator.lua", createFallbackSpectatorFeature)
@@ -705,6 +720,9 @@ local BoostFeature = safeCreateModule("features/boost.lua", CreateBoostFeature, 
 local BoostFpsFeature = safeCreateModule("features/boostfps.lua", CreateBoostFpsFeature, {
 	Notification = Notification
 }, createFallbackBoostFpsFeature)
+local NpcFreezeFeature = safeCreateModule("features/npcfreeze.lua", CreateNpcFreezeFeature, {
+	Notification = Notification
+}, createFallbackNpcFreezeFeature)
 
 if OpTrainingFeature and type(OpTrainingFeature.SetAutoTrainRef) == "function" then
 	OpTrainingFeature:SetAutoTrainRef(AutoTrainFeature)
@@ -1083,6 +1101,19 @@ safeBuildBlock("Fatality/main.lua:MISC_BOOST", function()
 		Position = 'center'
 	})
 
+	-- Helper: flip another toggle's UI without going through this
+	-- block's own callback. Used so enabling one mode automatically
+	-- unticks the conflicting mode without recursion.
+	local function syncToggleFlag(FlagName, Value)
+		if not Window or type(Window.GetFlags) ~= "function" then return end
+
+		local Flag = Window:GetFlags()[FlagName]
+
+		if Flag and type(Flag.SetValue) == "function" then
+			pcall(function() Flag:SetValue(Value and true or false) end)
+		end
+	end
+
 	Boost:AddToggle({
 		Name = "For Auto Job",
 		Flag = "BoostAutoJob",
@@ -1097,10 +1128,66 @@ safeBuildBlock("Fatality/main.lua:MISC_BOOST", function()
 		Name = "Boost fps",
 		Flag = "BoostFps",
 		Callback = function(Value)
-			if BoostFpsFeature then
-				BoostFpsFeature:SetEnabled(Value)
+			if Value then
+				if BoostFpsFeature then
+					BoostFpsFeature:SetEnabled(true, "normal")
+				end
+				-- Untick Ultra so the two modes never report on
+				-- simultaneously.
+				syncToggleFlag("BoostFpsUltraToggle", false)
+			else
+				-- Only disable the feature if Normal mode actually
+				-- owns the current state. Otherwise Ultra was the one
+				-- driving and Boost fps's untick is just UI sync.
+				if BoostFpsFeature and BoostFpsFeature:GetMode() == "normal" then
+					BoostFpsFeature:SetEnabled(false)
+				end
 			end
 		end,
+	})
+
+	Boost:AddToggle({
+		Name = "Ultra Boost fps",
+		Flag = "BoostFpsUltra",
+		Callback = function(Value)
+			if Value then
+				if BoostFpsFeature then
+					BoostFpsFeature:SetEnabled(true, "ultra")
+				end
+				syncToggleFlag("BoostFpsToggle", false)
+			else
+				if BoostFpsFeature and BoostFpsFeature:GetMode() == "ultra" then
+					BoostFpsFeature:SetEnabled(false)
+				end
+			end
+		end,
+	})
+
+	Boost:AddToggle({
+		Name = "NPC anim freeze",
+		Flag = "NpcFreeze",
+		Callback = function(Value)
+			if NpcFreezeFeature then
+				NpcFreezeFeature:SetEnabled(Value)
+			end
+		end,
+	})
+
+	Boost:AddDropdown({
+		Name = "FPS cap",
+		Default = "Unlimited",
+		Values = {"60", "144", "240", "360", "Unlimited"},
+		Callback = function(Value)
+			if type(setfpscap) ~= "function" then
+				return
+			end
+
+			-- "Unlimited" maps to a very high cap so any monitor /
+			-- executor combination treats it as effectively uncapped.
+			local Cap = tonumber(Value) or 999
+			pcall(setfpscap, Cap)
+		end,
+		Flag = "FpsCap"
 	})
 end)
 
@@ -1124,6 +1211,7 @@ safeBuildBlock("Fatality/main.lua:MISC_STATIC", function()
 			StaminaFeature:Destroy()
 			BoostFeature:Destroy()
 			BoostFpsFeature:Destroy()
+			NpcFreezeFeature:Destroy()
 			StatsUI:Destroy()
 			table.clear(Fatality.DragBlacklist)
 
