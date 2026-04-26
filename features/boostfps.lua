@@ -48,9 +48,11 @@ return function(Config)
 		UltraFogEnd = 80,
 		-- Ultra streaming radius (only honored when StreamingEnabled).
 		UltraStreamingRadius = 64,
-		-- How many descendants to touch per chunk before yielding to
-		-- avoid a long freeze on Ultra activation in busy worlds.
-		ScanChunkSize = 500,
+		-- How many descendants to touch per chunk before yielding.
+		-- Smaller = lighter per-frame work (smoother during scan) at
+		-- the cost of longer total scan time. 100 keeps individual
+		-- frames cheap so Ultra activation doesn't hitch the client.
+		ScanChunkSize = 100,
 	}
 
 	local function trackProperty(Inst, Prop, NewValue)
@@ -108,20 +110,17 @@ return function(Config)
 		end
 	end
 
-	-- The Ultra-only per-instance mutations. These are the ones that
-	-- actually move the FPS needle vs Normal mode — fog distance alone
-	-- doesn't really cull rendering, it just tints distant geometry.
+	-- The Ultra-only per-instance mutations. Fog distance alone doesn't
+	-- really cull rendering, so Ultra needs per-instance changes — but
+	-- only the cheap-to-apply ones. RenderFidelity = Performance was
+	-- previously here and pulled because it forces Roblox to reload
+	-- LOD meshes for every MeshPart at once, which stalls the render
+	-- thread far worse than any FPS gain it produces.
 	local function applyUltraInstance(Inst)
 		if Inst:IsA("BasePart") then
 			-- CastShadow off saves the shadow rasterization pass even
 			-- after GlobalShadows toggle.
 			trackProperty(Inst, "CastShadow", false)
-		end
-
-		if Inst:IsA("MeshPart") then
-			-- Performance fidelity drops to a low-poly LOD mesh — the
-			-- single biggest geometry win in Ultra.
-			trackProperty(Inst, "RenderFidelity", Enum.RenderFidelity.Performance)
 		end
 
 		-- Texture inherits Decal, so this branch matches both.
@@ -214,18 +213,17 @@ return function(Config)
 			scanWorkspace(Mode, Generation)
 		end)
 
-		-- Hook future additions so effects/parts spawned mid-session
-		-- also get treated. Mode is read from BoostFps.Mode at fire
-		-- time so a Normal -> Ultra switch picks up the new mode
-		-- without rewiring connections.
+		-- Hook future additions so effects spawned mid-session
+		-- (explosions, weather) also get silenced. Ultra-specific
+		-- mutations (CastShadow / Decal transparency) intentionally do
+		-- NOT run here — Workspace.DescendantAdded fires constantly in
+		-- physics-heavy games (projectiles / debris) and per-fire
+		-- IsA + property writes adds steady CPU overhead that wipes
+		-- out the Ultra savings.
 		table.insert(BoostFps.Connections, Workspace.DescendantAdded:Connect(function(Inst)
 			if not BoostFps.Enabled then return end
 
 			applyEffectDisable(Inst)
-
-			if BoostFps.Mode == "ultra" then
-				applyUltraInstance(Inst)
-			end
 		end))
 
 		table.insert(BoostFps.Connections, Lighting.DescendantAdded:Connect(function(Inst)
