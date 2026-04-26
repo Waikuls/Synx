@@ -50,6 +50,12 @@ return function(Config)
 		Flag = "AutoEatNoFoodAction"
 	})
 
+	local Character = Main:AddSection({
+		Name = "CHARACTER",
+		Position = "left",
+		Height = 115
+	})
+
 	local AutoTrain = Main:AddSection({
 		Name = "AUTO TRAIN",
 		Position = "center",
