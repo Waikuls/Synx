@@ -4,8 +4,14 @@ return function(Config)
 
 	local Notification = Config and Config.Notification
 
-	-- Effect ClassNames we silence to free render budget. These fire
-	-- every frame regardless of view direction.
+	-- Workspace-side things we silence by setting Enabled = false. Mix
+	-- of particle effects and per-light render passes:
+	--   * ParticleEmitter / Trail / Beam / Smoke / Fire / Sparkles
+	--     fire every frame regardless of view direction.
+	--   * PointLight / SpotLight / SurfaceLight each cost a separate
+	--     light pass; rooms with stacked lights get expensive fast.
+	--   * Highlight runs an outline shader that's surprisingly heavy
+	--     once a few are active.
 	local DisableableEffects = {
 		ParticleEmitter = true,
 		Trail = true,
@@ -13,6 +19,10 @@ return function(Config)
 		Smoke = true,
 		Fire = true,
 		Sparkles = true,
+		PointLight = true,
+		SpotLight = true,
+		SurfaceLight = true,
+		Highlight = true,
 	}
 
 	-- Lighting post-process effects. Each costs a full-screen pass.
@@ -26,33 +36,24 @@ return function(Config)
 
 	local BoostFps = {
 		Enabled = false,
-		-- "normal" or "ultra".
-		Mode = nil,
-		-- Saved global properties (Lighting / Terrain / Workspace).
+		-- Saved global properties (Lighting / Terrain).
 		Saved = {},
 		-- Per-instance property snapshots:
 		--   TouchedInstances[Inst] = { [Prop] = OriginalValue, ... }
-		-- Lets us restore exactly what we mutated, including
-		-- properties already at the target value (we skip those at
-		-- mutation time so they never enter this map).
 		TouchedInstances = {},
 		Connections = {},
-		-- Background scan generation. Ultra's workspace walk yields
-		-- between chunks; if the user toggles off mid-scan we bump this
-		-- and the in-flight scan exits on its next yield.
+		-- Background scan generation. Bumped on revert so an in-flight
+		-- scan exits at its next yield instead of mutating restored
+		-- state.
 		ScanGeneration = 0,
-		-- Normal mode keeps fog comfortable for melee / interior play.
-		NormalFogEnd = 250,
-		-- Ultra pulls fog in tight so distant geometry still gets
-		-- fog-blended (mostly visual, not the main perf gain).
-		UltraFogEnd = 80,
-		-- Ultra streaming radius (only honored when StreamingEnabled).
-		UltraStreamingRadius = 64,
-		-- How many descendants to touch per chunk before yielding.
-		-- Smaller = lighter per-frame work (smoother during scan) at
-		-- the cost of longer total scan time. 100 keeps individual
-		-- frames cheap so Ultra activation doesn't hitch the client.
-		ScanChunkSize = 100,
+		-- Comfortable fog distance — close enough that distant
+		-- geometry gets fog-blended, far enough that melee / interior
+		-- play isn't visibly clipped.
+		FogEnd = 250,
+		-- Chunk size for the workspace scan. Small so each frame stays
+		-- cheap during activation; total scan finishes in a few
+		-- frames either way.
+		ScanChunkSize = 200,
 	}
 
 	local function trackProperty(Inst, Prop, NewValue)
@@ -62,8 +63,6 @@ return function(Config)
 
 		local Existing = BoostFps.TouchedInstances[Inst]
 
-		-- Already touched this prop on this instance — leave the
-		-- saved original alone and don't overwrite our snapshot.
 		if Existing and Existing[Prop] ~= nil then
 			return
 		end
@@ -74,7 +73,6 @@ return function(Config)
 			return
 		end
 
-		-- Already at target — nothing to mutate, nothing to restore.
 		if OldValue == NewValue then
 			return
 		end
@@ -98,41 +96,23 @@ return function(Config)
 		pcall(SetFn, NewValue)
 	end
 
-	local function applyEffectDisable(Inst)
+	local function applyWorkspaceInstance(Inst)
 		if DisableableEffects[Inst.ClassName] then
 			trackProperty(Inst, "Enabled", false)
 		end
 	end
 
-	local function applyPostEffectDisable(Inst)
+	local function applyLightingInstance(Inst)
 		if PostEffectClasses[Inst.ClassName] then
 			trackProperty(Inst, "Enabled", false)
+		elseif Inst.ClassName == "Atmosphere" then
+			-- Atmosphere doesn't have an Enabled flag — Density 0
+			-- effectively turns the scattering pass off.
+			trackProperty(Inst, "Density", 0)
 		end
 	end
 
-	-- The Ultra-only per-instance mutations. Fog distance alone doesn't
-	-- really cull rendering, so Ultra needs per-instance changes — but
-	-- only the cheap-to-apply ones. RenderFidelity = Performance was
-	-- previously here and pulled because it forces Roblox to reload
-	-- LOD meshes for every MeshPart at once, which stalls the render
-	-- thread far worse than any FPS gain it produces.
-	local function applyUltraInstance(Inst)
-		if Inst:IsA("BasePart") then
-			-- CastShadow off saves the shadow rasterization pass even
-			-- after GlobalShadows toggle.
-			trackProperty(Inst, "CastShadow", false)
-		end
-
-		-- Texture inherits Decal, so this branch matches both.
-		if Inst:IsA("Decal") then
-			-- Hides the surface image and skips its texture sampler.
-			-- Walls / signs lose their art — the visible "Ultra is
-			-- ugly" tradeoff the user opted into.
-			trackProperty(Inst, "Transparency", 1)
-		end
-	end
-
-	local function scanWorkspace(Mode, Generation)
+	local function scanWorkspace(Generation)
 		local Descendants = Workspace:GetDescendants()
 
 		for Index, Inst in ipairs(Descendants) do
@@ -140,11 +120,7 @@ return function(Config)
 				return
 			end
 
-			applyEffectDisable(Inst)
-
-			if Mode == "ultra" then
-				applyUltraInstance(Inst)
-			end
+			applyWorkspaceInstance(Inst)
 
 			if Index % BoostFps.ScanChunkSize == 0 then
 				task.wait()
@@ -152,7 +128,7 @@ return function(Config)
 		end
 	end
 
-	local function applyBoost(Mode)
+	local function applyBoost()
 		BoostFps.Saved = {}
 		BoostFps.TouchedInstances = {}
 		BoostFps.ScanGeneration = BoostFps.ScanGeneration + 1
@@ -178,9 +154,7 @@ return function(Config)
 			end
 		end)
 
-		-- Lighting
-		local FogEndTarget = (Mode == "ultra") and BoostFps.UltraFogEnd or BoostFps.NormalFogEnd
-
+		-- Lighting globals
 		trackedSet("GlobalShadows",
 			function() return Lighting.GlobalShadows end,
 			function(v) Lighting.GlobalShadows = v end,
@@ -189,7 +163,7 @@ return function(Config)
 		trackedSet("FogEnd",
 			function() return Lighting.FogEnd end,
 			function(v) Lighting.FogEnd = v end,
-			FogEndTarget)
+			BoostFps.FogEnd)
 
 		trackedSet("EnvironmentDiffuseScale",
 			function() return Lighting.EnvironmentDiffuseScale end,
@@ -201,35 +175,30 @@ return function(Config)
 			function(v) Lighting.EnvironmentSpecularScale = v end,
 			0)
 
-		-- Existing post effects under Lighting
+		-- Existing post effects + Atmosphere under Lighting
 		for _, Inst in ipairs(Lighting:GetDescendants()) do
-			applyPostEffectDisable(Inst)
+			applyLightingInstance(Inst)
 		end
 
-		-- Workspace scan happens in the background so the toggle
-		-- callback returns immediately. Big worlds (50k+ descendants)
-		-- can otherwise freeze the client for hundreds of ms.
+		-- Workspace scan runs in background so the toggle returns
+		-- immediately. Lights / particles / highlights get touched in
+		-- chunks of ScanChunkSize per frame.
 		task.spawn(function()
-			scanWorkspace(Mode, Generation)
+			scanWorkspace(Generation)
 		end)
 
 		-- Hook future additions so effects spawned mid-session
-		-- (explosions, weather) also get silenced. Ultra-specific
-		-- mutations (CastShadow / Decal transparency) intentionally do
-		-- NOT run here — Workspace.DescendantAdded fires constantly in
-		-- physics-heavy games (projectiles / debris) and per-fire
-		-- IsA + property writes adds steady CPU overhead that wipes
-		-- out the Ultra savings.
+		-- (explosions, weather, new highlights) also get silenced.
+		-- Cheap because each fire is a single ClassName lookup +
+		-- maybe one property write.
 		table.insert(BoostFps.Connections, Workspace.DescendantAdded:Connect(function(Inst)
 			if not BoostFps.Enabled then return end
-
-			applyEffectDisable(Inst)
+			applyWorkspaceInstance(Inst)
 		end))
 
 		table.insert(BoostFps.Connections, Lighting.DescendantAdded:Connect(function(Inst)
 			if not BoostFps.Enabled then return end
-
-			applyPostEffectDisable(Inst)
+			applyLightingInstance(Inst)
 		end))
 
 		-- Terrain water + decoration
@@ -250,24 +219,9 @@ return function(Config)
 				Terrain.WaterTransparency = 1
 			end)
 		end
-
-		-- Ultra-only: shrink streaming radius. Only meaningful for
-		-- places that ship with StreamingEnabled — otherwise silently
-		-- skipped so we don't break worlds that load everything.
-		if Mode == "ultra" then
-			pcall(function()
-				if Workspace.StreamingEnabled then
-					BoostFps.Saved.StreamingTargetRadius = Workspace.StreamingTargetRadius
-					Workspace.StreamingTargetRadius = BoostFps.UltraStreamingRadius
-				end
-			end)
-		end
 	end
 
 	local function revertBoost()
-		-- Bump generation first so any in-flight Ultra scan exits on
-		-- its next yield instead of mutating state we're about to
-		-- restore.
 		BoostFps.ScanGeneration = BoostFps.ScanGeneration + 1
 
 		for _, Conn in ipairs(BoostFps.Connections) do
@@ -275,7 +229,6 @@ return function(Config)
 		end
 		BoostFps.Connections = {}
 
-		-- Restore every per-instance property we mutated.
 		for Inst, Props in pairs(BoostFps.TouchedInstances) do
 			if Inst and Inst.Parent then
 				for Prop, OldValue in pairs(Props) do
@@ -327,28 +280,30 @@ return function(Config)
 			end)
 		end
 
-		if Saved.StreamingTargetRadius ~= nil then
-			pcall(function() Workspace.StreamingTargetRadius = Saved.StreamingTargetRadius end)
-		end
-
 		BoostFps.Saved = {}
 	end
 
-	function BoostFps:SetEnabled(Value, Mode)
+	function BoostFps:SetEnabled(Value)
 		local State = Value and true or false
-		Mode = Mode or "normal"
 
-		if State == self.Enabled and (not State or Mode == self.Mode) then
+		if self.Enabled == State then
 			return State
 		end
 
-		if not State then
-			if self.Enabled then
-				revertBoost()
-			end
+		self.Enabled = State
 
-			self.Enabled = false
-			self.Mode = nil
+		if State then
+			applyBoost()
+
+			if Notification then
+				Notification:Notify({
+					Title = "Boost FPS",
+					Content = "Graphics minimized for higher FPS",
+					Icon = "check-circle"
+				})
+			end
+		else
+			revertBoost()
 
 			if Notification then
 				Notification:Notify({
@@ -357,41 +312,11 @@ return function(Config)
 					Icon = "x-circle"
 				})
 			end
-
-			warn("[KELV][BoostFps] disabled")
-			return State
 		end
 
-		-- Switching modes: revert first so the new mode applies on top
-		-- of the saved originals, not on top of an already-mutated set.
-		if self.Enabled then
-			revertBoost()
-		end
+		warn("[KELV][BoostFps] " .. (State and "enabled" or "disabled"))
 
-		self.Enabled = true
-		self.Mode = Mode
-		applyBoost(Mode)
-
-		if Notification then
-			local Msg = "Graphics minimized for higher FPS"
-
-			if Mode == "ultra" then
-				Msg = "Ultra mode applying — scan runs in background"
-			end
-
-			Notification:Notify({
-				Title = "Boost FPS",
-				Content = Msg,
-				Icon = "check-circle"
-			})
-		end
-
-		warn("[KELV][BoostFps] enabled mode=" .. Mode)
 		return State
-	end
-
-	function BoostFps:GetMode()
-		return self.Mode
 	end
 
 	function BoostFps:IsEnabled()

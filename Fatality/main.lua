@@ -474,10 +474,8 @@ local function createFallbackBoostFpsFeature(ErrorMessage)
 
 	return {
 		Enabled = false,
-		Mode = nil,
 		SetEnabled = function() return false end,
 		IsEnabled = function() return false end,
-		GetMode = function() return nil end,
 		Destroy = function() end
 	}
 end
@@ -1101,19 +1099,6 @@ safeBuildBlock("Fatality/main.lua:MISC_BOOST", function()
 		Position = 'center'
 	})
 
-	-- Helper: flip another toggle's UI without going through this
-	-- block's own callback. Used so enabling one mode automatically
-	-- unticks the conflicting mode without recursion.
-	local function syncToggleFlag(FlagName, Value)
-		if not Window or type(Window.GetFlags) ~= "function" then return end
-
-		local Flag = Window:GetFlags()[FlagName]
-
-		if Flag and type(Flag.SetValue) == "function" then
-			pcall(function() Flag:SetValue(Value and true or false) end)
-		end
-	end
-
 	Boost:AddToggle({
 		Name = "For Auto Job",
 		Flag = "BoostAutoJob",
@@ -1128,37 +1113,8 @@ safeBuildBlock("Fatality/main.lua:MISC_BOOST", function()
 		Name = "Boost fps",
 		Flag = "BoostFps",
 		Callback = function(Value)
-			if Value then
-				if BoostFpsFeature then
-					BoostFpsFeature:SetEnabled(true, "normal")
-				end
-				-- Untick Ultra so the two modes never report on
-				-- simultaneously.
-				syncToggleFlag("BoostFpsUltraToggle", false)
-			else
-				-- Only disable the feature if Normal mode actually
-				-- owns the current state. Otherwise Ultra was the one
-				-- driving and Boost fps's untick is just UI sync.
-				if BoostFpsFeature and BoostFpsFeature:GetMode() == "normal" then
-					BoostFpsFeature:SetEnabled(false)
-				end
-			end
-		end,
-	})
-
-	Boost:AddToggle({
-		Name = "Ultra Boost fps",
-		Flag = "BoostFpsUltra",
-		Callback = function(Value)
-			if Value then
-				if BoostFpsFeature then
-					BoostFpsFeature:SetEnabled(true, "ultra")
-				end
-				syncToggleFlag("BoostFpsToggle", false)
-			else
-				if BoostFpsFeature and BoostFpsFeature:GetMode() == "ultra" then
-					BoostFpsFeature:SetEnabled(false)
-				end
+			if BoostFpsFeature then
+				BoostFpsFeature:SetEnabled(Value)
 			end
 		end,
 	})
