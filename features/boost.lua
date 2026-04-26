@@ -12,7 +12,12 @@ return function(Config)
 		Enabled = false,
 		Overlay = nil,
 		YenLabel = nil,
+		RateLabel = nil,
 		YenConn = nil,
+		RateConn = nil,
+		StartYen = nil,
+		StartTime = nil,
+		LatestYen = nil,
 		-- Flags allowed to stay on while boost runs.
 		--   AutoJob:      we leave it alone — user controls it
 		--   AntiAfk:      stops the game kicking us while AFK farming
@@ -112,10 +117,46 @@ return function(Config)
 			pcall(function() BoostFeature.YenConn:Disconnect() end)
 			BoostFeature.YenConn = nil
 		end
+
+		if BoostFeature.RateConn then
+			pcall(function() BoostFeature.RateConn:Disconnect() end)
+			BoostFeature.RateConn = nil
+		end
+	end
+
+	local function formatRate(PerHour)
+		local Sign = (PerHour > 0) and "+" or ""
+		return string.format("%s%s / hr", Sign, formatMoney(PerHour))
+	end
+
+	local function refreshRate()
+		local Label = BoostFeature.RateLabel
+
+		if not Label or not BoostFeature.StartTime then
+			return
+		end
+
+		local Elapsed = os.clock() - BoostFeature.StartTime
+
+		-- First couple of seconds the rate would extrapolate to a wild
+		-- number from a single delivery. Hold at 0 until we have a
+		-- meaningful sample window.
+		if Elapsed < 2 then
+			Label.Text = "+0 / hr"
+			return
+		end
+
+		local Earned = (BoostFeature.LatestYen or BoostFeature.StartYen or 0) - (BoostFeature.StartYen or 0)
+		local PerHour = Earned * 3600 / Elapsed
+		Label.Text = formatRate(PerHour)
 	end
 
 	local function bindYen(Label)
 		disconnectYen()
+
+		BoostFeature.StartYen = nil
+		BoostFeature.StartTime = nil
+		BoostFeature.LatestYen = nil
 
 		local function attach(YenValue)
 			if not BoostFeature.Enabled or not BoostFeature.YenLabel then
@@ -123,12 +164,35 @@ return function(Config)
 			end
 
 			local Ok, Current = pcall(function() return YenValue.Value end)
-			Label.Text = formatMoney(Ok and Current or 0)
+			local Initial = (Ok and Current) or 0
+
+			BoostFeature.StartYen = Initial
+			BoostFeature.StartTime = os.clock()
+			BoostFeature.LatestYen = Initial
+
+			Label.Text = formatMoney(Initial)
+
+			if BoostFeature.RateLabel then
+				BoostFeature.RateLabel.Text = "+0 / hr"
+			end
 
 			BoostFeature.YenConn = YenValue:GetPropertyChangedSignal("Value"):Connect(function()
 				if not BoostFeature.YenLabel then return end
 				local OkInner, Latest = pcall(function() return YenValue.Value end)
-				BoostFeature.YenLabel.Text = formatMoney(OkInner and Latest or 0)
+				local Cur = (OkInner and Latest) or 0
+				BoostFeature.LatestYen = Cur
+				BoostFeature.YenLabel.Text = formatMoney(Cur)
+				refreshRate()
+			end)
+
+			-- Background tick so the rate decays even when the player
+			-- isn't earning. Without this, idle minutes leave the
+			-- displayed rate stuck at the last successful delivery.
+			task.spawn(function()
+				while BoostFeature.Enabled and BoostFeature.RateLabel do
+					task.wait(3)
+					refreshRate()
+				end
 			end)
 		end
 
@@ -193,21 +257,32 @@ return function(Config)
 		CurrencyTag.Parent = Stack
 
 		local YenLabel = Instance.new("TextLabel")
-		YenLabel.Size = UDim2.new(1, 0, 0, 130)
-		YenLabel.Position = UDim2.new(0, 0, 0, 50)
+		YenLabel.Size = UDim2.new(1, 0, 0, 120)
+		YenLabel.Position = UDim2.new(0, 0, 0, 46)
 		YenLabel.BackgroundTransparency = 1
 		YenLabel.Text = "0"
 		YenLabel.TextColor3 = Color3.fromRGB(25, 25, 25)
-		YenLabel.TextSize = 110
+		YenLabel.TextSize = 100
 		YenLabel.Font = Enum.Font.GothamBold
 		YenLabel.TextXAlignment = Enum.TextXAlignment.Center
 		YenLabel.TextYAlignment = Enum.TextYAlignment.Center
 		YenLabel.Parent = Stack
 
+		local RateLabel = Instance.new("TextLabel")
+		RateLabel.Size = UDim2.new(1, 0, 0, 22)
+		RateLabel.Position = UDim2.new(0, 0, 0, 172)
+		RateLabel.BackgroundTransparency = 1
+		RateLabel.Text = "+0 / hr"
+		RateLabel.TextColor3 = Color3.fromRGB(140, 140, 140)
+		RateLabel.TextSize = 18
+		RateLabel.Font = Enum.Font.GothamBold
+		RateLabel.TextXAlignment = Enum.TextXAlignment.Center
+		RateLabel.Parent = Stack
+
 		local Btn = Instance.new("TextButton")
 		Btn.AnchorPoint = Vector2.new(0.5, 0)
 		Btn.Size = UDim2.new(0, 220, 0, 40)
-		Btn.Position = UDim2.new(0.5, 0, 0, 200)
+		Btn.Position = UDim2.new(0.5, 0, 0, 210)
 		Btn.BackgroundColor3 = Color3.fromRGB(255, 106, 133)
 		Btn.BorderSizePixel = 0
 		Btn.Text = "DISABLE BOOST"
@@ -233,6 +308,7 @@ return function(Config)
 		Gui.Parent = CoreGui
 
 		BoostFeature.YenLabel = YenLabel
+		BoostFeature.RateLabel = RateLabel
 		bindYen(YenLabel)
 
 		return Gui
@@ -287,6 +363,10 @@ return function(Config)
 
 			disconnectYen()
 			self.YenLabel = nil
+			self.RateLabel = nil
+			self.StartYen = nil
+			self.StartTime = nil
+			self.LatestYen = nil
 
 			if self.Overlay then
 				pcall(function() self.Overlay:Destroy() end)
