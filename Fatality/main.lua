@@ -63,7 +63,8 @@ local function hasCompleteLocalProject()
 		"features/webhook.lua",
 		"features/whey.lua",
 		"features/autojob.lua",
-		"features/boost.lua"
+		"features/boost.lua",
+		"features/boostfps.lua"
 	}
 
 	for _, LocalPath in ipairs(RequiredLocalFiles) do
@@ -467,6 +468,17 @@ local function createFallbackBoostFeature(ErrorMessage)
 	}
 end
 
+local function createFallbackBoostFpsFeature(ErrorMessage)
+	notifyModuleFailure("features/boostfps.lua", ErrorMessage)
+
+	return {
+		Enabled = false,
+		SetEnabled = function() return false end,
+		IsEnabled = function() return false end,
+		Destroy = function() end
+	}
+end
+
 local function createFallbackStatsFeature(ErrorMessage)
 	notifyModuleFailure("features/stats.lua", ErrorMessage)
 
@@ -627,6 +639,7 @@ local Skins = Window:AddMenu({
 
 local CreateAntiAfkFeature = safeLoadModule("features/antiafk.lua", createFallbackAntiAfkFeature)
 local CreateBoostFeature = safeLoadModule("features/boost.lua", createFallbackBoostFeature)
+local CreateBoostFpsFeature = safeLoadModule("features/boostfps.lua", createFallbackBoostFpsFeature)
 local CreateESP = safeLoadModule("features/esp.lua", createFallbackESP)
 local CreateFreecamFeature = safeLoadModule("features/freecam.lua", createFallbackFreecamFeature)
 local CreateSpectatorFeature = safeLoadModule("features/spectator.lua", createFallbackSpectatorFeature)
@@ -689,6 +702,9 @@ local BoostFeature = safeCreateModule("features/boost.lua", CreateBoostFeature, 
 	Notification = Notification,
 	Window = Window
 }, createFallbackBoostFeature)
+local BoostFpsFeature = safeCreateModule("features/boostfps.lua", CreateBoostFpsFeature, {
+	Notification = Notification
+}, createFallbackBoostFpsFeature)
 
 if OpTrainingFeature and type(OpTrainingFeature.SetAutoTrainRef) == "function" then
 	OpTrainingFeature:SetAutoTrainRef(AutoTrainFeature)
@@ -1079,7 +1095,12 @@ safeBuildBlock("Fatality/main.lua:MISC_BOOST", function()
 
 	Boost:AddToggle({
 		Name = "Boost fps",
-		Flag = "BoostFps"
+		Flag = "BoostFps",
+		Callback = function(Value)
+			if BoostFpsFeature then
+				BoostFpsFeature:SetEnabled(Value)
+			end
+		end,
 	})
 end)
 
@@ -1102,6 +1123,7 @@ safeBuildBlock("Fatality/main.lua:MISC_STATIC", function()
 			AutoJobFeature:Destroy()
 			StaminaFeature:Destroy()
 			BoostFeature:Destroy()
+			BoostFpsFeature:Destroy()
 			StatsUI:Destroy()
 			table.clear(Fatality.DragBlacklist)
 
