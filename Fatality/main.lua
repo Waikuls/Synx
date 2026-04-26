@@ -62,7 +62,8 @@ local function hasCompleteLocalProject()
 		"features/stats.lua",
 		"features/webhook.lua",
 		"features/whey.lua",
-		"features/autojob.lua"
+		"features/autojob.lua",
+		"features/boost.lua"
 	}
 
 	for _, LocalPath in ipairs(RequiredLocalFiles) do
@@ -455,6 +456,17 @@ local function createFallbackWebhookFeature(ErrorMessage)
 	}
 end
 
+local function createFallbackBoostFeature(ErrorMessage)
+	notifyModuleFailure("features/boost.lua", ErrorMessage)
+
+	return {
+		Enabled = false,
+		SetEnabled = function() return false end,
+		IsEnabled = function() return false end,
+		Destroy = function() end
+	}
+end
+
 local function createFallbackStatsFeature(ErrorMessage)
 	notifyModuleFailure("features/stats.lua", ErrorMessage)
 
@@ -614,6 +626,7 @@ local Skins = Window:AddMenu({
 })
 
 local CreateAntiAfkFeature = safeLoadModule("features/antiafk.lua", createFallbackAntiAfkFeature)
+local CreateBoostFeature = safeLoadModule("features/boost.lua", createFallbackBoostFeature)
 local CreateESP = safeLoadModule("features/esp.lua", createFallbackESP)
 local CreateFreecamFeature = safeLoadModule("features/freecam.lua", createFallbackFreecamFeature)
 local CreateSpectatorFeature = safeLoadModule("features/spectator.lua", createFallbackSpectatorFeature)
@@ -672,6 +685,10 @@ local AutoTrainFeature = safeCreateModule("features/autotrain.lua", CreateAutoTr
 local AutoJobFeature = safeCreateModule("features/autojob.lua", CreateAutoJobFeature, {
 	Notification = Notification
 }, createFallbackAutoJobFeature)
+local BoostFeature = safeCreateModule("features/boost.lua", CreateBoostFeature, {
+	Notification = Notification,
+	Window = Window
+}, createFallbackBoostFeature)
 
 if OpTrainingFeature and type(OpTrainingFeature.SetAutoTrainRef) == "function" then
 	OpTrainingFeature:SetAutoTrainRef(AutoTrainFeature)
@@ -1044,6 +1061,23 @@ safeBuildBlock("Fatality/main.lua:MISC_WEBHOOK", function()
 	})
 end)
 
+safeBuildBlock("Fatality/main.lua:MISC_BOOST", function()
+	local Boost = Misc:AddSection({
+		Name = "BOOST",
+		Position = 'center'
+	})
+
+	Boost:AddToggle({
+		Name = "For Auto Job",
+		Flag = "BoostAutoJob",
+		Callback = function(Value)
+			if BoostFeature then
+				BoostFeature:SetEnabled(Value)
+			end
+		end,
+	})
+end)
+
 safeBuildBlock("Fatality/main.lua:MISC_STATIC", function()
 	local General = Misc:AddSection({
 		Name = "GENERAL",
@@ -1062,6 +1096,7 @@ safeBuildBlock("Fatality/main.lua:MISC_STATIC", function()
 			OpTrainingFeature:Destroy()
 			AutoJobFeature:Destroy()
 			StaminaFeature:Destroy()
+			BoostFeature:Destroy()
 			StatsUI:Destroy()
 			table.clear(Fatality.DragBlacklist)
 
