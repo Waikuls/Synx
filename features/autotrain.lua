@@ -1969,7 +1969,10 @@ return function(Config)
 
 			if self.MaxFatigueAction == "Kick" and not OpEnabled then
 				pcall(function()
-					LocalPlayer:Kick()
+					LocalPlayer:Kick(string.format(
+						"[KELV Auto Train] Body Fatigue ถึง %d%% — kick อัตโนมัติเพื่อป้องกันไม่ให้ค่าตันเพิ่ม กลับมาเมื่อ fatigue ลดแล้ว",
+						math.floor(CurrentBodyFatigue + 0.5)
+					))
 				end)
 			end
 
