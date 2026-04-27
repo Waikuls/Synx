@@ -215,32 +215,58 @@ return function(Config)
 			extra and (" | " .. extra) or ""))
 	end
 
-	local function isAttackAnimation(animation)
+	local function isAttackAnimation(track, animation)
+		animation = animation or (track and track.Animation)
 		if not animation then return false end
 
 		local id = animation.AnimationId
 		if not id or id == "" then return false end
 
-		-- 1. ID map (fast path — populated by buildIdMap on enable).
-		local fromMap = AutoParryFeature.IdMap[id]
-		if fromMap ~= nil then return fromMap end
+		-- 1. Cached verdict from a previous resolution.
+		local cached = AutoParryFeature.IdMap[id]
+		if cached ~= nil then return cached end
 
-		-- 2. Live path. Only useful when the game plays a parented Animation
-		-- directly; on this game it tends to be just "Animation".
 		local path = animation:GetFullName()
+		local instName = animation.Name
+
+		-- 2. Real path classification (works when the game plays a parented
+		-- Animation directly).
 		if path and path ~= "" and path ~= "Animation" then
-			local verdict = pathIsAttack(path, animation.Name)
+			local verdict = pathIsAttack(path, instName)
 			AutoParryFeature.IdMap[id] = verdict
 			return verdict
 		end
 
-		-- 3. MarketplaceService name lookup. Async — first encounter returns
-		-- nil ("still fetching") and we miss this parry; subsequent plays of
-		-- the same ID will hit the resolved cache.
+		-- 3. Reject obvious non-combat by instance name. The standard Roblox
+		-- Animate script names its tracks "idle" / "walk" / "run" / "jump" /
+		-- "fall" / "climb" / "sit" — those cover the cases we want to skip
+		-- before guessing.
+		if DenyNameSet[instName] then
+			AutoParryFeature.IdMap[id] = false
+			return false
+		end
+
+		-- 4. Track-based heuristic. The game tends to fire combat anims via
+		-- Instance.new("Animation") + LoadAnimation, leaving the instance
+		-- name at its default "Animation". Movement uses the standard
+		-- Animate script which names tracks properly. So a non-looped track
+		-- named exactly "Animation" with combat-shaped length is almost
+		-- always an attack.
+		if instName == "Animation" and track and not track.Looped then
+			local len = track.Length
+			if len and len > 0.1 and len < 3.5 then
+				AutoParryFeature.IdMap[id] = true
+				return true
+			end
+		end
+
+		-- 5. Last resort: MarketplaceService name lookup. Async — first
+		-- encounter returns nil ("still fetching"); subsequent plays of the
+		-- same ID hit the resolved cache.
 		local nm = fetchAnimNameAsync(id)
 		if nm == nil then return false end
 
-		local verdict = nameIsAttack(nm)
+		local verdict = (nm ~= "") and nameIsAttack(nm) or false
 		AutoParryFeature.IdMap[id] = verdict
 		return verdict
 	end
@@ -416,15 +442,18 @@ return function(Config)
 		pcall(function() remote:FireServer(upArgs) end)
 	end
 
-	local function tryParry(model, animation)
+	local function tryParry(model, track)
 		if not AutoParryFeature.Enabled then return end
+
+		local animation = track and track.Animation
+		if not animation then return end
 
 		local now = os.clock()
 		if now - AutoParryFeature.LastParryAt < AutoParryFeature.ParryCooldown then
 			return
 		end
 
-		if not isAttackAnimation(animation) then
+		if not isAttackAnimation(track, animation) then
 			debugLog("skip: not attack", model, animation)
 			return
 		end
@@ -450,12 +479,29 @@ return function(Config)
 		-- parallel parry.
 		AutoParryFeature.LastParryAt = now
 
-		local delayMs = getDelayMs()
+		-- Parry windows sit in the back half of the attack wind-up, so
+		-- firing F immediately on AnimationPlayed lands well before the
+		-- window opens. Use the track's own Length to derive a base delay
+		-- aimed ~70% through the wind-up; the user's slider then adds
+		-- random jitter on top for both anti-detection and edge-case
+		-- robustness.
+		local userJitter = getDelayMs()
+		local len = (track and track.Length) or 0
+		local baseDelay = 0
 
-		debugLog("FIRE", model, animation, string.format("delay<=%dms", delayMs))
+		if len > 0.15 and len < 3.0 then
+			baseDelay = math.floor(len * 700)
+		end
 
-		if delayMs > 0 then
-			task.wait(math.random(0, delayMs) / 1000)
+		local jitter = (userJitter > 0) and math.random(0, userJitter) or 0
+		local actualDelay = baseDelay + jitter
+
+		debugLog("FIRE", model, animation,
+			string.format("len=%.2fs base=%dms jitter=%dms total=%dms",
+				len, baseDelay, jitter, actualDelay))
+
+		if actualDelay > 0 then
+			task.wait(actualDelay / 1000)
 		end
 
 		if not AutoParryFeature.Enabled then return end
@@ -496,8 +542,7 @@ return function(Config)
 
 				if animator then
 					local conn = animator.AnimationPlayed:Connect(function(track)
-						local anim = track and track.Animation
-						tryParry(model, anim)
+						tryParry(model, track)
 					end)
 					AutoParryFeature.AnimConnections[model] = conn
 					return
