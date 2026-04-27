@@ -64,7 +64,8 @@ local function hasCompleteLocalProject()
 		"features/autojob.lua",
 		"features/boost.lua",
 		"features/boostfps.lua",
-		"features/npcfreeze.lua"
+		"features/npcfreeze.lua",
+		"features/autoparry.lua"
 	}
 
 	for _, LocalPath in ipairs(RequiredLocalFiles) do
@@ -478,6 +479,17 @@ local function createFallbackNpcFreezeFeature(ErrorMessage)
 	}
 end
 
+local function createFallbackAutoParryFeature(ErrorMessage)
+	notifyModuleFailure("features/autoparry.lua", ErrorMessage)
+
+	return {
+		Enabled = false,
+		SetEnabled = function() return false end,
+		IsEnabled = function() return false end,
+		Destroy = function() end
+	}
+end
+
 local function createFallbackStatsFeature(ErrorMessage)
 	notifyModuleFailure("features/stats.lua", ErrorMessage)
 
@@ -619,6 +631,7 @@ local CreateAntiAfkFeature = safeLoadModule("features/antiafk.lua", createFallba
 local CreateBoostFeature = safeLoadModule("features/boost.lua", createFallbackBoostFeature)
 local CreateBoostFpsFeature = safeLoadModule("features/boostfps.lua", createFallbackBoostFpsFeature)
 local CreateNpcFreezeFeature = safeLoadModule("features/npcfreeze.lua", createFallbackNpcFreezeFeature)
+local CreateAutoParryFeature = safeLoadModule("features/autoparry.lua", createFallbackAutoParryFeature)
 local CreateESP = safeLoadModule("features/esp.lua", createFallbackESP)
 local CreateFreecamFeature = safeLoadModule("features/freecam.lua", createFallbackFreecamFeature)
 local CreateSpectatorFeature = safeLoadModule("features/spectator.lua", createFallbackSpectatorFeature)
@@ -686,6 +699,10 @@ local BoostFpsFeature = safeCreateModule("features/boostfps.lua", CreateBoostFps
 local NpcFreezeFeature = safeCreateModule("features/npcfreeze.lua", CreateNpcFreezeFeature, {
 	Notification = Notification
 }, createFallbackNpcFreezeFeature)
+local AutoParryFeature = safeCreateModule("features/autoparry.lua", CreateAutoParryFeature, {
+	Notification = Notification,
+	Window = Window
+}, createFallbackAutoParryFeature)
 
 if OpTrainingFeature and type(OpTrainingFeature.SetAutoTrainRef) == "function" then
 	OpTrainingFeature:SetAutoTrainRef(AutoTrainFeature)
@@ -708,7 +725,8 @@ safeRunModule("ui/main.lua", CreateMainUI, {
 	FoodFeature = FoodFeature,
 	WheyFeature = WheyFeature,
 	AutoTrainFeature = AutoTrainFeature,
-	AutoJobFeature = AutoJobFeature
+	AutoJobFeature = AutoJobFeature,
+	AutoParryFeature = AutoParryFeature
 })
 
 safeRunModule("ui/visual.lua", CreateVisualUI, {
@@ -1126,6 +1144,7 @@ safeBuildBlock("Fatality/main.lua:MISC_STATIC", function()
 			BoostFeature:Destroy()
 			BoostFpsFeature:Destroy()
 			NpcFreezeFeature:Destroy()
+			AutoParryFeature:Destroy()
 			StatsUI:Destroy()
 			table.clear(Fatality.DragBlacklist)
 

@@ -4,6 +4,7 @@ return function(Config)
 	local WheyFeature = Config.WheyFeature
 	local AutoTrainFeature = Config.AutoTrainFeature
 	local AutoJobFeature = Config.AutoJobFeature
+	local AutoParryFeature = Config.AutoParryFeature
 
 	local Food = Main:AddSection({
 		Name = "FOOD",
@@ -53,7 +54,63 @@ return function(Config)
 	local Character = Main:AddSection({
 		Name = "CHARACTER",
 		Position = "left",
-		Height = 115
+		Height = 220
+	})
+
+	Character:AddToggle({
+		Name = "Auto Parry",
+		Callback = function(Value)
+			if AutoParryFeature then
+				AutoParryFeature:SetEnabled(Value)
+			end
+		end,
+		Flag = "AutoParry"
+	})
+
+	Character:AddSlider({
+		Name = "Range",
+		Default = 15,
+		Min = 5,
+		Max = 30,
+		Flag = "AutoParryRange"
+	})
+
+	Character:AddSlider({
+		Name = "Delay",
+		Default = 50,
+		Min = 0,
+		Max = 300,
+		Type = " ms",
+		Flag = "AutoParryDelay"
+	})
+
+	Character:AddToggle({
+		Name = "Skip teammates",
+		Flag = "AutoParrySkipTeam"
+	})
+
+	Character:AddToggle({
+		Name = "Skip friends",
+		Flag = "AutoParrySkipFriends"
+	})
+
+	Character:AddToggle({
+		Name = "Parry NPC",
+		Flag = "AutoParryNpc"
+	})
+
+	Character:AddToggle({
+		Name = "Stamina check",
+		Flag = "AutoParryStaminaCheck"
+	})
+
+	Character:AddSlider({
+		Name = "Min stamina",
+		Default = 20,
+		Min = 0,
+		Max = 100,
+		Type = "%",
+		Flag = "AutoParryMinStamina"
 	})
 
 	local AutoTrain = Main:AddSection({
