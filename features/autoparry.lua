@@ -1,6 +1,7 @@
 return function(Config)
 	local Players = game:GetService("Players")
 	local Workspace = game:GetService("Workspace")
+	local MarketplaceService = game:GetService("MarketplaceService")
 
 	local LocalPlayer = Players.LocalPlayer
 
@@ -12,15 +13,30 @@ return function(Config)
 		AnimConnections = {},
 		EntityConnections = {},
 		LastParryAt = 0,
-		-- Cooldown between parry attempts. UBG parry has its own internal CD,
-		-- but we add this to avoid hammering the remote when several enemies
-		-- swing at once and to keep stamina bleed predictable.
+		-- Cooldown between parry attempts. The game's parry has its own
+		-- internal CD; we add this to avoid hammering the remote when
+		-- several enemies swing at once.
 		ParryCooldown = 0.25,
+		-- AnimationId → bool. Built from a one-shot scan of game descendants
+		-- on enable: classifies every parented Animation instance via path
+		-- patterns and stores the verdict by ID. At runtime the game tends
+		-- to play dynamic Instance.new("Animation") clones whose
+		-- :GetFullName() returns just "Animation", so we can't classify by
+		-- path on the live track — but the AnimationId still matches the
+		-- parented one in ReplicatedStorage, so we just look it up.
+		IdMap = {},
+		-- AnimationId → name string from MarketplaceService. Used as a
+		-- fallback for IDs that weren't found during the descendants scan
+		-- (e.g. animations referenced only by script code, never as
+		-- parented Instances).
+		NameCache = {},
+		NameFetching = {},
 	}
 
 	-- Path fragments that mean "definitely not an attack we should parry".
-	-- Checked first; if any matches the animation's full path the anim is
-	-- skipped before allow-patterns even run.
+	-- Applied to the parented Animation's GetFullName() during the IdMap
+	-- pre-scan and as a runtime fallback when the live animation has a
+	-- meaningful path.
 	local DenyPathPatterns = {
 		"Animations%.Misc",
 		"Animations%.General",
@@ -43,9 +59,6 @@ return function(Config)
 		"Workspace%.Entities%.[^.]+%.MainScript%.BotAnimate",
 	}
 
-	-- Animation instance names that are never attacks (idle / walk / block /
-	-- victim-side skill roles). Catches cases where the path filter would
-	-- otherwise let through an off-target child of Skills/Styles.
 	local DenyNameSet = {
 		Target = true, Victim = true, Grab = true, Counter = true,
 		Block = true, BlockOLD = true,
@@ -56,11 +69,41 @@ return function(Config)
 		sit = true, climb = true, fall = true, jump = true,
 	}
 
-	local function isAttackAnimation(animation)
-		if not animation then return false end
+	-- Substring keywords used by the MarketplaceService name fallback.
+	-- Comparison is case-insensitive (both sides lowercased before find).
+	-- Deny is checked first so e.g. "BlockHit" doesn't slip through "Hit".
+	local DenyKeywords = {
+		"idle", "walk", "run", "sprint", "jump", "fall", "climb", "sit",
+		"stance", "rhythm", "rythem", "stylewalk",
+		"block", "counter", "stun", "knockback",
+		"cape", "dance", "emote",
+		"carry", "eating", "holding", "cleaning",
+		"skipping", "squat", "bench", "barbell",
+		"cam", "cutscene", "awaken", "stage",
+		"victim", "target", "grab",
+	}
 
-		local path = animation:GetFullName()
-		local name = animation.Name
+	local AttackKeywords = {
+		"m1", "m2", "m3", "m4",
+		"attack", "hit", "critical", "critital", "heavy",
+		"strike", "slash", "swing", "sword",
+		"punch", "kick", "knee", "elbow", "bite",
+		"slam", "drop", "barrage", "break", "cut",
+		"hadoken", "tatsumaki", "shoryuken", "retsukyaku",
+		"bulldoze", "hardpoint", "payback", "floatahh",
+		"body drop", "six seiken", "devil", "cleaving",
+		"predictive", "cranium", "gazelle", "liver",
+		"madeed", "ma deed", "nerve", "stardrop", "star drop",
+		"rupture", "whirl", "chokeslam", "thousand",
+		"triple kick", "vengeance", "promised", "write em",
+		"demon fist",
+		"lg", "yuzuki",
+		"sky ",
+		"attacker",
+	}
+
+	local function pathIsAttack(path, name)
+		if not path or path == "" then return false end
 
 		for _, pat in ipairs(DenyPathPatterns) do
 			if path:find(pat) then return false end
@@ -68,16 +111,138 @@ return function(Config)
 
 		if DenyNameSet[name] then return false end
 
-		-- M1 combat strings: Animations.Styles.<X>.Default.Combat.<1-4>
 		if path:find("%.Default%.Combat%.") then return true end
-
-		-- M2 / heavy: Animations.Styles.<X>.Default.Critical
 		if path:find("%.Default%.Critical$") then return true end
-
-		-- Skill animations (after deny filter strips Target/Victim/Grab/Counter)
 		if path:find("Animations%.Skills%.") then return true end
 
 		return false
+	end
+
+	local function nameIsAttack(rawName)
+		if not rawName or rawName == "" then return false end
+		local lower = rawName:lower()
+
+		for _, kw in ipairs(DenyKeywords) do
+			if lower:find(kw, 1, true) then return false end
+		end
+
+		for _, kw in ipairs(AttackKeywords) do
+			if lower:find(kw, 1, true) then return true end
+		end
+
+		return false
+	end
+
+	-- Scans every Animation instance currently in the game tree, classifies
+	-- it via path patterns, and caches the verdict by AnimationId. Run once
+	-- on enable; covers the static Animations folder (ReplicatedStorage)
+	-- which is what Style/Skill IDs come from in practice.
+	local function buildIdMap()
+		local map = {}
+		local count = 0
+
+		for _, obj in ipairs(game:GetDescendants()) do
+			if obj:IsA("Animation") then
+				local id = obj.AnimationId
+
+				if id and id ~= "" then
+					local verdict = pathIsAttack(obj:GetFullName(), obj.Name)
+					-- Same ID can appear under different parents (e.g. a
+					-- Combat anim and a BlockHits anim sharing assets).
+					-- Bias toward ALLOW so we don't miss a real attack
+					-- because a duplicate copy lived under a deny path.
+					if verdict or map[id] == nil then
+						map[id] = verdict
+					end
+					count = count + 1
+				end
+			end
+		end
+
+		AutoParryFeature.IdMap = map
+		return count
+	end
+
+	local function fetchAnimNameAsync(id)
+		if AutoParryFeature.NameCache[id] ~= nil then
+			return AutoParryFeature.NameCache[id]
+		end
+
+		if AutoParryFeature.NameFetching[id] then
+			return nil
+		end
+
+		AutoParryFeature.NameFetching[id] = true
+
+		task.spawn(function()
+			local idNum = tonumber(id:match("%d+"))
+			local resolved = ""
+
+			if idNum then
+				local ok, info = pcall(function()
+					return MarketplaceService:GetProductInfo(idNum)
+				end)
+
+				if ok and info and type(info.Name) == "string" then
+					resolved = info.Name
+				end
+			end
+
+			AutoParryFeature.NameCache[id] = resolved
+			AutoParryFeature.NameFetching[id] = nil
+		end)
+
+		return nil
+	end
+
+	local function isDebug()
+		if not Window or type(Window.GetFlags) ~= "function" then return false end
+		local flag = Window:GetFlags().AutoParryDebugToggle
+		if not flag or type(flag.GetValue) ~= "function" then return false end
+		local ok, val = pcall(function() return flag:GetValue() end)
+		return ok and val == true
+	end
+
+	local function debugLog(reason, model, animation, extra)
+		if not isDebug() then return end
+		local id = animation and animation.AnimationId or "?"
+		local name = animation and animation.Name or "?"
+		warn(string.format("[KELV][AutoParry] %s | model=%s | name=%s | id=%s%s",
+			reason,
+			model and model.Name or "?",
+			name,
+			id,
+			extra and (" | " .. extra) or ""))
+	end
+
+	local function isAttackAnimation(animation)
+		if not animation then return false end
+
+		local id = animation.AnimationId
+		if not id or id == "" then return false end
+
+		-- 1. ID map (fast path — populated by buildIdMap on enable).
+		local fromMap = AutoParryFeature.IdMap[id]
+		if fromMap ~= nil then return fromMap end
+
+		-- 2. Live path. Only useful when the game plays a parented Animation
+		-- directly; on this game it tends to be just "Animation".
+		local path = animation:GetFullName()
+		if path and path ~= "" and path ~= "Animation" then
+			local verdict = pathIsAttack(path, animation.Name)
+			AutoParryFeature.IdMap[id] = verdict
+			return verdict
+		end
+
+		-- 3. MarketplaceService name lookup. Async — first encounter returns
+		-- nil ("still fetching") and we miss this parry; subsequent plays of
+		-- the same ID will hit the resolved cache.
+		local nm = fetchAnimNameAsync(id)
+		if nm == nil then return false end
+
+		local verdict = nameIsAttack(nm)
+		AutoParryFeature.IdMap[id] = verdict
+		return verdict
 	end
 
 	local function readFlag(name, default)
@@ -145,13 +310,28 @@ return function(Config)
 		return (theirPos - myPos).Magnitude <= getRange()
 	end
 
+	-- Try every resolution strategy because games name entity models by
+	-- either username, display name, or set Player.Character to the entity.
+	-- Missing any one of those produces false-NPC verdicts, which then get
+	-- skipped silently when "Parry NPC" is off.
+	local function resolvePlayer(model)
+		if not model then return nil end
+
+		local plr = Players:GetPlayerFromCharacter(model)
+		if plr then return plr end
+
+		plr = Players:FindFirstChild(model.Name)
+		if plr then return plr end
+
+		for _, p in ipairs(Players:GetPlayers()) do
+			if p.DisplayName == model.Name then return p end
+		end
+
+		return nil
+	end
+
 	local function shouldSkipTarget(model)
-		-- UBG keeps player and NPC entities under workspace.Entities, named
-		-- by username for players. The entity model is separate from
-		-- Player.Character so GetPlayerFromCharacter returns nil for these
-		-- entities. Resolve by name like the other features in this project
-		-- (autotrain, esp, food, optraining all use this pattern).
-		local plr = Players:FindFirstChild(model.Name)
+		local plr = resolvePlayer(model)
 
 		if not plr then
 			-- Non-player entity (NPC). Toggle controls whether we engage.
@@ -244,10 +424,26 @@ return function(Config)
 			return
 		end
 
-		if not isAttackAnimation(animation) then return end
-		if shouldSkipTarget(model) then return end
-		if not isInRange(model) then return end
-		if not hasEnoughStamina() then return end
+		if not isAttackAnimation(animation) then
+			debugLog("skip: not attack", model, animation)
+			return
+		end
+
+		if shouldSkipTarget(model) then
+			debugLog("skip: whitelist", model, animation)
+			return
+		end
+
+		if not isInRange(model) then
+			debugLog("skip: out of range", model, animation,
+				string.format("range=%d", getRange()))
+			return
+		end
+
+		if not hasEnoughStamina() then
+			debugLog("skip: low stamina", model, animation)
+			return
+		end
 
 		-- Reserve the cooldown slot before the optional jitter delay so a
 		-- second attack arriving during the jitter wait doesn't trigger a
@@ -255,6 +451,8 @@ return function(Config)
 		AutoParryFeature.LastParryAt = now
 
 		local delayMs = getDelayMs()
+
+		debugLog("FIRE", model, animation, string.format("delay<=%dms", delayMs))
 
 		if delayMs > 0 then
 			task.wait(math.random(0, delayMs) / 1000)
@@ -341,9 +539,19 @@ return function(Config)
 	end
 
 	local function setupHooks()
-		-- UBG parents both player characters and NPCs under Workspace.Entities.
-		-- A single ChildAdded listener on that folder covers everything we
-		-- need without double-hooking via Players:GetPlayers().
+		-- Pre-scan all parented Animation instances and build an
+		-- AnimationId → verdict map. The runtime hooks below classify
+		-- live tracks against this map because the live Animation
+		-- instances are typically dynamic clones with no parent path.
+		local count = buildIdMap()
+
+		if isDebug() then
+			warn(string.format("[KELV][AutoParry] indexed %d Animation instances", count))
+		end
+
+		-- The game parents both player characters and NPCs under
+		-- Workspace.Entities. A single ChildAdded listener covers
+		-- everything without double-hooking via Players:GetPlayers().
 		local entities = Workspace:FindFirstChild("Entities")
 
 		if not entities then

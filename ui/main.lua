@@ -54,7 +54,7 @@ return function(Config)
 	local Character = Main:AddSection({
 		Name = "CHARACTER",
 		Position = "left",
-		Height = 220
+		Height = 250
 	})
 
 	Character:AddToggle({
@@ -111,6 +111,11 @@ return function(Config)
 		Max = 100,
 		Type = "%",
 		Flag = "AutoParryMinStamina"
+	})
+
+	Character:AddToggle({
+		Name = "Debug log",
+		Flag = "AutoParryDebug"
 	})
 
 	local AutoTrain = Main:AddSection({
