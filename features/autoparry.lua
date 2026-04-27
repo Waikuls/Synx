@@ -246,18 +246,20 @@ return function(Config)
 			return false
 		end
 
-		-- 4. Track-based heuristic. The game tends to fire combat anims via
+		-- 4. Track-based heuristic. The game fires combat anims via
 		-- Instance.new("Animation") + LoadAnimation, leaving the instance
 		-- name at its default "Animation". Movement uses the standard
-		-- Animate script which names tracks properly. So a non-looped track
-		-- named exactly "Animation" with combat-shaped length is almost
-		-- always an attack.
+		-- Animate script which names tracks ("idle", "walk", ...). So a
+		-- non-looped track named exactly "Animation" is almost always
+		-- an attack in this game.
+		--
+		-- Don't gate on track.Length: AnimationPlayed often fires before
+		-- the asset finishes loading, so Length is 0 then. Filtering on
+		-- length here would reject legitimate attacks just because we
+		-- raced the loader.
 		if instName == "Animation" and track and not track.Looped then
-			local len = track.Length
-			if len and len > 0.1 and len < 3.5 then
-				AutoParryFeature.IdMap[id] = true
-				return true
-			end
+			AutoParryFeature.IdMap[id] = true
+			return true
 		end
 
 		-- 5. Last resort: MarketplaceService name lookup. Async — first
