@@ -133,10 +133,16 @@ return function(Config)
 		return false
 	end
 
-	-- Scans every Animation instance currently in the game tree, classifies
-	-- it via path patterns, and caches the verdict by AnimationId. Run once
-	-- on enable; covers the static Animations folder (ReplicatedStorage)
-	-- which is what Style/Skill IDs come from in practice.
+	-- Scans every Animation instance in the game tree, classifies it via
+	-- path patterns, and caches ALLOW verdicts by AnimationId. Run once on
+	-- enable; covers the static Animations folder (ReplicatedStorage) which
+	-- is where Style/Skill IDs come from in practice.
+	--
+	-- We deliberately DON'T cache deny verdicts. The same id can appear
+	-- under multiple parents (e.g. a Combat anim duplicated under
+	-- BlockHits, or a static reference + a runtime-dynamic clone). Caching
+	-- a deny here would poison the runtime track heuristic forever even
+	-- when the live track is clearly a combat fire.
 	local function buildIdMap()
 		local map = {}
 		local count = 0
@@ -146,13 +152,8 @@ return function(Config)
 				local id = obj.AnimationId
 
 				if id and id ~= "" then
-					local verdict = pathIsAttack(obj:GetFullName(), obj.Name)
-					-- Same ID can appear under different parents (e.g. a
-					-- Combat anim and a BlockHits anim sharing assets).
-					-- Bias toward ALLOW so we don't miss a real attack
-					-- because a duplicate copy lived under a deny path.
-					if verdict or map[id] == nil then
-						map[id] = verdict
+					if pathIsAttack(obj:GetFullName(), obj.Name) then
+						map[id] = true
 					end
 					count = count + 1
 				end
@@ -456,7 +457,12 @@ return function(Config)
 		end
 
 		if not isAttackAnimation(track, animation) then
-			debugLog("skip: not attack", model, animation)
+			local extra
+			if track then
+				extra = string.format("looped=%s len=%.2fs",
+					tostring(track.Looped), track.Length or 0)
+			end
+			debugLog("skip: not attack", model, animation, extra)
 			return
 		end
 
@@ -583,6 +589,12 @@ return function(Config)
 			pcall(function() conn:Disconnect() end)
 		end
 		AutoParryFeature.EntityConnections = {}
+
+		-- Clear classification caches so a re-enable rescans fresh. Useful
+		-- when something looks misclassified — toggling off/on resets it.
+		AutoParryFeature.IdMap = {}
+		AutoParryFeature.NameCache = {}
+		AutoParryFeature.NameFetching = {}
 	end
 
 	local function setupHooks()
