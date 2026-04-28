@@ -17,18 +17,22 @@ return function(Config)
 		-- internal CD; we add this to avoid hammering the remote when
 		-- several enemies swing at once.
 		ParryCooldown = 0.25,
-		-- AnimationId → bool. Built from a one-shot scan of game descendants
-		-- on enable: classifies every parented Animation instance via path
-		-- patterns and stores the verdict by ID. At runtime the game tends
-		-- to play dynamic Instance.new("Animation") clones whose
-		-- :GetFullName() returns just "Animation", so we can't classify by
-		-- path on the live track — but the AnimationId still matches the
-		-- parented one in ReplicatedStorage, so we just look it up.
+		-- AnimationId → true. Built on enable: every parented Animation
+		-- whose path classifies as combat (Default.Combat / Default.Critical
+		-- / Animations.Skills.<X>.Attacker etc.) lands here so the runtime
+		-- hook can ALLOW instantly without re-checking.
 		IdMap = {},
+		-- AnimationId → true. The "this id has been seen as movement"
+		-- registry. The Roblox Animate script names tracks "idle"/"walk"/
+		-- "run"/etc; this game also reuses those exact AnimationIds for
+		-- replicated remote characters but plays them as
+		-- Instance.new("Animation") clones (name="Animation"). Without this
+		-- set we'd happily parry an idling player. Populated from pre-scan
+		-- (deny-path Animations) and updated whenever we observe a track
+		-- with a movement-typed name at runtime.
+		DenyIdSet = {},
 		-- AnimationId → name string from MarketplaceService. Used as a
-		-- fallback for IDs that weren't found during the descendants scan
-		-- (e.g. animations referenced only by script code, never as
-		-- parented Instances).
+		-- last-resort fallback for ids absent from both maps above.
 		NameCache = {},
 		NameFetching = {},
 	}
@@ -133,18 +137,18 @@ return function(Config)
 		return false
 	end
 
-	-- Scans every Animation instance in the game tree, classifies it via
-	-- path patterns, and caches ALLOW verdicts by AnimationId. Run once on
-	-- enable; covers the static Animations folder (ReplicatedStorage) which
-	-- is where Style/Skill IDs come from in practice.
-	--
-	-- We deliberately DON'T cache deny verdicts. The same id can appear
-	-- under multiple parents (e.g. a Combat anim duplicated under
-	-- BlockHits, or a static reference + a runtime-dynamic clone). Caching
-	-- a deny here would poison the runtime track heuristic forever even
-	-- when the live track is clearly a combat fire.
+	-- Scans every Animation instance in the game tree and partitions them
+	-- by AnimationId into:
+	--   IdMap     — ALLOW (combat anims under Default.Combat / Critical /
+	--               Skills.X.Attacker etc.)
+	--   DenyIdSet — known non-combat (idle/walk/run/jump/cape/emote/morph/
+	--               cutscene/etc.) so dynamic-name="Animation" clones with
+	--               the same id get rejected at runtime.
+	-- Same id appearing in both buckets is treated as ALLOW (an attack id
+	-- duplicated under a deny path doesn't mean it isn't an attack).
 	local function buildIdMap()
 		local map = {}
+		local denyIds = {}
 		local count = 0
 
 		for _, obj in ipairs(game:GetDescendants()) do
@@ -152,8 +156,14 @@ return function(Config)
 				local id = obj.AnimationId
 
 				if id and id ~= "" then
-					if pathIsAttack(obj:GetFullName(), obj.Name) then
+					local path = obj:GetFullName()
+					local name = obj.Name
+
+					if pathIsAttack(path, name) then
 						map[id] = true
+						denyIds[id] = nil
+					elseif not map[id] then
+						denyIds[id] = true
 					end
 					count = count + 1
 				end
@@ -161,6 +171,7 @@ return function(Config)
 		end
 
 		AutoParryFeature.IdMap = map
+		AutoParryFeature.DenyIdSet = denyIds
 		return count
 	end
 
@@ -223,55 +234,66 @@ return function(Config)
 		local id = animation.AnimationId
 		if not id or id == "" then return false end
 
-		-- 1. Cached verdict from a previous resolution.
-		local cached = AutoParryFeature.IdMap[id]
-		if cached ~= nil then return cached end
+		-- 0. Known movement id (idle/walk/run/jump/cape/emote/etc.). Comes
+		-- before the allow cache because it's the most authoritative
+		-- "definitely not combat" signal — the same id often plays as a
+		-- dynamic name="Animation" clone for replicated remote characters.
+		if AutoParryFeature.DenyIdSet[id] then return false end
+
+		-- 1. Cached ALLOW verdict from pre-scan or earlier runtime decision.
+		if AutoParryFeature.IdMap[id] then return true end
 
 		local path = animation:GetFullName()
 		local instName = animation.Name
 
-		-- 2. Real path classification (works when the game plays a parented
-		-- Animation directly).
+		-- 2. Real path classification when the game plays a parented
+		-- Animation directly (rare in this codebase; usually path is just
+		-- "Animation" because of Instance.new).
 		if path and path ~= "" and path ~= "Animation" then
-			local verdict = pathIsAttack(path, instName)
-			AutoParryFeature.IdMap[id] = verdict
-			return verdict
-		end
-
-		-- 3. Reject obvious non-combat by instance name. The standard Roblox
-		-- Animate script names its tracks "idle" / "walk" / "run" / "jump" /
-		-- "fall" / "climb" / "sit" — those cover the cases we want to skip
-		-- before guessing.
-		if DenyNameSet[instName] then
-			AutoParryFeature.IdMap[id] = false
+			if pathIsAttack(path, instName) then
+				AutoParryFeature.IdMap[id] = true
+				return true
+			end
+			AutoParryFeature.DenyIdSet[id] = true
 			return false
 		end
 
-		-- 4. Track-based heuristic. The game fires combat anims via
-		-- Instance.new("Animation") + LoadAnimation, leaving the instance
-		-- name at its default "Animation". Movement uses the standard
-		-- Animate script which names tracks ("idle", "walk", ...). So a
-		-- non-looped track named exactly "Animation" is almost always
-		-- an attack in this game.
+		-- 3. Reject and record movement names. Roblox's standard Animate
+		-- script names its tracks "idle"/"walk"/"run"/"jump"/etc. — these
+		-- are the same ids that may later play as dynamic clones, so we
+		-- record them in DenyIdSet for that future encounter.
+		if DenyNameSet[instName] then
+			AutoParryFeature.DenyIdSet[id] = true
+			return false
+		end
+
+		-- 4. Track-based heuristic. Combat anims in this game are loaded
+		-- via Instance.new("Animation") + LoadAnimation, leaving the
+		-- instance name at the default "Animation". Movement-named tracks
+		-- are caught by Layer 3 above (or recorded in DenyIdSet from the
+		-- local Animate script's prior plays). What survives to here with
+		-- name="Animation" is almost always an attack fire.
 		--
-		-- Don't gate on track.Length: AnimationPlayed often fires before
-		-- the asset finishes loading, so Length is 0 then. Filtering on
-		-- length here would reject legitimate attacks just because we
-		-- raced the loader.
-		if instName == "Animation" and track and not track.Looped then
+		-- We don't gate on track.Looped: this game sets Looped=true on
+		-- combat anims too, so that filter rejected legitimate parries.
+		if instName == "Animation" then
 			AutoParryFeature.IdMap[id] = true
 			return true
 		end
 
 		-- 5. Last resort: MarketplaceService name lookup. Async — first
 		-- encounter returns nil ("still fetching"); subsequent plays of the
-		-- same ID hit the resolved cache.
+		-- same id hit the resolved cache.
 		local nm = fetchAnimNameAsync(id)
 		if nm == nil then return false end
 
-		local verdict = (nm ~= "") and nameIsAttack(nm) or false
-		AutoParryFeature.IdMap[id] = verdict
-		return verdict
+		if nm ~= "" and nameIsAttack(nm) then
+			AutoParryFeature.IdMap[id] = true
+			return true
+		end
+
+		AutoParryFeature.DenyIdSet[id] = true
+		return false
 	end
 
 	local function readFlag(name, default)
@@ -593,6 +615,7 @@ return function(Config)
 		-- Clear classification caches so a re-enable rescans fresh. Useful
 		-- when something looks misclassified — toggling off/on resets it.
 		AutoParryFeature.IdMap = {}
+		AutoParryFeature.DenyIdSet = {}
 		AutoParryFeature.NameCache = {}
 		AutoParryFeature.NameFetching = {}
 	end
