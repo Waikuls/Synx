@@ -8,7 +8,7 @@ return function(Config)
 	-- Bump on every change. Always printed on SetEnabled(true) so the user
 	-- can confirm the loader actually picked up the latest source after a
 	-- re-inject.
-	local AutoParryVersion = "20260428-r9"
+	local AutoParryVersion = "20260428-r10"
 
 	local Notification = Config and Config.Notification
 	local Window = Config and Config.Window
@@ -389,6 +389,10 @@ return function(Config)
 		return tonumber(readFlag("AutoParryDelaySlider", 50)) or 50
 	end
 
+	local function getTimingPercent()
+		return tonumber(readFlag("AutoParryTimingSlider", 70)) or 70
+	end
+
 	local function getMinStamina()
 		return tonumber(readFlag("AutoParryMinStaminaSlider", 20)) or 20
 	end
@@ -585,22 +589,24 @@ return function(Config)
 		-- random jitter on top for both anti-detection and edge-case
 		-- robustness.
 		local userJitter = getDelayMs()
+		local timingPct = getTimingPercent()
 		local len = (track and track.Length) or 0
 		local baseDelay = 0
 
 		if len > 0.15 and len < 3.0 then
-			-- 50% lands the F press around the middle of the wind-up,
-			-- which empirically catches the parry window better than
-			-- 70% (which fires too late after the window closes).
-			baseDelay = math.floor(len * 500)
+			-- Fire at timingPct% of the wind-up length. Tunable via the
+			-- "Timing %" slider so the user can dial in for whichever
+			-- styles they fight against — combat parry windows aren't
+			-- consistent across games.
+			baseDelay = math.floor(len * timingPct * 10)
 		end
 
 		local jitter = (userJitter > 0) and math.random(0, userJitter) or 0
 		local actualDelay = baseDelay + jitter
 
 		debugLog("FIRE", model, animation,
-			string.format("len=%.2fs base=%dms jitter=%dms total=%dms",
-				len, baseDelay, jitter, actualDelay))
+			string.format("len=%.2fs timing=%d%% base=%dms jitter=%dms total=%dms",
+				len, timingPct, baseDelay, jitter, actualDelay))
 
 		if actualDelay > 0 then
 			task.wait(actualDelay / 1000)

@@ -54,7 +54,7 @@ return function(Config)
 	local Character = Main:AddSection({
 		Name = "CHARACTER",
 		Position = "left",
-		Height = 250
+		Height = 280
 	})
 
 	Character:AddToggle({
@@ -76,10 +76,19 @@ return function(Config)
 	})
 
 	Character:AddSlider({
-		Name = "Delay",
-		Default = 50,
+		Name = "Timing",
+		Default = 70,
 		Min = 0,
-		Max = 300,
+		Max = 100,
+		Type = "%",
+		Flag = "AutoParryTiming"
+	})
+
+	Character:AddSlider({
+		Name = "Jitter",
+		Default = 30,
+		Min = 0,
+		Max = 200,
 		Type = " ms",
 		Flag = "AutoParryDelay"
 	})
