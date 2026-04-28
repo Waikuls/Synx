@@ -5,6 +5,11 @@ return function(Config)
 
 	local LocalPlayer = Players.LocalPlayer
 
+	-- Bump on every change. Always printed on SetEnabled(true) so the user
+	-- can confirm the loader actually picked up the latest source after a
+	-- re-inject.
+	local AutoParryVersion = "20260428-r7"
+
 	local Notification = Config and Config.Notification
 	local Window = Config and Config.Window
 
@@ -149,7 +154,7 @@ return function(Config)
 	local function buildIdMap()
 		local map = {}
 		local denyIds = {}
-		local count = 0
+		local total = 0
 
 		for _, obj in ipairs(game:GetDescendants()) do
 			if obj:IsA("Animation") then
@@ -165,14 +170,19 @@ return function(Config)
 					elseif not map[id] then
 						denyIds[id] = true
 					end
-					count = count + 1
+					total = total + 1
 				end
 			end
 		end
 
 		AutoParryFeature.IdMap = map
 		AutoParryFeature.DenyIdSet = denyIds
-		return count
+
+		local allow, deny = 0, 0
+		for _ in pairs(map) do allow = allow + 1 end
+		for _ in pairs(denyIds) do deny = deny + 1 end
+
+		return total, allow, deny
 	end
 
 	local function fetchAnimNameAsync(id)
@@ -625,11 +635,13 @@ return function(Config)
 		-- AnimationId → verdict map. The runtime hooks below classify
 		-- live tracks against this map because the live Animation
 		-- instances are typically dynamic clones with no parent path.
-		local count = buildIdMap()
+		local total, allow, deny = buildIdMap()
 
-		if isDebug() then
-			warn(string.format("[KELV][AutoParry] indexed %d Animation instances", count))
-		end
+		-- Always print version + index counts on enable so the user can
+		-- verify the loader actually picked up the latest source.
+		warn(string.format(
+			"[KELV][AutoParry %s] indexed %d animations | allow=%d deny=%d",
+			AutoParryVersion, total, allow, deny))
 
 		-- The game parents both player characters and NPCs under
 		-- Workspace.Entities. A single ChildAdded listener covers
@@ -673,7 +685,7 @@ return function(Config)
 			if Notification then
 				Notification:Notify({
 					Title = "Auto Parry",
-					Content = "Enabled",
+					Content = "Enabled (" .. AutoParryVersion .. ")",
 					Icon = "check-circle"
 				})
 			end
