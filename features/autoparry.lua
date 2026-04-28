@@ -8,7 +8,7 @@ return function(Config)
 	-- Bump on every change. Always printed on SetEnabled(true) so the user
 	-- can confirm the loader actually picked up the latest source after a
 	-- re-inject.
-	local AutoParryVersion = "20260428-r7"
+	local AutoParryVersion = "20260428-r8"
 
 	local Notification = Config and Config.Notification
 	local Window = Config and Config.Window
@@ -111,13 +111,20 @@ return function(Config)
 		"attacker",
 	}
 
-	local function pathIsAttack(path, name)
+	local function pathMatchesAnyDeny(path)
 		if not path or path == "" then return false end
 
 		for _, pat in ipairs(DenyPathPatterns) do
-			if path:find(pat) then return false end
+			if path:find(pat) then return true end
 		end
 
+		return false
+	end
+
+	local function pathIsAttack(path, name)
+		if not path or path == "" then return false end
+
+		if pathMatchesAnyDeny(path) then return false end
 		if DenyNameSet[name] then return false end
 
 		if path:find("%.Default%.Combat%.") then return true end
@@ -146,9 +153,17 @@ return function(Config)
 	-- by AnimationId into:
 	--   IdMap     — ALLOW (combat anims under Default.Combat / Critical /
 	--               Skills.X.Attacker etc.)
-	--   DenyIdSet — known non-combat (idle/walk/run/jump/cape/emote/morph/
-	--               cutscene/etc.) so dynamic-name="Animation" clones with
-	--               the same id get rejected at runtime.
+	--   DenyIdSet — explicitly-known non-combat: only added when an
+	--               Animation lives under a recognised deny path
+	--               (Animate folder / Cape / Emote / Misc / BlockHits /
+	--               Idles / Morpher / Cutscenes / etc.) OR is named with
+	--               a movement role (idle/walk/run/jump/sit/...).
+	-- We DO NOT add to DenyIdSet just because pathIsAttack returned false.
+	-- Many games stash Animation references in MainScript.AnimCache.X or
+	-- similar paths that aren't recognised as attack OR as deny — caching
+	-- those as deny would wrongly reject the same id when it later plays
+	-- as a dynamic combat clone. Unknown-path ids are left to the runtime
+	-- track heuristic.
 	-- Same id appearing in both buckets is treated as ALLOW (an attack id
 	-- duplicated under a deny path doesn't mean it isn't an attack).
 	local function buildIdMap()
@@ -167,7 +182,9 @@ return function(Config)
 					if pathIsAttack(path, name) then
 						map[id] = true
 						denyIds[id] = nil
-					elseif not map[id] then
+					elseif not map[id]
+						and (pathMatchesAnyDeny(path) or DenyNameSet[name])
+					then
 						denyIds[id] = true
 					end
 					total = total + 1
@@ -256,22 +273,28 @@ return function(Config)
 		local path = animation:GetFullName()
 		local instName = animation.Name
 
-		-- 2. Real path classification when the game plays a parented
-		-- Animation directly (rare in this codebase; usually path is just
-		-- "Animation" because of Instance.new).
+		-- 2. Live path classification (only useful when the game plays a
+		-- parented Animation directly; usually the live path is just
+		-- "Animation" because of Instance.new). We commit a verdict here
+		-- only when the path is definitively allow OR definitively deny.
+		-- Unknown paths (e.g. MainScript.AnimCache.X) are left to the
+		-- track heuristic so they aren't poisoned as deny.
 		if path and path ~= "" and path ~= "Animation" then
 			if pathIsAttack(path, instName) then
 				AutoParryFeature.IdMap[id] = true
 				return true
 			end
-			AutoParryFeature.DenyIdSet[id] = true
-			return false
+			if pathMatchesAnyDeny(path) or DenyNameSet[instName] then
+				AutoParryFeature.DenyIdSet[id] = true
+				return false
+			end
+			-- Unknown path → fall through.
 		end
 
 		-- 3. Reject and record movement names. Roblox's standard Animate
-		-- script names its tracks "idle"/"walk"/"run"/"jump"/etc. — these
-		-- are the same ids that may later play as dynamic clones, so we
-		-- record them in DenyIdSet for that future encounter.
+		-- script names its tracks "idle"/"walk"/"run"/"jump"/etc. The
+		-- same ids may later play as dynamic clones for replicated remote
+		-- characters, so we record them in DenyIdSet for that case.
 		if DenyNameSet[instName] then
 			AutoParryFeature.DenyIdSet[id] = true
 			return false
@@ -297,12 +320,24 @@ return function(Config)
 		local nm = fetchAnimNameAsync(id)
 		if nm == nil then return false end
 
-		if nm ~= "" and nameIsAttack(nm) then
-			AutoParryFeature.IdMap[id] = true
-			return true
+		if nm ~= "" then
+			if nameIsAttack(nm) then
+				AutoParryFeature.IdMap[id] = true
+				return true
+			end
+
+			-- Only cache deny when the Marketplace name explicitly matches
+			-- a deny keyword. Anything else is "we don't recognise this
+			-- name" → no cache, retry next time.
+			local lower = nm:lower()
+			for _, kw in ipairs(DenyKeywords) do
+				if lower:find(kw, 1, true) then
+					AutoParryFeature.DenyIdSet[id] = true
+					return false
+				end
+			end
 		end
 
-		AutoParryFeature.DenyIdSet[id] = true
 		return false
 	end
 
@@ -582,6 +617,19 @@ return function(Config)
 
 				if animator then
 					local conn = animator.AnimationPlayed:Connect(function(track)
+						-- Cheap distance prefilter so far-away entities
+						-- don't spam logs or pay the classification cost.
+						-- Anything beyond 2x the configured range is dropped
+						-- silently before we even look at the track.
+						local myChar = LocalPlayer.Character
+						if myChar then
+							local myPos = getCharacterPos(myChar)
+							local theirPos = getCharacterPos(model)
+							if myPos and theirPos then
+								local mag = (theirPos - myPos).Magnitude
+								if mag > getRange() * 2 then return end
+							end
+						end
 						tryParry(model, track)
 					end)
 					AutoParryFeature.AnimConnections[model] = conn
