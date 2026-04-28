@@ -8,7 +8,7 @@ return function(Config)
 	-- Bump on every change. Always printed on SetEnabled(true) so the user
 	-- can confirm the loader actually picked up the latest source after a
 	-- re-inject.
-	local AutoParryVersion = "20260428-r8"
+	local AutoParryVersion = "20260428-r9"
 
 	local Notification = Config and Config.Notification
 	local Window = Config and Config.Window
@@ -156,14 +156,9 @@ return function(Config)
 	--   DenyIdSet — explicitly-known non-combat: only added when an
 	--               Animation lives under a recognised deny path
 	--               (Animate folder / Cape / Emote / Misc / BlockHits /
-	--               Idles / Morpher / Cutscenes / etc.) OR is named with
-	--               a movement role (idle/walk/run/jump/sit/...).
-	-- We DO NOT add to DenyIdSet just because pathIsAttack returned false.
-	-- Many games stash Animation references in MainScript.AnimCache.X or
-	-- similar paths that aren't recognised as attack OR as deny — caching
-	-- those as deny would wrongly reject the same id when it later plays
-	-- as a dynamic combat clone. Unknown-path ids are left to the runtime
-	-- track heuristic.
+	--               Idles / Movement / Dash / Morpher / Cutscenes / etc.)
+	--               OR is named with a movement role
+	--               (idle/walk/run/jump/StyleWalk/...).
 	-- Same id appearing in both buckets is treated as ALLOW (an attack id
 	-- duplicated under a deny path doesn't mean it isn't an attack).
 	local function buildIdMap()
@@ -198,7 +193,6 @@ return function(Config)
 		local allow, deny = 0, 0
 		for _ in pairs(map) do allow = allow + 1 end
 		for _ in pairs(denyIds) do deny = deny + 1 end
-
 		return total, allow, deny
 	end
 
@@ -254,21 +248,37 @@ return function(Config)
 			extra and (" | " .. extra) or ""))
 	end
 
+	-- Side-channel so the caller (tryParry) can log which layer rejected
+	-- a track without us having to thread the reason through every return.
+	local lastVerdictReason = ""
+
 	local function isAttackAnimation(track, animation)
 		animation = animation or (track and track.Animation)
-		if not animation then return false end
+		if not animation then
+			lastVerdictReason = "no animation"
+			return false
+		end
 
 		local id = animation.AnimationId
-		if not id or id == "" then return false end
+		if not id or id == "" then
+			lastVerdictReason = "no id"
+			return false
+		end
 
 		-- 0. Known movement id (idle/walk/run/jump/cape/emote/etc.). Comes
 		-- before the allow cache because it's the most authoritative
 		-- "definitely not combat" signal — the same id often plays as a
 		-- dynamic name="Animation" clone for replicated remote characters.
-		if AutoParryFeature.DenyIdSet[id] then return false end
+		if AutoParryFeature.DenyIdSet[id] then
+			lastVerdictReason = "deny-id-set"
+			return false
+		end
 
 		-- 1. Cached ALLOW verdict from pre-scan or earlier runtime decision.
-		if AutoParryFeature.IdMap[id] then return true end
+		if AutoParryFeature.IdMap[id] then
+			lastVerdictReason = "id-map allow"
+			return true
+		end
 
 		local path = animation:GetFullName()
 		local instName = animation.Name
@@ -282,10 +292,12 @@ return function(Config)
 		if path and path ~= "" and path ~= "Animation" then
 			if pathIsAttack(path, instName) then
 				AutoParryFeature.IdMap[id] = true
+				lastVerdictReason = "path allow"
 				return true
 			end
 			if pathMatchesAnyDeny(path) or DenyNameSet[instName] then
 				AutoParryFeature.DenyIdSet[id] = true
+				lastVerdictReason = "path deny"
 				return false
 			end
 			-- Unknown path → fall through.
@@ -297,6 +309,7 @@ return function(Config)
 		-- characters, so we record them in DenyIdSet for that case.
 		if DenyNameSet[instName] then
 			AutoParryFeature.DenyIdSet[id] = true
+			lastVerdictReason = "name in DenyNameSet"
 			return false
 		end
 
@@ -311,6 +324,7 @@ return function(Config)
 		-- combat anims too, so that filter rejected legitimate parries.
 		if instName == "Animation" then
 			AutoParryFeature.IdMap[id] = true
+			lastVerdictReason = "heuristic allow"
 			return true
 		end
 
@@ -318,11 +332,15 @@ return function(Config)
 		-- encounter returns nil ("still fetching"); subsequent plays of the
 		-- same id hit the resolved cache.
 		local nm = fetchAnimNameAsync(id)
-		if nm == nil then return false end
+		if nm == nil then
+			lastVerdictReason = "marketplace pending"
+			return false
+		end
 
 		if nm ~= "" then
 			if nameIsAttack(nm) then
 				AutoParryFeature.IdMap[id] = true
+				lastVerdictReason = "marketplace allow (" .. nm .. ")"
 				return true
 			end
 
@@ -333,11 +351,15 @@ return function(Config)
 			for _, kw in ipairs(DenyKeywords) do
 				if lower:find(kw, 1, true) then
 					AutoParryFeature.DenyIdSet[id] = true
+					lastVerdictReason = "marketplace deny (" .. nm .. ")"
 					return false
 				end
 			end
+			lastVerdictReason = "marketplace unknown (" .. nm .. ")"
+			return false
 		end
 
+		lastVerdictReason = "marketplace empty"
 		return false
 	end
 
@@ -526,8 +548,10 @@ return function(Config)
 		if not isAttackAnimation(track, animation) then
 			local extra
 			if track then
-				extra = string.format("looped=%s len=%.2fs",
-					tostring(track.Looped), track.Length or 0)
+				extra = string.format("reason=%s | looped=%s len=%.2fs",
+					lastVerdictReason, tostring(track.Looped), track.Length or 0)
+			else
+				extra = "reason=" .. lastVerdictReason
 			end
 			debugLog("skip: not attack", model, animation, extra)
 			return
@@ -565,7 +589,10 @@ return function(Config)
 		local baseDelay = 0
 
 		if len > 0.15 and len < 3.0 then
-			baseDelay = math.floor(len * 700)
+			-- 50% lands the F press around the middle of the wind-up,
+			-- which empirically catches the parry window better than
+			-- 70% (which fires too late after the window closes).
+			baseDelay = math.floor(len * 500)
 		end
 
 		local jitter = (userJitter > 0) and math.random(0, userJitter) or 0
